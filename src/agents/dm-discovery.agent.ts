@@ -215,9 +215,10 @@ const storeDMsProfilesTool = tool({
                   company: { type: 'string' },
                   linkedin: { type: 'string' },
                   location: { type: 'string' },
-                  department: { type: 'string' }
+                  department: { type: 'string' },
+                  persona_id: { type: 'string' }
                 },
-                required: ['name', 'title', 'company', 'linkedin', 'location'],
+                required: ['name', 'title', 'company', 'linkedin', 'location', 'persona_id'],
                 additionalProperties: false
               }
             }
@@ -233,7 +234,7 @@ const storeDMsProfilesTool = tool({
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
-    const { company_profiles, search_id, user_id } = input as { 
+    const { company_profiles, search_id, user_id } = input as {
       company_profiles: Array<{
         company: string;
         profiles: Array<{
@@ -243,6 +244,7 @@ const storeDMsProfilesTool = tool({
           linkedin?: string;
           location?: string;
           department?: string;
+          persona_id: string;
         }>;
       }>;
       search_id: string;
@@ -266,16 +268,16 @@ const storeDMsProfilesTool = tool({
           .replace(/(inc|corp|llc|ltd|company|co)$/, '') + '.com';
         const email = `${firstName}.${lastName}@${companyDomain}`;
         
-        return {
-          search_id,
-          user_id,
-          persona_id: null, // Will be mapped by the agent
-          name: profile.name,
-          title: profile.title,
-          level: inferLevel(profile.title),
-          department: profile.department || inferDepartment(profile.title),
-          influence: inferInfluence(profile.title),
-          company: profile.company,
+          return {
+            search_id,
+            user_id,
+            persona_id: profile.persona_id,
+            name: profile.name,
+            title: profile.title,
+            level: inferLevel(profile.title),
+            department: profile.department || inferDepartment(profile.title),
+            influence: inferInfluence(profile.title),
+            company: profile.company,
           location: profile.location || '',
           match_score: 85,
           email: email,
@@ -355,6 +357,7 @@ PRECISION MAPPING PROCESS:
    - Consider decision authority level (C-Level, VP, Director, Manager)
    - Account for industry-specific variations in titles
 5) Store decision makers with PRECISE persona assignments:
+   - Call storeDMsProfiles providing persona_id for each profile
    - Each DM linked to their best-matching persona_id
    - Complete profile information from LinkedIn
    - Detailed reasoning for persona assignment
@@ -407,7 +410,7 @@ export async function runDMDiscovery(search: {
 - search_type=${search.search_type}
 - gl=${gl}
 
-CRITICAL: Find decision makers for companies across ALL specified countries (${countries}) and ALL specified industries (${industries}) who would be decision makers for "${search.product_service}". Use LinkedIn search targeting senior roles like Directors, VPs, Heads, and Managers in roles relevant to the product/service.`;
+  CRITICAL: Find decision makers for companies across ALL specified countries (${countries}) and ALL specified industries (${industries}) who would be decision makers for "${search.product_service}". Use LinkedIn search targeting senior roles like Directors, VPs, Heads, and Managers in roles relevant to the product/service. Map each decision maker to the appropriate persona_id and include persona_id when storing profiles.`;
     
     console.log(`Starting decision maker discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries} | Product: ${search.product_service}`);
     
