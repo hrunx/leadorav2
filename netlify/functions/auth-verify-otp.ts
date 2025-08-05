@@ -1,0 +1,162 @@
+import { Handler } from '@netlify/functions';
+import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
+
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY!;
+
+function hashCode(code: string) {
+  return crypto.createHash('sha256').update(code).digest('hex');
+}
+
+export const handler: Handler = async (event) => {
+  // CORS headers
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Credentials': 'true',
+    'Content-Type': 'application/json'
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
+  }
+
+  try {
+    if (event.httpMethod !== 'POST') {
+      return { statusCode: 405, headers, body: 'Method Not Allowed' };
+    }
+
+    const { email, purpose, code, password, userData } = JSON.parse(event.body || '{}') as {
+      email: string;
+      purpose: 'signup' | 'signin';
+      code: string;
+      password?: string; // required for signup
+      userData?: any; // additional user data for signup
+    };
+
+    if (!email || !purpose || !code) {
+      return { 
+        statusCode: 400, 
+        headers, 
+        body: JSON.stringify({ error: 'email, purpose, code required' }) 
+      };
+    }
+
+    const supaAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { 
+      auth: { persistSession: false } 
+    });
+    
+    const codeHash = hashCode(code);
+
+    // Find a valid OTP
+    const { data: otps, error: qErr } = await supaAdmin
+      .from('user_otps')
+      .select('id, user_id, email, purpose, expires_at, consumed_at, attempts, created_at')
+      .ilike('email', email)
+      .eq('purpose', purpose)
+      .is('consumed_at', null)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (qErr) throw qErr;
+    
+    if (!otps || !otps.length) {
+      return { 
+        statusCode: 400, 
+        headers, 
+        body: JSON.stringify({ error: 'Code expired or not found.' }) 
+      };
+    }
+
+    // Try match: increment attempts if mismatch
+    let matchedId: string | null = null;
+    for (const row of otps) {
+      const { data: fullRow } = await supaAdmin
+        .from('user_otps')
+        .select('code_hash, attempts')
+        .eq('id', row.id)
+        .single();
+
+      if (!fullRow) continue;
+      if (fullRow.attempts >= 5) continue;
+
+      if (fullRow.code_hash === codeHash) {
+        matchedId = row.id;
+        break;
+      } else {
+        await supaAdmin
+          .from('user_otps')
+          .update({ attempts: fullRow.attempts + 1 })
+          .eq('id', row.id);
+      }
+    }
+
+    if (!matchedId) {
+      return { 
+        statusCode: 400, 
+        headers, 
+        body: JSON.stringify({ error: 'Invalid code.' }) 
+      };
+    }
+
+    // Mark consumed
+    await supaAdmin
+      .from('user_otps')
+      .update({ consumed_at: new Date().toISOString() })
+      .eq('id', matchedId);
+
+    if (purpose === 'signup') {
+      if (!password) {
+        return { 
+          statusCode: 400, 
+          headers, 
+          body: JSON.stringify({ error: 'password required for signup' }) 
+        };
+      }
+
+      // Create the Supabase auth user with confirmed email
+      const { data: created, error: createErr } = await supaAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          firstName: userData?.firstName || '',
+          lastName: userData?.lastName || '',
+          company: userData?.company || '',
+          role: userData?.role || '',
+          industry: userData?.industry || '',
+          country: userData?.country || '',
+          phone: userData?.phone || ''
+        }
+      });
+
+      if (createErr) throw createErr;
+
+      console.log(`User created via OTP signup: ${email}`);
+      return { 
+        statusCode: 200, 
+        headers, 
+        body: JSON.stringify({ success: true, created_user_id: created.user?.id }) 
+      };
+    }
+
+    // signin OTP success
+    console.log(`OTP signin verified for: ${email}`);
+    return { 
+      statusCode: 200, 
+      headers, 
+      body: JSON.stringify({ success: true }) 
+    };
+
+  } catch (e: any) {
+    console.error('OTP verification error:', e);
+    return { 
+      statusCode: 500, 
+      headers, 
+      body: JSON.stringify({ error: e.message }) 
+    };
+  }
+};

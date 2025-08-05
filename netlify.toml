@@ -1,0 +1,12 @@
+[build]
+command = "npm run build"
+publish = "dist"
+node_version = "20"
+
+[functions]
+node_bundler = "esbuild"
+# Don't externalize @openai/* — let esbuild fully bundle for Node Lambda
+external_node_modules = []
+
+[functions."agents-orchestrator"]
+included_files = ["src/**"]
