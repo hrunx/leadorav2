@@ -3,6 +3,7 @@ import { serperPlaces, serperSearch } from '../tools/serper';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 import { loadBusinessPersonas } from '../tools/db.read';
 import { countryToGL, buildBusinessData } from '../tools/util';
+import { extractJson } from '../tools/json';
 import { gemini } from './clients';
 
 const readPersonasTool = tool({
@@ -203,15 +204,13 @@ Requirements:
         response: { response_length: responseText.length }
       });
 
-      // Parse JSON response
+      // Parse JSON response using utility
       let analysis;
-      try {
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          analysis = JSON.parse(jsonMatch[0]);
-        }
-      } catch (parseError) {
-        console.error('Error parsing Gemini analysis response:', parseError);
+      const parsed = extractJson(responseText);
+      if (!parsed) {
+        console.error('Error parsing Gemini analysis response', {
+          responseSnippet: responseText.slice(0, 200)
+        });
         analysis = {
           company_analysis: {
             exact_products_services: [],
@@ -232,6 +231,8 @@ Requirements:
             match_reasoning: "Basic match to search criteria"
           }
         };
+      } else {
+        analysis = parsed;
       }
 
       return {
