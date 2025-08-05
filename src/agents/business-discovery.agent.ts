@@ -42,7 +42,8 @@ const serperPlacesTool = tool({
     const startTime = Date.now();
     try {
       const places = await serperPlaces(q, gl, limit);
-      
+      const endTime = Date.now();
+
       // Log API usage
       await logApiUsage({
         user_id,
@@ -50,20 +51,21 @@ const serperPlacesTool = tool({
         provider: 'serper',
         endpoint: 'places',
         status: 200,
-        ms: Date.now() - startTime,
-        request: { q, gl, limit },
-        response: { count: places.length }
+        ms: endTime - startTime,
+        request: { q, gl, limit, startTime },
+        response: { count: places.length, endTime }
       });
-      
+
       return { places };
     } catch (error: any) {
+      const endTime = Date.now();
       // Parse error status code from error message
       let status = 500;
       if (error.message?.includes('404')) status = 404;
       else if (error.message?.includes('401')) status = 401;
       else if (error.message?.includes('403')) status = 403;
       else if (error.message?.includes('429')) status = 429;
-      
+
       // Log failed API usage with precise error details
       await logApiUsage({
         user_id,
@@ -71,11 +73,11 @@ const serperPlacesTool = tool({
         provider: 'serper',
         endpoint: 'places',
         status,
-        ms: Date.now() - startTime,
-        request: { q, gl, limit: limit || 10 },
-        response: { error: error.message, full_error: error.toString() }
+        ms: endTime - startTime,
+        request: { q, gl, limit: limit || 10, startTime },
+        response: { error: error.message, full_error: error.toString(), endTime }
       });
-      
+
       console.error(`Serper Places API Error (${status}):`, error.message);
       throw error;
     }
@@ -121,27 +123,46 @@ const analyzeBusinessTool = tool({
       user_id: string;
     };
 
-    const startTime = Date.now();
-    
+    // First, search for more information about the company
+    const searchQuery = `"${company_name}" ${country} products services contact information website`;
+    const serperStartTime = Date.now();
+    let searchResults;
     try {
-      // First, search for more information about the company
-      const searchQuery = `"${company_name}" ${country} products services contact information website`;
-      const searchResults = await serperSearch(searchQuery, country, 5);
-      
-      // Log Serper API usage
+      searchResults = await serperSearch(searchQuery, country, 5);
+      const serperEndTime = Date.now();
       await logApiUsage({
         user_id,
         search_id,
         provider: 'serper',
         endpoint: 'web_search',
         status: 200,
-        ms: Date.now() - startTime,
-        request: { query: searchQuery, country },
-        response: { count: searchResults.length }
+        ms: serperEndTime - serperStartTime,
+        request: { query: searchQuery, country, startTime: serperStartTime },
+        response: { count: searchResults.length, endTime: serperEndTime }
       });
+    } catch (error: any) {
+      const serperEndTime = Date.now();
+      let status = 500;
+      if (error.message?.includes('404')) status = 404;
+      else if (error.message?.includes('401')) status = 401;
+      else if (error.message?.includes('403')) status = 403;
+      else if (error.message?.includes('429')) status = 429;
+      await logApiUsage({
+        user_id,
+        search_id,
+        provider: 'serper',
+        endpoint: 'web_search',
+        status,
+        ms: serperEndTime - serperStartTime,
+        request: { query: searchQuery, country, startTime: serperStartTime },
+        response: { error: error.message, full_error: error.toString(), endTime: serperEndTime }
+      });
+      console.error('Serper web search error:', error.message);
+      throw error;
+    }
 
-      // Use Gemini to analyze and extract detailed company information
-      const analysisPrompt = `
+    // Use Gemini to analyze and extract detailed company information
+    const analysisPrompt = `
 Analyze this company and extract detailed business information for sales prospecting purposes.
 
 Company: ${company_name}
@@ -185,42 +206,87 @@ Requirements:
 `;
 
       const model = gemini.getGenerativeModel({ model: 'gemini-1.5-pro' });
-      const geminiResponse = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: analysisPrompt }] }]
-      });
-
-      const responseText = geminiResponse.response.text();
-      
-      // Log Gemini API usage
-      await logApiUsage({
-        user_id,
-        search_id,
-        provider: 'gemini',
-        endpoint: 'generateContent',
-        status: 200,
-        ms: Date.now() - startTime,
-        request: { company: company_name, analysis_type: 'business_details' },
-        response: { response_length: responseText.length }
-      });
-
-      // Parse JSON response
-      let analysis;
+      const geminiStartTime = Date.now();
       try {
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          analysis = JSON.parse(jsonMatch[0]);
+        const geminiResponse = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: analysisPrompt }] }]
+        });
+        const geminiEndTime = Date.now();
+
+        const responseText = geminiResponse.response.text();
+
+        // Log Gemini API usage
+        await logApiUsage({
+          user_id,
+          search_id,
+          provider: 'gemini',
+          endpoint: 'generateContent',
+          status: 200,
+          ms: geminiEndTime - geminiStartTime,
+          request: { company: company_name, analysis_type: 'business_details', startTime: geminiStartTime },
+          response: { response_length: responseText.length, endTime: geminiEndTime }
+        });
+
+        // Parse JSON response
+        let analysis;
+        try {
+          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            analysis = JSON.parse(jsonMatch[0]);
+          }
+        } catch (parseError) {
+          console.error('Error parsing Gemini analysis response:', parseError);
+          analysis = {
+            company_analysis: {
+              exact_products_services: [],
+              relevant_departments: [],
+              recent_activities: [],
+              company_size_estimate: "Not available",
+              revenue_estimate: "Not available",
+              industry_specific: "General",
+              business_model: "Not available",
+              key_challenges: [],
+              contact_information: {
+                email: "Not available",
+                website: company_website || "Not available",
+                phone: company_phone || "Not available",
+                address: company_address || "Not available"
+              },
+              decision_makers_likely: [],
+              match_reasoning: "Basic match to search criteria",
+            }
+          };
         }
-      } catch (parseError) {
-        console.error('Error parsing Gemini analysis response:', parseError);
-        analysis = {
-          company_analysis: {
+
+        return {
+          company: company_name,
+          analysis: analysis.company_analysis || analysis,
+          raw_search_results: searchResults.length
+        };
+      } catch (error: any) {
+        const geminiEndTime = Date.now();
+        await logApiUsage({
+          user_id,
+          search_id,
+          provider: 'gemini',
+          endpoint: 'generateContent',
+          status: 500,
+          ms: geminiEndTime - geminiStartTime,
+          request: { company: company_name, startTime: geminiStartTime },
+          response: { error: error.message, endTime: geminiEndTime }
+        });
+
+        console.error(`Business analysis error for ${company_name}:`, error);
+        return {
+          company: company_name,
+          analysis: {
             exact_products_services: [],
             relevant_departments: [],
             recent_activities: [],
-            company_size_estimate: "Not available",
-            revenue_estimate: "Not available",
-            industry_specific: "General",
-            business_model: "Not available",
+            company_size_estimate: "Analysis failed",
+            revenue_estimate: "Analysis failed",
+            industry_specific: "Unknown",
+            business_model: "Unknown",
             key_challenges: [],
             contact_information: {
               email: "Not available",
@@ -229,55 +295,11 @@ Requirements:
               address: company_address || "Not available"
             },
             decision_makers_likely: [],
-            match_reasoning: "Basic match to search criteria"
-          }
+            match_reasoning: "Analysis error occurred"
+          },
+          error: error.message
         };
       }
-
-      return {
-        company: company_name,
-        analysis: analysis.company_analysis || analysis,
-        raw_search_results: searchResults.length
-      };
-
-    } catch (error: any) {
-      console.error(`Business analysis error for ${company_name}:`, error);
-      
-      // Log error
-      await logApiUsage({
-        user_id,
-        search_id,
-        provider: 'gemini',
-        endpoint: 'generateContent',
-        status: 500,
-        ms: Date.now() - startTime,
-        request: { company: company_name },
-        response: { error: error.message }
-      });
-
-      return {
-        company: company_name,
-        analysis: {
-          exact_products_services: [],
-          relevant_departments: [],
-          recent_activities: [],
-          company_size_estimate: "Analysis failed",
-          revenue_estimate: "Analysis failed",
-          industry_specific: "Unknown",
-          business_model: "Unknown",
-          key_challenges: [],
-          contact_information: {
-            email: "Not available",
-            website: company_website || "Not available",
-            phone: company_phone || "Not available",
-            address: company_address || "Not available"
-          },
-          decision_makers_likely: [],
-          match_reasoning: "Analysis error occurred"
-        },
-        error: error.message
-      };
-    }
   }
 });
 
