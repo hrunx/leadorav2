@@ -3,6 +3,7 @@ import { serperSearch } from '../tools/serper';
 import { loadBusinesses, loadDMPersonas } from '../tools/db.read';
 import { insertDMs, updateSearchProgress, logApiUsage } from '../tools/db.write';
 import { countryToGL } from '../tools/util';
+import { extractJson } from '../tools/json';
 import { gemini } from './clients';
 
 const readCompaniesTool = tool({
@@ -126,17 +127,15 @@ Requirements:
       const responseText = geminiResponse.response.text();
       console.log(`Gemini LinkedIn extraction response: ${responseText.substring(0, 200)}...`);
 
-      // Parse JSON response
+      // Parse JSON response using utility
       let profiles = [];
-      try {
-        // Clean up response to extract JSON
-        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          profiles = JSON.parse(jsonMatch[0]);
-        }
-      } catch (parseError) {
-        console.error('Error parsing Gemini response:', parseError);
-        console.error('Raw response:', responseText);
+      const parsedProfiles = extractJson(responseText);
+      if (!parsedProfiles || !Array.isArray(parsedProfiles)) {
+        console.error('Error parsing Gemini response', {
+          responseSnippet: responseText.slice(0, 200)
+        });
+      } else {
+        profiles = parsedProfiles;
       }
 
       // Log API usage for both Serper and Gemini

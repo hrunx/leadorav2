@@ -1,6 +1,7 @@
 import { gemini } from './clients';
 import { loadBusinessPersonas, loadBusinesses, loadDMPersonas } from '../tools/db.read';
 import { insertMarketInsights, updateSearchProgress, markSearchCompleted, logApiUsage } from '../tools/db.write';
+import { extractJson } from '../tools/json';
 
 export async function runMarketResearch(search: {
   id:string; 
@@ -107,26 +108,33 @@ Requirements:
       response: { text_length: text.length }
     });
 
-    // Try to extract JSON
-    const json = safeJson(text) || { 
-      tam_data:{}, 
-      sam_data:{}, 
-      som_data:{}, 
-      competitor_data:[], 
-      trends:[], 
-      opportunities:{} 
-    };
+      // Try to extract JSON using utility
+      const json = extractJson(text);
+      if (!json) {
+        console.error('Failed to parse market research response', {
+          responseSnippet: text.slice(0, 200)
+        });
+      }
 
-    const row = {
-      search_id: search.id,
-      user_id: search.user_id,
-      tam_data: json.tam_data || {},
-      sam_data: json.sam_data || {},
-      som_data: json.som_data || {},
-      competitor_data: json.competitor_data || [],
-      trends: json.trends || [],
-      opportunities: json.opportunities || {}
-    };
+      const data = json || {
+        tam_data: {},
+        sam_data: {},
+        som_data: {},
+        competitor_data: [],
+        trends: [],
+        opportunities: {}
+      };
+
+      const row = {
+        search_id: search.id,
+        user_id: search.user_id,
+        tam_data: data.tam_data || {},
+        sam_data: data.sam_data || {},
+        som_data: data.som_data || {},
+        competitor_data: data.competitor_data || [],
+        trends: data.trends || [],
+        opportunities: data.opportunities || {}
+      };
 
     await insertMarketInsights(row);
     await markSearchCompleted(search.id);
@@ -149,15 +157,5 @@ Requirements:
   } catch (error) {
     console.error(`Market research failed for search ${search.id}:`, error);
     throw error;
-  }
-}
-
-function safeJson(s: string) {
-  try {
-    const m = s.match(/\{[\s\S]*\}$/);
-    if (!m) return JSON.parse(s);
-    return JSON.parse(m[0]);
-  } catch { 
-    return null; 
   }
 }
