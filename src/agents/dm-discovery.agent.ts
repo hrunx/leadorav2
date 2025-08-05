@@ -2,7 +2,7 @@ import { Agent, tool, run } from '@openai/agents';
 import { serperSearch } from '../tools/serper';
 import { loadBusinesses, loadDMPersonas } from '../tools/db.read';
 import { insertDMs, updateSearchProgress, logApiUsage } from '../tools/db.write';
-import { countryToGL, parseContactsCSV } from '../tools/util';
+import { countryToGL } from '../tools/util';
 import { gemini } from './clients';
 
 const readCompaniesTool = tool({
