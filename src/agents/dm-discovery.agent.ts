@@ -54,10 +54,16 @@ const linkedInDiscoveryTool = tool({
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
+ 
+    const {
+      company_name,
+      company_city,
+
     const { 
       company_name,
       company_city,
       company_country,
+ 
       target_roles,
       gl,
       search_id,
@@ -72,8 +78,52 @@ const linkedInDiscoveryTool = tool({
       user_id: string;
     };
 
-    const startTime = Date.now();
+    // Build comprehensive LinkedIn search query
+    const roleQueries = target_roles.map(role => `"${role}"`).join(' OR ');
+    const locationPart = company_city ? ` "${company_city}"` : '';
+
+    // Enhanced LinkedIn search pattern
+    const query = `site:linkedin.com/in "${company_name}"${locationPart} (${roleQueries}) (Director OR VP OR "Vice President" OR Manager OR Head OR Chief OR Lead)`;
+
+    console.log(`LinkedIn search for ${company_name}: ${query}`);
+
+    // Execute Serper search with individual timer
+    const serperStartTime = Date.now();
+    let searchResults;
     try {
+
+      searchResults = await serperSearch(query, gl, 10);
+      const serperEndTime = Date.now();
+      await logApiUsage({
+        user_id,
+        search_id,
+        provider: 'serper',
+        endpoint: 'web_search',
+        status: 200,
+        ms: serperEndTime - serperStartTime,
+        request: { query, gl, num: 10, startTime: serperStartTime },
+        response: { count: searchResults.length, endTime: serperEndTime }
+      });
+    } catch (error: any) {
+      const serperEndTime = Date.now();
+      await logApiUsage({
+        user_id,
+        search_id,
+        provider: 'serper',
+        endpoint: 'web_search',
+        status: 500,
+        ms: serperEndTime - serperStartTime,
+        request: { query, gl, num: 10, startTime: serperStartTime },
+        response: { error: error.message, endTime: serperEndTime }
+      });
+
+      console.error(`LinkedIn discovery error for ${company_name}:`, error);
+      return { company: company_name, profiles: [], error: error.message };
+    }
+
+    // Use Gemini to extract and structure LinkedIn profile data
+    const prompt = `
+
       // Build comprehensive LinkedIn search query
       const roleQueries = target_roles.map(role => `"${role}"`).join(' OR ');
       const locationPart = [company_city, company_country]
@@ -90,6 +140,7 @@ const linkedInDiscoveryTool = tool({
       
       // Use Gemini to extract and structure LinkedIn profile data
       const prompt = `
+
 Analyze these LinkedIn search results for ${company_name} and extract decision maker profiles.
 
 Search Results:
@@ -99,7 +150,7 @@ Your task:
 1. Extract real LinkedIn profiles (ignore company pages, ads, or irrelevant results)
 2. For each valid profile, extract:
    - Full name (first and last name)
-   - Current job title 
+   - Current job title
    - Company name (must match "${company_name}" or be very similar)
    - LinkedIn profile URL
    - Location if mentioned
@@ -124,10 +175,13 @@ Requirements:
 - Maximum 5 profiles per company
 - Return empty array if no valid profiles found`;
 
+    const geminiStartTime = Date.now();
+    try {
       // @ts-ignore – gemini SDK typing mismatch
-    const geminiResponse = await (gemini as any).generateContent({
+      const geminiResponse = await (gemini as any).generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }]
       });
+      const geminiEndTime = Date.now();
 
       const responseText = geminiResponse.response.text();
       console.log(`Gemini LinkedIn extraction response: ${responseText.substring(0, 200)}...`);
@@ -144,7 +198,7 @@ Requirements:
       }
 
       // Log API usage for both Serper and Gemini
-      await logApiUsage({
+     await logApiUsage({
         user_id,
         search_id,
         provider: 'serper',
@@ -155,42 +209,50 @@ Requirements:
         response: { count: searchResults.length }
       });
 
+
       await logApiUsage({
         user_id,
         search_id,
         provider: 'gemini',
         endpoint: 'generateContent',
         status: 200,
+
+        ms: geminiEndTime - geminiStartTime,
+        request: { company: company_name, profiles_found: profiles.length, startTime: geminiStartTime },
+        response: { extracted_profiles: profiles.length, endTime: geminiEndTime }
+
         ms: Date.now() - startTime,
         request: { company: company_name, country: company_country, profiles_found: profiles.length },
         response: { extracted_profiles: profiles.length }
+
       });
 
-      return { 
+      return {
         company: company_name,
         profiles: profiles,
-        raw_search_count: searchResults.length 
+        raw_search_count: searchResults.length
       };
-
     } catch (error: any) {
-      console.error(`LinkedIn discovery error for ${company_name}:`, error);
-      
+      const geminiEndTime = Date.now();
       await logApiUsage({
         user_id,
         search_id,
-        provider: 'serper',
-        endpoint: 'web_search',
+        provider: 'gemini',
+        endpoint: 'generateContent',
         status: 500,
+
+        ms: geminiEndTime - geminiStartTime,
+        request: { company: company_name, startTime: geminiStartTime },
+        response: { error: error.message, endTime: geminiEndTime }
+
         ms: Date.now() - startTime,
         request: { company: company_name, country: company_country },
         response: { error: error.message }
+
       });
 
-      return { 
-        company: company_name,
-        profiles: [],
-        error: error.message 
-      };
+      console.error(`Gemini extraction error for ${company_name}:`, error);
+      return { company: company_name, profiles: [], error: error.message };
     }
   }
 });
