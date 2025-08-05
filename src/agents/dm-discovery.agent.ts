@@ -54,33 +54,38 @@ const linkedInDiscoveryTool = tool({
   } as const,
   execute: async (input: unknown) => {
     const { 
-      company_name, 
-      company_city, 
-      target_roles, 
-      gl, 
-      search_id, 
-      user_id 
-    } = input as { 
+      company_name,
+      company_city,
+      company_country,
+      target_roles,
+      gl,
+      search_id,
+      user_id
+    } = input as {
       company_name: string;
       company_city?: string;
+      company_country: string;
       target_roles: string[];
-      gl: string; 
-      search_id: string; 
-      user_id: string; 
+      gl: string;
+      search_id: string;
+      user_id: string;
     };
 
     const startTime = Date.now();
     try {
       // Build comprehensive LinkedIn search query
       const roleQueries = target_roles.map(role => `"${role}"`).join(' OR ');
-      const locationPart = company_city ? ` "${company_city}"` : '';
+      const locationPart = [company_city, company_country]
+        .filter(Boolean)
+        .map(loc => ` "${loc}"`)
+        .join('');
       
       // Enhanced LinkedIn search pattern
       const query = `site:linkedin.com/in "${company_name}"${locationPart} (${roleQueries}) (Director OR VP OR "Vice President" OR Manager OR Head OR Chief OR Lead)`;
-      
-      console.log(`LinkedIn search for ${company_name}: ${query}`);
-      
-      const searchResults = await serperSearch(query, gl, 10);
+
+      console.log(`LinkedIn search for ${company_name} (${company_country}): ${query}`);
+
+      const searchResults = await serperSearch(query, company_country, 10);
       
       // Use Gemini to extract and structure LinkedIn profile data
       const prompt = `
@@ -147,7 +152,7 @@ Requirements:
         endpoint: 'web_search',
         status: 200,
         ms: Date.now() - startTime,
-        request: { query, gl, num: 10 },
+        request: { query, gl, country: company_country, num: 10 },
         response: { count: searchResults.length }
       });
 
@@ -158,7 +163,7 @@ Requirements:
         endpoint: 'generateContent',
         status: 200,
         ms: Date.now() - startTime,
-        request: { company: company_name, profiles_found: profiles.length },
+        request: { company: company_name, country: company_country, profiles_found: profiles.length },
         response: { extracted_profiles: profiles.length }
       });
 
@@ -178,7 +183,7 @@ Requirements:
         endpoint: 'web_search',
         status: 500,
         ms: Date.now() - startTime,
-        request: { company: company_name },
+        request: { company: company_name, country: company_country },
         response: { error: error.message }
       });
 
