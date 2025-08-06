@@ -19,7 +19,7 @@ export const loadDMPersonas = async (search_id: string) => {
 };
 
 export const loadBusinesses = async (search_id: string) => {
-  const { data, error } = await supa.from('businesses').select('id,name,description,country').eq('search_id', search_id);
+  const { data, error } = await supa.from('businesses').select('id,name,description,country,city,address,phone,website,rating').eq('search_id', search_id);
   if (error) throw error; 
   return data||[];
 };

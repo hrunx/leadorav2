@@ -191,6 +191,7 @@ const storeDecisionMakersBasicTool = tool({
         items: {
           type: 'object',
           properties: {
+            business_id: { type: 'string' },
             company: { type: 'string' },
             profiles: {
               type: 'array',
@@ -209,7 +210,7 @@ const storeDecisionMakersBasicTool = tool({
               }
             }
           },
-          required: ['company', 'profiles'],
+          required: ['business_id', 'company', 'profiles'],
           additionalProperties: false
         }
       },
@@ -222,6 +223,7 @@ const storeDecisionMakersBasicTool = tool({
   execute: async (input: unknown) => {
     const { company_profiles, search_id, user_id } = input as { 
       company_profiles: Array<{
+        business_id: string;
         company: string;
         profiles: Array<{
           name: string;
@@ -238,7 +240,9 @@ const storeDecisionMakersBasicTool = tool({
     
     console.log(`Storing basic DM profiles for search ${search_id}: ${company_profiles.length} companies`);
     
-    const allProfiles = company_profiles.flatMap(cp => cp.profiles);
+    const allProfiles = company_profiles.flatMap(cp => 
+      cp.profiles.map(profile => ({ ...profile, business_id: cp.business_id }))
+    );
     console.log(`Total basic profiles to store: ${allProfiles.length}`);
     
     const rows = allProfiles
@@ -256,6 +260,7 @@ const storeDecisionMakersBasicTool = tool({
         return {
           search_id,
           user_id,
+          business_id: profile.business_id, // Link to the business record
           persona_id: null, // Will be mapped later
           name: profile.name,
           title: profile.title,
@@ -325,14 +330,15 @@ export const DMDiscoveryAgent = new Agent({
 Goal: Quickly discover and store basic decision maker profiles for immediate UI display. Enrichment happens later.
 
 FAST-FIRST PROCESS:
-1) Call readCompanies to get business names and locations
+1) Call readCompanies to get business names, locations, and IDs
 2) Call readDMPersonas to understand target roles and departments
-3) For each company, execute fast LinkedIn discovery:
-   - Use linkedinSearch to find profiles with multiple search strategies
+3) For each business, execute fast LinkedIn discovery:
+   - Use linkedinSearch with business name, city, and country
    - Extract basic information: name, title, company, LinkedIn URL
    - Focus on decision-making roles (Directors, VPs, Managers, etc.)
    - NO AI analysis - just extract basic data from search results
 4) Store ALL basic profiles immediately using storeDecisionMakersBasic:
+   - CRITICAL: Include business_id to link decision makers to specific businesses
    - Basic contact info and inferred departments
    - Set enrichment_status = 'pending' for background processing
    - Generate professional email addresses
