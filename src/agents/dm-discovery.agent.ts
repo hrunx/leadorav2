@@ -48,7 +48,7 @@ const linkedinSearchTool = tool({
       search_id: { type: 'string' },
       user_id: { type: 'string' }
     },
-    required: ['company_name', 'target_roles', 'gl', 'search_id', 'user_id'],
+    required: ['company_name', 'company_city', 'company_country', 'target_roles', 'gl', 'search_id', 'user_id'],
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
