@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = typeof window !== 'undefined' 
+  ? import.meta.env.VITE_SUPABASE_URL 
+  : process.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = typeof window !== 'undefined' 
+  ? import.meta.env.VITE_SUPABASE_ANON_KEY 
+  : process.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
@@ -12,9 +16,9 @@ export const supabase = createClient(
   supabaseAnonKey,
   {
     auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      storage: window?.localStorage
+      persistSession: typeof window !== 'undefined',
+      autoRefreshToken: typeof window !== 'undefined',
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined
     },
     global: {
       headers: {
