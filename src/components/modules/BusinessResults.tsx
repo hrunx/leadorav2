@@ -432,6 +432,8 @@ export default function BusinessResults() {
     return matchesCountry && matchesIndustry && matchesPersona;
   });
 
+
+
   const getMatchScoreColor = (score: number) => {
     if (score >= 90) return 'text-green-600 bg-green-100';
     if (score >= 80) return 'text-yellow-600 bg-yellow-100';
