@@ -3,7 +3,7 @@ import { Search, Users, Building, Mail, TrendingUp, Calendar, ArrowRight, Plus, 
 import { useAuth } from '../../context/AuthContext';
 import { useUserData } from '../../context/UserDataContext';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../constants/demo';
+import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
 
 interface DashboardProps {
   onStartNewSearch: () => void;
