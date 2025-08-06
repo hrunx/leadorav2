@@ -416,22 +416,21 @@ STEP-BY-STEP PROCESS (execute in this exact order):
 2. SECOND - Call serperPlaces immediately:
    serperPlaces(q=discovery_query, gl=gl, limit=10, search_id=search_id, user_id=user_id)
 
-3. THIRD - If serperPlaces returns places, store them immediately:
-   storeBusinesses(search_id, user_id, industry, country, places_with_basic_info)
+3. THIRD - IMMEDIATELY store ALL places from serperPlaces:
+   storeBusinesses(search_id, user_id, first_industry, first_country, all_places_as_basic_business_objects)
    
-   IMPORTANT: Don't wait for business analysis - store basic business info first!
-   Use this format for each place:
+   CRITICAL: Convert each Serper place to this EXACT format:
    {
      name: place.name,
      address: place.address,
      phone: place.phone,
      website: place.website,
-     rating: place.rating,
+     rating: place.rating || 0,
      city: place.city,
      size: "Unknown",
      revenue: "Unknown", 
      description: "Business discovered via Serper Places",
-     match_score: 80,
+     match_score: 85,
      persona_id: null,
      persona_type: "business",
      relevant_departments: [],
@@ -439,27 +438,24 @@ STEP-BY-STEP PROCESS (execute in this exact order):
      recent_activity: []
    }
 
-4. OPTIONAL - After storing basic info, try to enhance with analysis:
-   For important businesses: analyzeBusiness(company details)
-   readBusinessPersonas(search_id) for persona mapping
+SKIP ANALYSIS COMPLETELY - JUST STORE BASIC BUSINESSES!
 
 CRITICAL SUCCESS RULES:
 - MUST call serperPlaces first with the discovery_query from user message  
-- MUST store basic business info immediately after getting places
-- STORE FIRST, analyze later (analysis is optional)
+- MUST store ALL places immediately (never skip this step!)
+- SKIP analyzeBusiness completely (causes failures)
 - Use limit=10 for maximum results
-- Continue even if analysis fails
+- Simple storage only - no complex analysis
 
-EXAMPLE FLOW:
-User: "search_id=123 user_id=456 discovery_query='CRM software companies USA' gl=us"
-You: serperPlaces(q="CRM software companies USA", gl="us", limit=10, search_id="123", user_id="456")
-You: storeBusinesses(123, 456, "Technology", "USA", basic_business_objects)
-You: (optional) analyzeBusiness for detailed info
-You: (optional) readBusinessPersonas for mapping
+MANDATORY FLOW (NO DEVIATIONS):
+User: "search_id=123 user_id=456 discovery_query='ev chargers sell automotive SA' gl=sa"
+You: serperPlaces(q="ev chargers sell automotive SA", gl="sa", limit=10, search_id="123", user_id="456")
+You: storeBusinesses("123", "456", "automotive", "SA", converted_places_array)
+DONE - NO MORE STEPS!
 
 START NOW - NO WAITING!`,
-  tools: [readPersonasTool, serperPlacesTool, analyzeBusinessTool, storeBusinessesTool],
-  handoffDescription: 'Discovers and analyzes real businesses with complete intelligence via Serper Places + Gemini AI',
+  tools: [readPersonasTool, serperPlacesTool, storeBusinessesTool],
+  handoffDescription: 'Discovers real businesses via Serper Places API and stores them immediately for fast results',
   handoffs: [],
   model: 'gpt-4o-mini'
 });
