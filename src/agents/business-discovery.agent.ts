@@ -45,17 +45,21 @@ const serperPlacesTool = tool({
       const places = await serperPlaces(q, gl, limit);
       const endTime = Date.now();
 
-      // Log API usage
-      await logApiUsage({
-        user_id,
-        search_id,
-        provider: 'serper',
-        endpoint: 'places',
-        status: 200,
-        ms: endTime - startTime,
-        request: { q, gl, limit, startTime },
-        response: { count: places.length, endTime }
-      });
+      // Log API usage (with error handling)
+      try {
+        await logApiUsage({
+          user_id,
+          search_id,
+          provider: 'serper',
+          endpoint: 'places',
+          status: 200,
+          ms: endTime - startTime,
+          request: { q, gl, limit, startTime },
+          response: { count: places.length, endTime }
+        });
+      } catch (logError) {
+        console.warn('Failed to log API usage:', logError);
+      }
 
       return { places };
     } catch (error: any) {
@@ -68,16 +72,20 @@ const serperPlacesTool = tool({
       else if (error.message?.includes('429')) status = 429;
 
       // Log failed API usage with precise error details
-      await logApiUsage({
-        user_id,
-        search_id,
-        provider: 'serper',
-        endpoint: 'places',
-        status,
-        ms: endTime - startTime,
-        request: { q, gl, limit: limit || 10, startTime },
-        response: { error: error.message, full_error: error.toString(), endTime }
-      });
+      try {
+        await logApiUsage({
+          user_id,
+          search_id,
+          provider: 'serper',
+          endpoint: 'places',
+          status,
+          ms: endTime - startTime,
+          request: { q, gl, limit: limit || 10, startTime },
+          response: { error: error.message, full_error: error.toString(), endTime }
+        });
+      } catch (logError) {
+        console.warn('Failed to log API usage:', logError);
+      }
 
       console.error(`Serper Places API Error (${status}):`, error.message);
       throw error;
@@ -131,16 +139,20 @@ const analyzeBusinessTool = tool({
     try {
       searchResults = await serperSearch(searchQuery, country, 5);
       const serperEndTime = Date.now();
-      await logApiUsage({
-        user_id,
-        search_id,
-        provider: 'serper',
-        endpoint: 'web_search',
-        status: 200,
-        ms: serperEndTime - serperStartTime,
-        request: { query: searchQuery, country, startTime: serperStartTime },
-        response: { count: searchResults.length, endTime: serperEndTime }
-      });
+      try {
+        await logApiUsage({
+          user_id,
+          search_id,
+          provider: 'serper',
+          endpoint: 'web_search',
+          status: 200,
+          ms: serperEndTime - serperStartTime,
+          request: { query: searchQuery, country, startTime: serperStartTime },
+          response: { count: searchResults.length, endTime: serperEndTime }
+        });
+      } catch (logError) {
+        console.warn('Failed to log API usage:', logError);
+      }
     } catch (error: any) {
       const serperEndTime = Date.now();
       let status = 500;
@@ -148,16 +160,20 @@ const analyzeBusinessTool = tool({
       else if (error.message?.includes('401')) status = 401;
       else if (error.message?.includes('403')) status = 403;
       else if (error.message?.includes('429')) status = 429;
-      await logApiUsage({
-        user_id,
-        search_id,
-        provider: 'serper',
-        endpoint: 'web_search',
-        status,
-        ms: serperEndTime - serperStartTime,
-        request: { query: searchQuery, country, startTime: serperStartTime },
-        response: { error: error.message, full_error: error.toString(), endTime: serperEndTime }
-      });
+      try {
+        await logApiUsage({
+          user_id,
+          search_id,
+          provider: 'serper',
+          endpoint: 'web_search',
+          status,
+          ms: serperEndTime - serperStartTime,
+          request: { query: searchQuery, country, startTime: serperStartTime },
+          response: { error: error.message, full_error: error.toString(), endTime: serperEndTime }
+        });
+      } catch (logError) {
+        console.warn('Failed to log API usage:', logError);
+      }
       console.error('Serper web search error:', error.message);
       throw error;
     }
@@ -218,16 +234,20 @@ Requirements:
 
 
         // Log Gemini API usage
-        await logApiUsage({
-          user_id,
-          search_id,
-          provider: 'gemini',
-          endpoint: 'generateContent',
-          status: 200,
-          ms: geminiEndTime - geminiStartTime,
-          request: { company: company_name, analysis_type: 'business_details', startTime: geminiStartTime },
-          response: { response_length: responseText.length, endTime: geminiEndTime }
-        });
+        try {
+          await logApiUsage({
+            user_id,
+            search_id,
+            provider: 'gemini',
+            endpoint: 'generateContent',
+            status: 200,
+            ms: geminiEndTime - geminiStartTime,
+            request: { company: company_name, analysis_type: 'business_details', startTime: geminiStartTime },
+            response: { response_length: responseText.length, endTime: geminiEndTime }
+          });
+        } catch (logError) {
+          console.warn('Failed to log API usage:', logError);
+        }
 
         // Parse JSON response
         let analysis;
@@ -267,16 +287,20 @@ Requirements:
         };
       } catch (error: any) {
         const geminiEndTime = Date.now();
-        await logApiUsage({
-          user_id,
-          search_id,
-          provider: 'gemini',
-          endpoint: 'generateContent',
-          status: 500,
-          ms: geminiEndTime - geminiStartTime,
-          request: { company: company_name, startTime: geminiStartTime },
-          response: { error: error.message, endTime: geminiEndTime }
-        });
+        try {
+          await logApiUsage({
+            user_id,
+            search_id,
+            provider: 'gemini',
+            endpoint: 'generateContent',
+            status: 500,
+            ms: geminiEndTime - geminiStartTime,
+            request: { company: company_name, startTime: geminiStartTime },
+            response: { error: error.message, endTime: geminiEndTime }
+          });
+        } catch (logError) {
+          console.warn('Failed to log API usage:', logError);
+        }
 
         console.error(`Business analysis error for ${company_name}:`, error);
         return {
@@ -356,7 +380,7 @@ const storeBusinessesTool = tool({
     const rows = items.slice(0, 20).map((b: any) => buildBusinessData({
       search_id,
       user_id,
-      persona_id: b.persona_id,
+      persona_id: b.persona_id || 'default-persona', // Use default if no persona mapping yet
       name: b.name,
       industry,
       country,
@@ -382,27 +406,28 @@ export const BusinessDiscoveryAgent = new Agent({
   instructions: `
 You are a business discovery agent. Your job is to find real businesses using Serper Places API and store them in the database.
 
-STEP-BY-STEP PROCESS:
-1. Call readBusinessPersonas to get persona information
-2. Call serperPlaces to find businesses (use limit: 10 for maximum results)
-3. For each business found, call analyzeBusiness to get detailed information
-4. Call storeBusinesses to save all businesses to database
+IMMEDIATE START PROCESS (no waiting for personas):
+1. Start by calling serperPlaces to find businesses immediately (use limit: 10 for maximum results)
+2. For each business found, call analyzeBusiness to get detailed information  
+3. Try calling readBusinessPersonas to get persona information for mapping
+4. Call storeBusinesses to save all businesses to database with persona mapping
 
-IMPORTANT RULES:
+CRITICAL RULES:
+- START IMMEDIATELY with serperPlaces - don't wait for personas
 - ALWAYS call serperPlaces with limit: 10 to get maximum businesses
 - ALWAYS analyze EVERY business you find with analyzeBusiness
+- If readBusinessPersonas fails or returns empty, use a default persona_id
 - ALWAYS store ALL analyzed businesses with storeBusinesses
 - Use the search_id and user_id provided in the user message
 - Extract country and industry from the user message
-- Map each business to the most appropriate persona_id
 
-EXAMPLE WORKFLOW:
-1. readBusinessPersonas(search_id)
-2. serperPlaces(q="software companies in United States", gl="us", limit=10, search_id, user_id)
-3. For each place returned: analyzeBusiness(company details)
-4. storeBusinesses(all analyzed businesses)
+IMMEDIATE WORKFLOW:
+1. serperPlaces(q="[industry] companies in [country]", gl="[country_code]", limit=10, search_id, user_id)
+2. For each place returned: analyzeBusiness(company details)
+3. readBusinessPersonas(search_id) - for mapping (if available)
+4. storeBusinesses(all analyzed businesses with persona mapping)
 
-DO NOT SKIP STEPS. Find businesses, analyze them, and store them ALL.`,
+START FINDING BUSINESSES IMMEDIATELY - DON'T WAIT!`,
   tools: [readPersonasTool, serperPlacesTool, analyzeBusinessTool, storeBusinessesTool],
   handoffDescription: 'Discovers and analyzes real businesses with complete intelligence via Serper Places + Gemini AI',
   handoffs: [],
