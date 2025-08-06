@@ -271,9 +271,10 @@ Start by searching for current market data, then analyze competitors, and finall
   // Handle function calls
   let finalResult = result;
   const functionCalls = result.response.functionCalls();
+  let functionResponses = []; // Initialize outside if block
   
   if (functionCalls && functionCalls.length > 0) {
-    const functionResponses = await Promise.all(
+    functionResponses = await Promise.all(
       functionCalls.map(async (call) => {
         let response;
         
