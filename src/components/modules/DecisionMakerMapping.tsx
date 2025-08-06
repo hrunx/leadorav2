@@ -7,8 +7,7 @@ import { SearchService } from '../../services/searchService';
 import { useDemoMode } from '../../hooks/useDemoMode';
 import { supabase } from '../../lib/supabase';
 
-const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
-const DEMO_USER_EMAIL = 'demo@leadora.com';
+import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
 
 interface DecisionMaker {
   id: string;

@@ -387,28 +387,28 @@ export async function runDMDiscovery(search: {
     
     const countries = search.countries.join(', ');
     const industries = search.industries.join(', ');
-    // Iterate over all target countries for comprehensive decision maker discovery
-  const allDecisionMakers = [];
-  
-  for (const country of search.countries) {
-    const gl = countryToGL(country);
-    console.log(`Running decision maker discovery for ${country} (GL: ${gl})`);
     
-    // Note: Implementation should iterate through each country
-    // For now, we'll use the first country as the primary GL code
-  }
-  
-  const gl = countryToGL(search.countries[0]); // Primary country for GL code
+    // Build comprehensive multi-country discovery instructions
+    const countryInstructions = search.countries.map(country => {
+      const gl = countryToGL(country);
+      return `* For ${country} (GL: ${gl}): Use LinkedIn search with gl="${gl}" targeting decision makers in ${industries} industry for "${search.product_service}"`;
+    }).join('\n');
+    
     const msg = `search_id=${search.id} user_id=${search.user_id} 
 - product_service=${search.product_service}
 - industries=${industries}
 - countries=${countries}
 - search_type=${search.search_type}
-- gl=${gl}
 
-CRITICAL: Find decision makers for companies across ALL specified countries (${countries}) and ALL specified industries (${industries}) who would be decision makers for "${search.product_service}". 
+CRITICAL: Find decision makers for companies across ALL specified countries and industries:
+${countryInstructions}
 
-Use fast LinkedIn search targeting senior roles like Directors, VPs, Heads, and Managers. Store basic profiles immediately for UI display. Focus on SPEED over detailed analysis.`;
+MULTI-COUNTRY STRATEGY:
+- Execute LinkedIn searches for EACH country separately with proper GL codes
+- Use fast LinkedIn search targeting senior roles like Directors, VPs, Heads, and Managers
+- Store basic profiles immediately for UI display with proper business_id links
+- Focus on SPEED over detailed analysis
+- Combine results from all countries for comprehensive coverage`;
     
     console.log(`Starting fast decision maker discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries} | Product: ${search.product_service}`);
     

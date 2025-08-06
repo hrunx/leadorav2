@@ -100,16 +100,19 @@ export function parseContactsCSV(csv: string) {
   }).filter(c => c.name && c.name.length > 2); // Only include contacts with valid names
 }
 
-// Safe business data builder with defaults
+// Safe business data builder with defaults - includes all contact fields
 export function buildBusinessData(params: {
   search_id: string;
   user_id: string;
-  persona_id: string;
+  persona_id: string | null;
   name: string;
   industry: string;
   country: string;
   address?: string;
   city?: string;
+  phone?: string;
+  website?: string;
+  rating?: number;
   size?: string;
   revenue?: string;
   description?: string;
@@ -129,10 +132,14 @@ export function buildBusinessData(params: {
     name: params.name,
     industry: params.industry,
     country: params.country,
+    address: params.address || null,
     city: parsedCity,
+    phone: params.phone || null,
+    website: params.website || null,
+    rating: params.rating || null,
     size: params.size || null,
     revenue: params.revenue || null,
-    description: params.description || params.address || '',
+    description: params.description || params.name,
     match_score: params.match_score || 75,
     relevant_departments: params.relevant_departments || [],
     key_products: params.key_products || [],
