@@ -515,7 +515,6 @@ export default function BusinessResults() {
   }
 
   // Show "still processing" state for users with search but no businesses yet
-  const currentSearch = getCurrentSearch();
   if (hasSearch && businesses.length === 0 && !isLoading && discoveryStatus !== 'discovering' && !isDemoUser(authState.user?.id, authState.user?.email)) {
     // Check if this is a recent search that might still be processing
     if (currentSearch) {
