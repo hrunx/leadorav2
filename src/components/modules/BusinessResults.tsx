@@ -5,6 +5,7 @@ import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
 import { useDemoMode } from '../../hooks/useDemoMode';
+import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 import { supabase } from '../../lib/supabase';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
@@ -29,18 +30,52 @@ export default function BusinessResults() {
   const { state } = useAppContext();
   const { getCurrentSearch } = useUserData();
   const { state: authState } = useAuth();
-  // Simple demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
+  const currentSearch = getCurrentSearch();
+  
+  // Real-time data hook for progressive loading
+  const realTimeData = useRealTimeSearch(currentSearch?.id || null);
+  
+  // UI state
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [filterCountry, setFilterCountry] = useState('');
   const [filterIndustry, setFilterIndustry] = useState('');
   const [filterPersona, setFilterPersona] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [hasSearch, setHasSearch] = useState(false);
-  const [discoveryStatus, setDiscoveryStatus] = useState<'idle' | 'discovering' | 'completed'>('idle');
+  
+  // Legacy state for demo users
+  const [demoBusinesses, setDemoBusinesses] = useState<Business[]>([]);
+  const [isLoadingDemo, setIsLoadingDemo] = useState(true);
+  
+  // Determine if we're in demo mode
+  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+  
+  // Use real-time data for real users, demo data for demo users
+  const businesses = isDemo ? demoBusinesses : realTimeData.businesses.map(b => ({
+    id: b.id,
+    name: b.name,
+    industry: b.industry,
+    country: b.country,
+    city: b.city,
+    size: b.size || 'Unknown',
+    revenue: b.revenue || 'Unknown',
+    description: b.description || `${b.name} operates in the ${b.industry} industry.`,
+    matchScore: b.match_score || 85,
+    relevantDepartments: b.relevant_departments || ['Sales', 'Marketing'],
+    keyProducts: b.key_products || [],
+    recentActivity: b.recent_activity || [],
+    personaType: b.persona_type || 'General',
+    address: b.address,
+    phone: b.phone,
+    website: b.website,
+    rating: b.rating
+  }));
+  
+  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && businesses.length === 0);
+  const hasSearch = isDemo ? demoBusinesses.length > 0 : !!currentSearch;
+  
+  // Discovery status based on real-time progress
+  const discoveryStatus = isDemo ? 'completed' : 
+    realTimeData.progress.phase === 'completed' ? 'completed' :
+    businesses.length > 0 ? 'discovering' : 'discovering';
 
   // Check if we came from a specific persona selection
   useEffect(() => {
@@ -49,16 +84,13 @@ export default function BusinessResults() {
     }
   }, [state.selectedPersonas]);
 
+  // Load demo data for demo users only
   useEffect(() => {
-    loadBusinesses();
-    
-    // Start checking discovery progress for real users
-    const currentSearch = getCurrentSearch();
-    if (currentSearch && !isDemoUser(authState.user?.id, authState.user?.email)) {
-      setDiscoveryStatus('discovering');
-      checkDiscoveryProgress(currentSearch.id);
+    if (isDemo) {
+      setDemoBusinesses(getStaticBusinesses());
+      setIsLoadingDemo(false);
     }
-  }, [getCurrentSearch, authState.user]);
+  }, [isDemo]);
 
   // Function to check orchestration progress
   const checkDiscoveryProgress = async (searchId: string) => {
