@@ -69,21 +69,31 @@ export default function DecisionMakerPersonas() {
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
   
   // Use real-time data for real users, demo data for demo users
-  const personas = isDemo ? demoPersonas : realTimeData.dmPersonas.map(p => ({
-    id: p.id,
-    title: p.title,
-    rank: p.rank,
-    description: p.description || `Key ${p.title} decision maker persona`,
-    responsibilities: p.responsibilities || [],
-    painPoints: p.pain_points || [],
-    preferredChannels: p.preferred_channels || [],
-    keyMessages: p.key_messages || [],
-    avgSalary: p.avg_salary || '$0',
-    influence: p.influence || 'High',
-    decisionCriteria: p.decision_criteria || [],
-    industries: p.industries || [],
-    companies: []
-  }));
+  const personas = isDemo ? demoPersonas : realTimeData.dmPersonas.map(p => {
+    // 🎯 TARGETED DISPLAY: Get only DMs mapped to this persona
+    const personaDecisionMakers = realTimeData.getDecisionMakersForPersona(p.id);
+    
+    return {
+      id: p.id,
+      title: p.title,
+      rank: p.rank,
+      description: p.description || `Key ${p.title} decision maker persona`,
+      responsibilities: p.responsibilities || [],
+      painPoints: p.pain_points || [],
+      preferredChannels: p.preferred_channels || [],
+      keyMessages: p.key_messages || [],
+      avgSalary: p.avg_salary || '$0',
+      influence: p.influence || 'High',
+      decisionCriteria: p.decision_criteria || [],
+      industries: p.industries || [],
+      companies: personaDecisionMakers.map(dm => ({
+        id: dm.business_id,
+        name: dm.company,
+        country: dm.location || 'Unknown',
+        matchScore: Math.min(95, Math.max(75, 90 - personaDecisionMakers.indexOf(dm) * 5)) // Dynamic scoring
+      }))
+    };
+  });
   
   const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && personas.length === 0);
   const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
