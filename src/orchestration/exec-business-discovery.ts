@@ -1,6 +1,6 @@
 import { run } from '@openai/agents';
 
-import { BusinessDiscoveryAgent } from '../agents/business-discovery.agent';
+import { BusinessDiscoveryAgent, runBusinessDiscovery } from '../agents/business-discovery.agent';
 import { loadSearch } from '../tools/db.read';
 import { countryToGL } from '../tools/util';
 
