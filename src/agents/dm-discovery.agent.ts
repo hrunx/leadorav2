@@ -52,7 +52,7 @@ const linkedinSearchTool = tool({
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
-    const { company_name, company_city, company_country, target_roles, gl, search_id, user_id } = input as {
+    const { company_name, company_city, target_roles, gl, search_id, user_id } = input as {
       company_name: string;
       company_city?: string;
       company_country?: string;
@@ -175,7 +175,7 @@ function extractBasicProfile(result: any, companyName: string) {
     title: position,
     company: companyName,
     linkedin: link,
-    location: null, // Will be enriched later
+    location: '', // Will be enriched later
     department: inferDepartment(position)
   };
 }
@@ -205,7 +205,7 @@ const storeDecisionMakersBasicTool = tool({
                   location: { type: 'string' },
                   department: { type: 'string' }
                 },
-                required: ['name', 'title', 'company', 'linkedin'],
+                required: ['name', 'title', 'company', 'linkedin', 'location', 'department'],
                 additionalProperties: false
               }
             }

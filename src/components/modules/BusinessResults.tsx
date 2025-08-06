@@ -102,7 +102,7 @@ export default function BusinessResults() {
                 personaType: business.persona_type
               }));
               setBusinesses(formattedBusinesses);
-              setHasSearch(true);
+              // hasSearch should already be true since we have a search
             });
           }
         } else if (progress?.phase === 'completed') {
@@ -183,7 +183,9 @@ export default function BusinessResults() {
         setHasSearch(false);
         setIsLoading(false);
       } else {
-        // Real user with search - load from database
+        // Real user with search - always mark hasSearch as true since a search exists
+        setHasSearch(true);
+        
         let dbBusinesses = await SearchService.getBusinesses(currentSearch.id);
         
         if (dbBusinesses.length === 0) {
@@ -203,6 +205,10 @@ export default function BusinessResults() {
             return;
           } else {
             console.log(`No businesses found for completed search ${currentSearch.id}`);
+            // Search is completed but no businesses found - show empty results, not empty state
+            setBusinesses([]);
+            setIsLoading(false);
+            return;
           }
         }
         
@@ -217,7 +223,6 @@ export default function BusinessResults() {
         }));
         
         setBusinesses(formattedBusinesses);
-        setHasSearch(true);
         setIsLoading(false); // Only stop loading when we have results or confirmed no results
       }
     } catch (error) {
