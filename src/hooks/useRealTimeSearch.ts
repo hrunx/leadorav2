@@ -191,6 +191,17 @@ export function useRealTimeSearch(searchId: string | null) {
               decision_makers_count: prev.decisionMakers.length + 1
             }
           }));
+          
+          // 🔥 INSTANT CONTACT ENRICHMENT: Trigger for new DM
+          setTimeout(async () => {
+            try {
+              const { enrichDecisionMakerContact } = await import('../tools/contact-enrichment');
+              await enrichDecisionMakerContact(payload.new, searchId, payload.new.user_id);
+            } catch (error) {
+              console.error('Failed to enrich DM contact:', error);
+            }
+          }, 2000);
+          
         } else if (payload.eventType === 'UPDATE') {
           setData(prev => ({
             ...prev,
@@ -261,8 +272,26 @@ export function useRealTimeSearch(searchId: string | null) {
     };
   }, [searchId, loadSearchData]);
 
+  // Helper function to get decision makers for a specific persona
+  const getDecisionMakersForPersona = (personaId: string) => {
+    return data.decisionMakers.filter(dm => dm.persona_id === personaId);
+  };
+
+  // Helper function to get all decision makers grouped by persona
+  const getDecisionMakersByPersona = () => {
+    const grouped: Record<string, any[]> = {};
+    
+    data.dmPersonas.forEach(persona => {
+      grouped[persona.id] = data.decisionMakers.filter(dm => dm.persona_id === persona.id);
+    });
+    
+    return grouped;
+  };
+
   return {
     ...data,
-    refresh: () => searchId ? loadSearchData(searchId) : null
+    refresh: () => searchId ? loadSearchData(searchId) : null,
+    getDecisionMakersForPersona,
+    getDecisionMakersByPersona
   };
 }
