@@ -102,7 +102,13 @@ export default function BusinessPersonas() {
       conversionRate: p.conversion_rate || '0%'
     },
     locations: p.locations || [],
-    businesses: []
+    businesses: [],
+    characteristics: {
+      painPoints: p.pain_points || [],
+      motivations: p.solutions || [], // Use solutions as motivations
+      challenges: p.pain_points || [],
+      decisionFactors: p.decision_makers || []
+    }
   }));
   
   const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && personas.length === 0);
@@ -771,8 +777,8 @@ export default function BusinessPersonas() {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900 text-lg">{persona.title}</h3>
-                      <p className="text-gray-600 mt-1">{persona.demographics.industry} • {persona.demographics.companySize}</p>
-                      <p className="text-sm text-gray-500">{persona.demographics.geography}</p>
+                      <p className="text-gray-600 mt-1">{persona.targetDemographics.industry} • {persona.targetDemographics.companySize}</p>
+                      <p className="text-sm text-gray-500">{persona.targetDemographics.geography}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -797,7 +803,7 @@ export default function BusinessPersonas() {
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
                     <Building className="w-4 h-4" />
-                    <span>{persona.demographics.revenue}</span>
+                    <span>{persona.targetDemographics.revenue}</span>
                   </div>
                 </div>
 
@@ -935,15 +941,15 @@ export default function BusinessPersonas() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-green-700">Industry:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.demographics.industry}</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.targetDemographics.industry}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-green-700">Company Size:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.demographics.companySize}</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.targetDemographics.companySize}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-green-700">Revenue:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.demographics.revenue}</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.targetDemographics.revenue}</span>
                           </div>
                         </div>
                       </div>

@@ -236,13 +236,21 @@ export async function runBusinessDiscovery(search: {
     const industries = search.industries.join(', ');
     console.log(`Processing business discovery for countries: ${search.countries.join(', ')}`);
     
-    const intent = search.search_type === 'customer' ? 'need' : 'sell provide';
-    
-    // Build multi-country search instructions
+    // Generate better business search queries for each country
     const countrySearches = search.countries.map(country => {
       const gl = countryToGL(country);
-      const query = `${search.product_service} ${intent} ${industries} ${country}`;
-      return `  * For ${country}: serperPlaces(q="${query}", gl="${gl}", limit=10)`;
+      
+      // Create multiple search patterns for better coverage
+      const queries = [
+        `${search.product_service} companies ${industries} ${country}`,
+        `${search.product_service} suppliers ${industries}`,
+        `${industries} companies ${search.product_service}`,
+        `${search.product_service} manufacturers ${country}`
+      ];
+      
+      return queries.map(query => 
+        `  * serperPlaces(q="${query}", gl="${gl}", limit=10, search_id="${search.id}", user_id="${search.user_id}")`
+      ).join('\n');
     }).join('\n');
     
     const msg = `search_id=${search.id} user_id=${search.user_id} 
@@ -251,14 +259,15 @@ export async function runBusinessDiscovery(search: {
 - countries=${countries}
 - search_type=${search.search_type}
 
-CRITICAL: Execute multiple serperPlaces searches for comprehensive coverage:
+BUSINESS SEARCH STRATEGY - Execute multiple searches for maximum coverage:
 ${countrySearches}
 
-MULTI-COUNTRY BUSINESS DISCOVERY:
-- Call serperPlaces for EACH country with proper GL codes
-- Store ALL results from all countries using storeBusinesses
-- Use geographic targeting for each country separately
-- Combine all businesses into single database storage call`;
+MULTI-SEARCH APPROACH:
+- Run MULTIPLE serperPlaces searches with different query patterns
+- Try various combinations: "companies", "suppliers", "manufacturers"
+- Use proper GL codes for geographic targeting
+- Collect ALL results from ALL searches
+- Store combined results using storeBusinesses with complete contact info`;
     
     console.log(`Starting business discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries}`);
     
