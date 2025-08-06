@@ -77,31 +77,66 @@ export default function DecisionMakerProfiles() {
   const { state, updateSelectedPersonas } = useAppContext();
   const { getCurrentSearch } = useUserData();
   const { state: authState } = useAuth();
-  // Simple demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
+  const currentSearch = getCurrentSearch();
+  
+  // Real-time data hook for progressive loading
+  const realTimeData = useRealTimeSearch(currentSearch?.id || null);
+  
+  // UI state
   const [selectedPersona, setSelectedPersona] = useState<DecisionMakerPersona | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [expandedPersonas, setExpandedPersonas] = useState<string[]>([]);
   const [showEmployeeDetails, setShowEmployeeDetails] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<DecisionMaker | null>(null);
-  const [decisionMakerPersonas, setDecisionMakerPersonas] = useState<DecisionMakerPersona[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasSearch, setHasSearch] = useState(false);
-  const [discoveryStatus, setDiscoveryStatus] = useState<'idle' | 'discovering' | 'completed'>('idle');
+  
+  // Legacy demo state
+  const [demoPersonas, setDemoPersonas] = useState<DecisionMakerPersona[]>([]);
+  const [isLoadingDemo, setIsLoadingDemo] = useState(true);
+  
+  // Determine if we're in demo mode
+  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+  
+  // Use real-time data for real users, demo data for demo users
+  const decisionMakerPersonas = isDemo ? demoPersonas : realTimeData.dmPersonas.map(p => ({
+    id: p.id,
+    title: p.title,
+    rank: p.rank,
+    description: p.description || `Key ${p.title} decision maker profile`,
+    responsibilities: p.responsibilities || [],
+    painPoints: p.pain_points || [],
+    preferredChannels: p.preferred_channels || [],
+    keyMessages: p.key_messages || [],
+    avgEmployees: p.avg_employees || 0,
+    employeeProfiles: []
+  }));
+  
+  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && decisionMakerPersonas.length === 0);
+  const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
+  
+  // Discovery status based on real-time progress
+  const discoveryStatus = isDemo ? 'completed' : 
+    realTimeData.progress.phase === 'completed' ? 'completed' :
+    realTimeData.progress.decision_makers_count > 0 ? 'discovering' : 'discovering';
 
-  // Load data on component mount
+  // Load demo data for demo users only
   useEffect(() => {
-    loadData();
-    
-    // Start checking discovery progress for real users
-    const currentSearch = getCurrentSearch();
-    if (currentSearch && !isDemoUser(authState.user?.id, authState.user?.email)) {
-      setDiscoveryStatus('discovering');
-      checkDiscoveryProgress(currentSearch.id);
+    if (isDemo) {
+      setDemoPersonas(getStaticDMPersonas());
+      setIsLoadingDemo(false);
     }
-  }, [getCurrentSearch, authState.user]);
+  }, [isDemo]);
+
+  // Real-time progress logging
+  useEffect(() => {
+    if (!isDemo && currentSearch) {
+      console.log(`🎯 DM Real-time data for ${currentSearch.id}:`, {
+        phase: realTimeData.progress.phase,
+        dmPersonas: realTimeData.dmPersonas.length,
+        decisionMakers: realTimeData.progress.decision_makers_count,
+        isLoading: realTimeData.isLoading
+      });
+    }
+  }, [realTimeData, currentSearch, isDemo]);
 
   // Function to check orchestration progress for decision makers
   const checkDiscoveryProgress = async (searchId: string) => {

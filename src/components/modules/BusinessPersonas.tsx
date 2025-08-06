@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Target, Users, Building, ArrowRight, CheckCircle, Star, TrendingUp, DollarSign, ChevronDown, ChevronUp, Eye, Search, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
 import { useDemoMode } from '../../hooks/useDemoMode';
+import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
 
@@ -54,21 +55,77 @@ export default function BusinessPersonas() {
   const { state, updateSelectedPersonas } = useAppContext();
   const { getCurrentSearch } = useUserData();
   const { state: authState } = useAuth();
-  // Simple demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
+  const currentSearch = getCurrentSearch();
+  
+  // Real-time data hook for progressive loading
+  const realTimeData = useRealTimeSearch(currentSearch?.id || null);
+  
+  // UI state
   const [selectedPersona, setSelectedPersona] = useState<PersonaData | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [expandedPersonas, setExpandedPersonas] = useState<string[]>([]);
-  const [personas, setPersonas] = useState<PersonaData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasSearch, setHasSearch] = useState(false);
+  
+  // Legacy demo state
+  const [demoPersonas, setDemoPersonas] = useState<PersonaData[]>([]);
+  const [isLoadingDemo, setIsLoadingDemo] = useState(true);
+  
+  // Determine if we're in demo mode
+  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+  
+  // Use real-time data for real users, demo data for demo users
+  const personas = isDemo ? demoPersonas : realTimeData.businessPersonas.map(p => ({
+    id: p.id,
+    title: p.title,
+    rank: p.rank,
+    description: p.description || `Key ${p.title} business persona`,
+    targetDemographics: {
+      companySize: p.company_size || 'Mid-market',
+      industry: p.industry || 'Technology',
+      revenue: p.revenue_range || '$10M-100M',
+      geography: p.geography || 'Global',
+      decisionMakers: p.decision_makers || []
+    },
+    painPoints: p.pain_points || [],
+    solutions: p.solutions || [],
+    buyingJourney: {
+      awareness: p.awareness_stage || 'Problem aware',
+      consideration: p.consideration_stage || 'Solution research',
+      decision: p.decision_stage || 'Vendor evaluation',
+      buyingProcess: p.buying_process || 'Committee decision',
+      decisionTimeline: p.decision_timeline || '3-6 months',
+      budgetRange: p.budget_range || '$50K-500K',
+      preferredChannels: p.preferred_channels || []
+    },
+    marketPotential: {
+      totalCompanies: p.total_companies || 0,
+      avgDealSize: p.avg_deal_size || '$0',
+      conversionRate: p.conversion_rate || '0%'
+    },
+    locations: p.locations || [],
+    businesses: []
+  }));
+  
+  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && personas.length === 0);
+  const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
 
-  // Load personas on component mount
-  React.useEffect(() => {
-    loadPersonas();
-  }, [getCurrentSearch, authState.user]);
+  // Load demo data for demo users only
+  useEffect(() => {
+    if (isDemo) {
+      setDemoPersonas(getStaticBusinessPersonas());
+      setIsLoadingDemo(false);
+    }
+  }, [isDemo]);
+
+  // Real-time progress logging
+  useEffect(() => {
+    if (!isDemo && currentSearch) {
+      console.log(`👥 Business Personas real-time data for ${currentSearch.id}:`, {
+        phase: realTimeData.progress.phase,
+        businessPersonas: realTimeData.businessPersonas.length,
+        isLoading: realTimeData.isLoading
+      });
+    }
+  }, [realTimeData, currentSearch, isDemo]);
 
   const loadPersonas = async () => {
     setIsLoading(true);

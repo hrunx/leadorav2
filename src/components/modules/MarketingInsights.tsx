@@ -5,6 +5,7 @@ import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
 import { useDemoMode } from '../../hooks/useDemoMode';
+import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
 
@@ -12,15 +13,27 @@ export default function MarketingInsights() {
   const { state } = useAppContext();
   const { getCurrentSearch } = useUserData();
   const { state: authState } = useAuth();
-  // Simple demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
+  const currentSearch = getCurrentSearch();
+  
+  // Real-time data hook for progressive loading
+  const realTimeData = useRealTimeSearch(currentSearch?.id || null);
+  
+  // UI state
   const [activeTab, setActiveTab] = useState('market-size');
   const [timeRange, setTimeRange] = useState('12m');
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasSearch, setHasSearch] = useState(false);
-  const [marketData, setMarketData] = useState<any>(null);
+  
+  // Legacy demo state
+  const [demoMarketData, setDemoMarketData] = useState<any>(null);
+  const [isLoadingDemo, setIsLoadingDemo] = useState(true);
+  
+  // Determine if we're in demo mode
+  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+  
+  // Use real-time data for real users, demo data for demo users
+  const marketData = isDemo ? demoMarketData : realTimeData.marketInsights.length > 0 ? realTimeData.marketInsights[0] : null;
+  
+  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || !realTimeData.progress.market_insights_ready;
+  const hasSearch = isDemo ? !!demoMarketData : !!currentSearch;
   const [competitorData, setCompetitorData] = useState<any[]>([]);
   const [trends, setTrends] = useState<any[]>([]);
   const [sources, setSources] = useState<any[]>([]);
