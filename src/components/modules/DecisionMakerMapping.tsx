@@ -754,15 +754,15 @@ export default function DecisionMakerMapping() {
                   <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                     <div>
                       <span className="text-blue-700 font-medium">Industry:</span>
-                      <p className="text-blue-900">{selectedEmployee.companyContext.industry}</p>
+                      <p className="text-blue-900">{selectedEmployee.companyContext?.industry || 'Not specified'}</p>
                     </div>
                     <div>
                       <span className="text-blue-700 font-medium">Size:</span>
-                      <p className="text-blue-900">{selectedEmployee.companyContext.size}</p>
+                      <p className="text-blue-900">{selectedEmployee.companyContext?.size || 'Not specified'}</p>
                     </div>
                     <div>
                       <span className="text-blue-700 font-medium">Revenue:</span>
-                      <p className="text-blue-900">{selectedEmployee.companyContext.revenue}</p>
+                      <p className="text-blue-900">{selectedEmployee.companyContext?.revenue || 'Not specified'}</p>
                     </div>
                     <div>
                       <span className="text-blue-700 font-medium">Experience:</span>
@@ -772,7 +772,7 @@ export default function DecisionMakerMapping() {
                   <div className="mb-3">
                     <span className="text-blue-700 font-medium">Company Challenges:</span>
                     <div className="flex flex-wrap gap-2 mt-1">
-                      {selectedEmployee.companyContext.challenges.map((challenge, idx) => (
+                      {(selectedEmployee.companyContext?.challenges || []).map((challenge, idx) => (
                         <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
                           {challenge}
                         </span>
@@ -782,7 +782,7 @@ export default function DecisionMakerMapping() {
                   <div>
                     <span className="text-blue-700 font-medium">Company Priorities:</span>
                     <div className="flex flex-wrap gap-2 mt-1">
-                      {selectedEmployee.companyContext.priorities.map((priority, idx) => (
+                      {(selectedEmployee.companyContext?.priorities || []).map((priority, idx) => (
                         <span key={idx} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                           {priority}
                         </span>
