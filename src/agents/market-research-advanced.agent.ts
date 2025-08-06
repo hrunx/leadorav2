@@ -279,34 +279,52 @@ Start by searching for current market data, then analyze competitors, and finall
         
         switch (call.name) {
           case 'web_search':
-            response = await performWebSearch(call.args?.query, call.args?.focus, searchData.countries[0]);
+            // Search across all countries for comprehensive results
+            const allCountryResults = [];
+            for (const country of searchData.countries) {
+              const countryResults = await performWebSearch(call.args?.query, call.args?.focus, country);
+              allCountryResults.push(...countryResults);
+            }
+            response = allCountryResults;
             break;
           case 'calculate_market_size':
-            // Use actual web search data to estimate market size
-            const marketSearchResults = await performWebSearch(
-              `${searchData.product_service} market size ${searchData.countries.join(' ')} ${searchData.industries.join(' ')}`,
-              'market sizing',
-              searchData.countries[0]
-            );
-            response = extractMarketSizeFromSearch(marketSearchResults, call.args);
+            // Use actual web search data to estimate market size across all countries
+            const allMarketResults = [];
+            for (const country of searchData.countries) {
+              const marketSearchResults = await performWebSearch(
+                `${searchData.product_service} market size ${country} ${searchData.industries.join(' ')}`,
+                'market sizing',
+                country
+              );
+              allMarketResults.push(...marketSearchResults);
+            }
+            response = extractMarketSizeFromSearch(allMarketResults, call.args);
             break;
           case 'analyze_competitors':
-            // Use web search for competitor analysis
-            const competitorSearchResults = await performWebSearch(
-              `${searchData.product_service} competitors ${searchData.countries.join(' ')} ${searchData.industries.join(' ')}`,
-              'competitive analysis',
-              searchData.countries[0]
-            );
-            response = extractCompetitorsFromSearch(competitorSearchResults);
+            // Use web search for competitor analysis across all countries
+            const allCompetitorResults = [];
+            for (const country of searchData.countries) {
+              const competitorSearchResults = await performWebSearch(
+                `${searchData.product_service} competitors ${country} ${searchData.industries.join(' ')}`,
+                'competitive analysis',
+                country
+              );
+              allCompetitorResults.push(...competitorSearchResults);
+            }
+            response = extractCompetitorsFromSearch(allCompetitorResults);
             break;
           case 'analyze_trends':
-            // Use web search for trend analysis
-            const trendSearchResults = await performWebSearch(
-              `${searchData.product_service} trends ${searchData.industries.join(' ')} market outlook`,
-              'trend analysis',
-              searchData.countries[0]
-            );
-            response = extractTrendsFromSearch(trendSearchResults);
+            // Use web search for trend analysis across all countries
+            const allTrendResults = [];
+            for (const country of searchData.countries) {
+              const trendSearchResults = await performWebSearch(
+                `${searchData.product_service} trends ${country} ${searchData.industries.join(' ')} market outlook`,
+                'trend analysis',
+                country
+              );
+              allTrendResults.push(...trendSearchResults);
+            }
+            response = extractTrendsFromSearch(allTrendResults);
             break;
           default:
             response = { error: 'Unknown function' };
@@ -327,9 +345,25 @@ Start by searching for current market data, then analyze competitors, and finall
     finalResult = await chat.sendMessage(`Based on the function results:\n\n${functionResponsesText}\n\nProvide a comprehensive market analysis.`);
   }
 
+  // Aggregate all sources from function responses
+  const allSources = [];
+  if (functionCalls && functionCalls.length > 0) {
+    functionResponses.forEach(fr => {
+      if (fr.response && Array.isArray(fr.response)) {
+        // For web search results
+        fr.response.forEach(result => {
+          if (result.url) allSources.push(result.url);
+        });
+      } else if (fr.response && fr.response.sources) {
+        // For analysis results with sources
+        allSources.push(...fr.response.sources);
+      }
+    });
+  }
+
   return {
     analysis: finalResult.response.text(),
     functionCalls: functionCalls || [],
-    sources: [] // Will be populated from function responses
+    sources: [...new Set(allSources)] // Remove duplicates
   };
 }

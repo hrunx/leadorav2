@@ -35,8 +35,8 @@ export async function execMarketResearchParallel(payload: {
       request: { 
         model: 'gemini-2.0-flash-exp',
         product: searchData.product_service,
-        industry: searchData.industries[0],
-        country: searchData.countries[0]
+        industries: searchData.industries,
+        countries: searchData.countries
       },
       response: { 
         analysis_length: result.analysis.length,
@@ -48,8 +48,8 @@ export async function execMarketResearchParallel(payload: {
     // Parse the analysis to extract structured data
     const insights = await parseMarketAnalysis(result.analysis, result.sources);
     
-    // Store in database with sources
-    return     await insertMarketInsights({
+    // Store in database with sources and methodology
+    return await insertMarketInsights({
       search_id: search.id,
       user_id: search.user_id,
       tam_data: insights.tam_data || {},
@@ -57,7 +57,10 @@ export async function execMarketResearchParallel(payload: {
       som_data: insights.som_data || {},
       competitor_data: insights.competitor_data || [],
       trends: insights.trends || [],
-      opportunities: insights.opportunities || {}
+      opportunities: insights.opportunities || {},
+      sources: insights.sources || result.sources || [],
+      analysis_summary: insights.analysis_summary || 'Advanced market research completed',
+      research_methodology: insights.research_methodology || 'AI-powered analysis with multi-country web search and competitive intelligence'
     });
 
   } catch (error: any) {

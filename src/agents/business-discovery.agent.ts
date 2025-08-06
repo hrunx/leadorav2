@@ -131,6 +131,9 @@ const storeBusinessesTool = tool({
       country,
       address: b.address || '',
       city: b.city || country,
+      phone: b.phone || null,
+      website: b.website || null,
+      rating: b.rating || null,
       size: b.size || 'Unknown',
       revenue: b.revenue || 'Unknown',
       description: b.description || 'Business discovered via search',
@@ -164,17 +167,17 @@ STEP-BY-STEP PROCESS (execute in this exact order):
 3. THIRD - IMMEDIATELY store ALL places from serperPlaces:
    storeBusinesses(search_id, user_id, first_industry, first_country, all_places_as_basic_business_objects)
    
-   CRITICAL: Convert each Serper place to this EXACT format:
+   CRITICAL: Convert each Serper place to this EXACT format (include ALL contact fields):
    {
      name: place.name,
      address: place.address,
-     phone: place.phone,
-     website: place.website,
-     rating: place.rating || 0,
-     city: place.city,
+     phone: place.phone || null,
+     website: place.website || null,
+     rating: place.rating || null,
+     city: place.city || place.location,
      size: "Unknown",
      revenue: "Unknown", 
-     description: "Business discovered via Serper Places",
+     description: place.description || "Business discovered via Serper Places",
      match_score: 85,
      persona_id: null,
      persona_type: "business",
@@ -218,26 +221,33 @@ export async function runBusinessDiscovery(search: {
     
     const countries = search.countries.join(', ');
     const industries = search.industries.join(', ');
-    // Process all target countries for comprehensive business discovery
-  console.log(`Processing business discovery for countries: ${search.countries.join(', ')}`);
-  const gl = countryToGL(search.countries[0]); // Primary country for GL code
+    console.log(`Processing business discovery for countries: ${search.countries.join(', ')}`);
+    
     const intent = search.search_type === 'customer' ? 'need' : 'sell provide';
-    const q = `${search.product_service} ${intent} ${industries} ${countries}`;
+    
+    // Build multi-country search instructions
+    const countrySearches = search.countries.map(country => {
+      const gl = countryToGL(country);
+      const query = `${search.product_service} ${intent} ${industries} ${country}`;
+      return `  * For ${country}: serperPlaces(q="${query}", gl="${gl}", limit=10)`;
+    }).join('\n');
+    
     const msg = `search_id=${search.id} user_id=${search.user_id} 
 - product_service=${search.product_service}
 - industries=${industries}
 - countries=${countries}
 - search_type=${search.search_type}
-- gl=${gl}
-- discovery_query="${q}"
 
-CRITICAL: Find businesses across ALL specified countries: ${search.countries.join(', ')}
-- Call serperPlaces MULTIPLE TIMES for comprehensive coverage:
-  ${search.countries.map(country => `  * For ${country}: serperPlaces(q="${search.product_service} ${intent} ${industries} ${country}", gl="${countryToGL(country)}", limit=10)`).join('\n')}
-- Store ALL results from all countries combined
-- Use geographic targeting for each country separately`;
+CRITICAL: Execute multiple serperPlaces searches for comprehensive coverage:
+${countrySearches}
+
+MULTI-COUNTRY BUSINESS DISCOVERY:
+- Call serperPlaces for EACH country with proper GL codes
+- Store ALL results from all countries using storeBusinesses
+- Use geographic targeting for each country separately
+- Combine all businesses into single database storage call`;
     
-    console.log(`Starting business discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries} | Query: "${q}"`);
+    console.log(`Starting business discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries}`);
     
     await run(BusinessDiscoveryAgent, [{ role: 'user', content: msg }]);
     

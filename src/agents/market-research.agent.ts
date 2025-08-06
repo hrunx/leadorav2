@@ -133,7 +133,10 @@ Requirements:
         som_data: data.som_data || {},
         competitor_data: data.competitor_data || [],
         trends: data.trends || [],
-        opportunities: data.opportunities || {}
+        opportunities: data.opportunities || {},
+        sources: data.sources || [],
+        analysis_summary: data.analysis_summary || 'Market research completed using Gemini AI analysis',
+        research_methodology: data.research_methodology || 'AI-powered market analysis based on business personas, discovered companies, and decision maker profiles'
       };
 
     await insertMarketInsights(row);

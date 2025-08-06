@@ -4,8 +4,7 @@ import { useProfile } from '../../hooks/useProfile';
 import { useSubscription } from '../../hooks/useSubscription';
 import { useAuth } from '../../context/AuthContext';
 
-const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
-const DEMO_USER_EMAIL = 'demo@leadora.com';
+import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
 
 export default function ProfilePage() {
   const { state: authState } = useAuth();
