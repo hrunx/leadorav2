@@ -404,30 +404,60 @@ const storeBusinessesTool = tool({
 export const BusinessDiscoveryAgent = new Agent({
   name: 'BusinessDiscoveryAgent',
   instructions: `
-You are a business discovery agent. Your job is to find real businesses using Serper Places API and store them in the database.
+You are a business discovery agent. Your ONLY job is to find real businesses and store them in the database.
 
-IMMEDIATE START PROCESS (no waiting for personas):
-1. Start by calling serperPlaces to find businesses immediately (use limit: 10 for maximum results)
-2. For each business found, call analyzeBusiness to get detailed information  
-3. Try calling readBusinessPersonas to get persona information for mapping
-4. Call storeBusinesses to save all businesses to database with persona mapping
+STEP-BY-STEP PROCESS (execute in this exact order):
 
-CRITICAL RULES:
-- START IMMEDIATELY with serperPlaces - don't wait for personas
-- ALWAYS call serperPlaces with limit: 10 to get maximum businesses
-- ALWAYS analyze EVERY business you find with analyzeBusiness
-- If readBusinessPersonas fails or returns empty, use a default persona_id
-- ALWAYS store ALL analyzed businesses with storeBusinesses
-- Use the search_id and user_id provided in the user message
-- Extract country and industry from the user message
+1. FIRST - Extract parameters from user message:
+   - search_id, user_id (required)
+   - product_service, industries, countries, gl
+   - discovery_query (use this for serperPlaces)
 
-IMMEDIATE WORKFLOW:
-1. serperPlaces(q="[industry] companies in [country]", gl="[country_code]", limit=10, search_id, user_id)
-2. For each place returned: analyzeBusiness(company details)
-3. readBusinessPersonas(search_id) - for mapping (if available)
-4. storeBusinesses(all analyzed businesses with persona mapping)
+2. SECOND - Call serperPlaces immediately:
+   serperPlaces(q=discovery_query, gl=gl, limit=10, search_id=search_id, user_id=user_id)
 
-START FINDING BUSINESSES IMMEDIATELY - DON'T WAIT!`,
+3. THIRD - If serperPlaces returns places, store them immediately:
+   storeBusinesses(search_id, user_id, industry, country, places_with_basic_info)
+   
+   IMPORTANT: Don't wait for business analysis - store basic business info first!
+   Use this format for each place:
+   {
+     name: place.name,
+     address: place.address,
+     phone: place.phone,
+     website: place.website,
+     rating: place.rating,
+     city: place.city,
+     size: "Unknown",
+     revenue: "Unknown", 
+     description: "Business discovered via Serper Places",
+     match_score: 80,
+     persona_id: null,
+     persona_type: "business",
+     relevant_departments: [],
+     key_products: [],
+     recent_activity: []
+   }
+
+4. OPTIONAL - After storing basic info, try to enhance with analysis:
+   For important businesses: analyzeBusiness(company details)
+   readBusinessPersonas(search_id) for persona mapping
+
+CRITICAL SUCCESS RULES:
+- MUST call serperPlaces first with the discovery_query from user message  
+- MUST store basic business info immediately after getting places
+- STORE FIRST, analyze later (analysis is optional)
+- Use limit=10 for maximum results
+- Continue even if analysis fails
+
+EXAMPLE FLOW:
+User: "search_id=123 user_id=456 discovery_query='CRM software companies USA' gl=us"
+You: serperPlaces(q="CRM software companies USA", gl="us", limit=10, search_id="123", user_id="456")
+You: storeBusinesses(123, 456, "Technology", "USA", basic_business_objects)
+You: (optional) analyzeBusiness for detailed info
+You: (optional) readBusinessPersonas for mapping
+
+START NOW - NO WAITING!`,
   tools: [readPersonasTool, serperPlacesTool, analyzeBusinessTool, storeBusinessesTool],
   handoffDescription: 'Discovers and analyzes real businesses with complete intelligence via Serper Places + Gemini AI',
   handoffs: [],
