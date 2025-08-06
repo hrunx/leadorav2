@@ -336,7 +336,7 @@ const storeBusinessesTool = tool({
             key_products: { type: 'array', items: { type: 'string' } },
             recent_activity: { type: 'array', items: { type: 'string' } }
           },
-          required: ['name', 'persona_id', 'persona_type', 'match_score'],
+          required: ['name', 'address', 'phone', 'website', 'rating', 'persona_id', 'persona_type', 'city', 'size', 'revenue', 'description', 'match_score', 'relevant_departments', 'key_products', 'recent_activity'],
           additionalProperties: false
         }
       }
