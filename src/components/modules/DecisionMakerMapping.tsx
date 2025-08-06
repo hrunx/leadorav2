@@ -58,12 +58,16 @@ export default function DecisionMakerMapping() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasSearch, setHasSearch] = useState(false);
 
-  // Check if we came from a specific persona selection
+// Disable auto-filter so all decision makers show by default
+  // If you want to re-enable filtering when a persona chip is clicked elsewhere,
+  // uncomment the block below.
+  /*
   useEffect(() => {
     if (state.selectedDecisionMakerPersonas && state.selectedDecisionMakerPersonas.length === 1) {
       setFilterPersona(state.selectedDecisionMakerPersonas[0].title);
     }
   }, [state.selectedDecisionMakerPersonas]);
+  */
 
   // Load data on component mount
   useEffect(() => {
@@ -754,7 +758,7 @@ export default function DecisionMakerMapping() {
                   <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                     <div>
                       <span className="text-blue-700 font-medium">Industry:</span>
-                      <p className="text-blue-900">{selectedEmployee.companyContext?.industry || 'Not specified'}</p>
+                      <p className="text-blue-900">{selectedEmployee.companyContext?.industry ?? 'Not specified'}</p>
                     </div>
                     <div>
                       <span className="text-blue-700 font-medium">Size:</span>
@@ -796,7 +800,7 @@ export default function DecisionMakerMapping() {
                   <div>
                     <h4 className="font-semibold text-gray-900 mb-3">Pain Points</h4>
                     <div className="space-y-2">
-                      {selectedEmployee.painPoints.map((point, index) => (
+                      {(selectedEmployee.painPoints || []).map((point, index) => (
                         <div key={index} className="flex items-start space-x-2">
                           <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
                           <span className="text-gray-700 text-sm">{point}</span>
@@ -808,7 +812,7 @@ export default function DecisionMakerMapping() {
                   <div>
                     <h4 className="font-semibold text-gray-900 mb-3">Motivations</h4>
                     <div className="space-y-2">
-                      {selectedEmployee.motivations.map((motivation, index) => (
+                      {(selectedEmployee.motivations || []).map((motivation, index) => (
                         <div key={index} className="flex items-start space-x-2">
                           <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
                           <span className="text-gray-700 text-sm">{motivation}</span>
@@ -822,7 +826,7 @@ export default function DecisionMakerMapping() {
                 <div>
                   <h4 className="font-semibold text-gray-900 mb-3">Key Decision Factors</h4>
                   <div className="flex flex-wrap gap-2">
-                    {selectedEmployee.decisionFactors.map((factor, index) => (
+                    {(selectedEmployee.decisionFactors || []).map((factor, index) => (
                       <span key={index} className="px-3 py-1 bg-purple-100 text-purple-800 text-sm rounded-full">
                         {factor}
                       </span>
