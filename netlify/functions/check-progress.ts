@@ -75,11 +75,13 @@ export const handler: Handler = async (event) => {
       .limit(10);
 
     // Get data counts (with error handling)
-    const [businessPersonas, businesses, dmPersonas, dms, marketInsights] = await Promise.all([
+    const [businessPersonas, businesses, dmPersonas, dms, dmsPending, dmsDone, marketInsights] = await Promise.all([
       supa.from('business_personas').select('id').eq('search_id', search_id),
       supa.from('businesses').select('id').eq('search_id', search_id),
       supa.from('decision_maker_personas').select('id').eq('search_id', search_id),
       supa.from('decision_makers').select('id').eq('search_id', search_id),
+      supa.from('decision_makers').select('id').eq('search_id', search_id).eq('enrichment_status', 'pending'),
+      supa.from('decision_makers').select('id').eq('search_id', search_id).eq('enrichment_status', 'done'),
       supa.from('market_insights').select('id').eq('search_id', search_id)
     ]);
 
@@ -93,6 +95,8 @@ export const handler: Handler = async (event) => {
           businesses: businesses.data?.length || 0,
           dm_personas: dmPersonas.data?.length || 0,
           decision_makers: dms.data?.length || 0,
+          decision_makers_pending: dmsPending.data?.length || 0,
+          decision_makers_done: dmsDone.data?.length || 0,
           market_insights: marketInsights.data?.length || 0
         },
         recent_api_calls: logs

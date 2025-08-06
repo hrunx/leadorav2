@@ -5,6 +5,7 @@ import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
 import { useDemoMode } from '../../hooks/useDemoMode';
+import { supabase } from '../../lib/supabase';
 
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
 const DEMO_USER_EMAIL = 'demo@leadora.com';
@@ -42,6 +43,7 @@ interface DecisionMaker {
     bestContactTime: string;
     preferredChannel: string;
   };
+  enrichmentStatus?: 'pending' | 'done';
 }
 
 export default function DecisionMakerMapping() {
@@ -74,6 +76,118 @@ export default function DecisionMakerMapping() {
     loadDecisionMakers();
   }, [getCurrentSearch, authState.user]);
 
+  // Setup realtime subscription for decision maker updates
+  useEffect(() => {
+    const currentSearch = getCurrentSearch();
+    const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+    
+    if (!currentSearch || isDemo) return;
+
+    console.log(`Setting up realtime subscription for decision makers in search ${currentSearch.id}`);
+
+    const channel = supabase
+      .channel('decision-makers-changes')
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'decision_makers',
+          filter: `search_id=eq.${currentSearch.id}`
+        }, 
+        (payload) => {
+          console.log('New decision maker inserted:', payload.new);
+          const newDM = payload.new as any;
+          const enrichment = newDM.enrichment || {};
+          
+          const transformedDM: DecisionMaker = {
+            id: newDM.id,
+            name: newDM.name,
+            title: newDM.title,
+            level: newDM.level as 'executive' | 'director' | 'manager' | 'individual',
+            influence: newDM.influence,
+            department: newDM.department,
+            company: newDM.company,
+            location: newDM.location,
+            email: newDM.email || '',
+            phone: newDM.phone || '',
+            linkedin: newDM.linkedin || '',
+            experience: newDM.experience || enrichment.experience_level || '',
+            communicationPreference: newDM.communication_preference || enrichment.communication_preference || '',
+            painPoints: newDM.pain_points || enrichment.pain_points || [],
+            motivations: newDM.motivations || enrichment.motivations || [],
+            decisionFactors: newDM.decision_factors || enrichment.decision_factors || [],
+            personaType: newDM.persona_type,
+            companyContext: newDM.company_context || {
+              industry: '',
+              size: '',
+              revenue: '',
+              challenges: enrichment.current_challenges || [],
+              priorities: []
+            },
+            personalizedApproach: newDM.personalized_approach || {
+              keyMessage: '',
+              valueProposition: '',
+              approachStrategy: '',
+              bestContactTime: enrichment.best_contact_time || '',
+              preferredChannel: enrichment.preferred_contact_method || ''
+            },
+            enrichmentStatus: newDM.enrichment_status || 'pending'
+          };
+          
+          setDecisionMakers(prev => {
+            // Avoid duplicates
+            if (prev.find(dm => dm.id === transformedDM.id)) return prev;
+            return [...prev, transformedDM];
+          });
+        }
+      )
+      .on('postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'decision_makers',
+          filter: `search_id=eq.${currentSearch.id}`
+        },
+        (payload) => {
+          console.log('Decision maker updated (enrichment):', payload.new);
+          const updatedDM = payload.new as any;
+          const enrichment = updatedDM.enrichment || {};
+          
+          setDecisionMakers(prev => 
+            prev.map(dm => {
+              if (dm.id === updatedDM.id) {
+                return {
+                  ...dm,
+                  experience: updatedDM.experience || enrichment.experience_level || dm.experience,
+                  communicationPreference: updatedDM.communication_preference || enrichment.communication_preference || dm.communicationPreference,
+                  painPoints: updatedDM.pain_points || enrichment.pain_points || dm.painPoints,
+                  motivations: updatedDM.motivations || enrichment.motivations || dm.motivations,
+                  decisionFactors: updatedDM.decision_factors || enrichment.decision_factors || dm.decisionFactors,
+                  companyContext: {
+                    ...dm.companyContext,
+                    challenges: enrichment.current_challenges || dm.companyContext.challenges
+                  },
+                  personalizedApproach: {
+                    ...dm.personalizedApproach,
+                    bestContactTime: enrichment.best_contact_time || dm.personalizedApproach.bestContactTime,
+                    preferredChannel: enrichment.preferred_contact_method || dm.personalizedApproach.preferredChannel
+                  },
+                  enrichmentStatus: updatedDM.enrichment_status || 'pending'
+                };
+              }
+              return dm;
+            })
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('Cleaning up decision makers realtime subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [getCurrentSearch, authState.user]);
+
   const loadDecisionMakers = async () => {
     setIsLoading(true);
     try {
@@ -89,39 +203,46 @@ export default function DecisionMakerMapping() {
       } else {
         // Load real data from database using SearchService
         const dmData = await SearchService.getDecisionMakers(currentSearch.id);
-        const transformedData = dmData.map(dm => ({
-          id: dm.id,
-          name: dm.name,
-          title: dm.title,
-          level: dm.level as 'executive' | 'director' | 'manager' | 'individual',
-          influence: dm.influence,
-          department: dm.department,
-          company: dm.company,
-          location: dm.location,
-          email: dm.email || '',
-          phone: dm.phone || '',
-          linkedin: dm.linkedin || '',
-          experience: dm.experience || '',
-          communicationPreference: dm.communication_preference || '',
-          painPoints: dm.pain_points || [],
-          motivations: dm.motivations || [],
-          decisionFactors: dm.decision_factors || [],
-          personaType: dm.persona_type,
-          companyContext: dm.company_context || {
-            industry: '',
-            size: '',
-            revenue: '',
-            challenges: [],
-            priorities: []
-          },
-          personalizedApproach: dm.personalized_approach || {
-            keyMessage: '',
-            valueProposition: '',
-            approachStrategy: '',
-            bestContactTime: '',
-            preferredChannel: ''
-          }
-        }));
+        const transformedData = dmData.map(dm => {
+          // Handle enrichment data if available
+          const enrichment = dm.enrichment || {};
+          
+          return {
+            id: dm.id,
+            name: dm.name,
+            title: dm.title,
+            level: dm.level as 'executive' | 'director' | 'manager' | 'individual',
+            influence: dm.influence,
+            department: dm.department,
+            company: dm.company,
+            location: dm.location,
+            email: dm.email || '',
+            phone: dm.phone || '',
+            linkedin: dm.linkedin || '',
+            experience: dm.experience || enrichment.experience_level || '',
+            communicationPreference: dm.communication_preference || enrichment.communication_preference || '',
+            painPoints: dm.pain_points || enrichment.pain_points || [],
+            motivations: dm.motivations || enrichment.motivations || [],
+            decisionFactors: dm.decision_factors || enrichment.decision_factors || [],
+            personaType: dm.persona_type,
+            companyContext: dm.company_context || {
+              industry: '',
+              size: '',
+              revenue: '',
+              challenges: enrichment.current_challenges || [],
+              priorities: []
+            },
+            personalizedApproach: dm.personalized_approach || {
+              keyMessage: '',
+              valueProposition: '',
+              approachStrategy: '',
+              bestContactTime: enrichment.best_contact_time || '',
+              preferredChannel: enrichment.preferred_contact_method || ''
+            },
+            // Add enrichment status for UI indicators
+            enrichmentStatus: dm.enrichment_status || 'pending'
+          };
+        });
         setDecisionMakers(transformedData);
         setHasSearch(true);
       }
@@ -654,6 +775,16 @@ export default function DecisionMakerMapping() {
                     }`}>
                       {matchScore}% Match
                     </div>
+                    {dm.enrichmentStatus === 'pending' && (
+                      <div className="px-2 py-1 rounded-full text-xs font-medium mb-2 bg-orange-100 text-orange-800">
+                        Details Loading...
+                      </div>
+                    )}
+                    {dm.enrichmentStatus === 'done' && (
+                      <div className="px-2 py-1 rounded-full text-xs font-medium mb-2 bg-green-100 text-green-800">
+                        ✓ Enriched
+                      </div>
+                    )}
                     <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
                       {dm.level}
                     </div>

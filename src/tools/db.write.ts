@@ -24,6 +24,35 @@ export const insertDMs = async (rows: any[]) => {
   return data!;
 };
 
+// Insert basic DM data with enrichment_status = 'pending'
+export const insertDecisionMakersBasic = async (rows: any[]) => {
+  const basicRows = rows.map(row => ({
+    ...row,
+    enrichment_status: 'pending' as const,
+    enrichment: null
+  }));
+  
+  const { data, error } = await supa.from('decision_makers').insert(basicRows).select('id,name,company,title,linkedin');
+  if (error) throw error; 
+  return data!;
+};
+
+// Update enrichment data for a specific decision maker
+export const updateDecisionMakerEnrichment = async (id: string, enrichmentData: any) => {
+  const { data, error } = await supa
+    .from('decision_makers')
+    .update({
+      enrichment_status: 'done' as const,
+      enrichment: enrichmentData,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', id)
+    .select('id,name');
+    
+  if (error) throw error;
+  return data;
+};
+
 export const insertMarketInsights = async (row: any) => {
   const { data, error } = await supa.from('market_insights').insert(row).select('id').single();
   if (error) throw error; 
