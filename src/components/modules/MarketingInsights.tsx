@@ -312,9 +312,9 @@ export default function MarketingInsights() {
                           <div className="flex items-center justify-between mb-2">
                             <h5 className="font-medium text-gray-900">{competitor.name}</h5>
                             <span className={`text-sm font-medium ${
-                              competitor.growth.startsWith('+') ? 'text-green-600' : 'text-red-600'
+                              competitor.growth?.startsWith('+') ? 'text-green-600' : 'text-red-600'
                             }`}>
-                              {competitor.growth}
+                              {competitor.growth || 'N/A'}
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-sm text-gray-600">

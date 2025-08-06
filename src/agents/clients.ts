@@ -16,7 +16,13 @@ export const deepseek = new OpenAI({
 export const supa = createClient(
   process.env.VITE_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
+  { 
+    auth: { 
+      autoRefreshToken: false, 
+      persistSession: false,
+      storageKey: 'agents-auth' // Different storage key to avoid conflicts
+    } 
+  }
 );
 
 export const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
