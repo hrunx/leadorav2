@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { supa } from '../agents/clients';
 
 /**
  * Maps businesses to personas once both are available
@@ -9,7 +9,7 @@ export async function mapBusinessesToPersonas(searchId: string) {
     console.log(`Starting persona mapping for search ${searchId}`);
     
     // Get all businesses without proper persona mapping
-    const { data: businesses, error: businessError } = await supabase
+    const { data: businesses, error: businessError } = await supa
       .from('businesses')
       .select('*')
       .eq('search_id', searchId)
@@ -22,7 +22,7 @@ export async function mapBusinessesToPersonas(searchId: string) {
     }
     
     // Get all personas for this search
-    const { data: personas, error: personaError } = await supabase
+    const { data: personas, error: personaError } = await supa
       .from('business_personas')
       .select('*')
       .eq('search_id', searchId)
@@ -41,7 +41,7 @@ export async function mapBusinessesToPersonas(searchId: string) {
       // Use round-robin distribution for now, but could be enhanced with AI matching
       const persona = personas[index % personas.length];
       
-      return supabase
+      return supa
         .from('businesses')
         .update({
           persona_id: persona.id,
@@ -74,8 +74,8 @@ export async function intelligentPersonaMapping(searchId: string, userMessage?: 
   try {
     // Get businesses and personas
     const [businessResult, personaResult] = await Promise.all([
-      supabase.from('businesses').select('*').eq('search_id', searchId),
-      supabase.from('business_personas').select('*').eq('search_id', searchId).order('rank')
+      supa.from('businesses').select('*').eq('search_id', searchId),
+      supa.from('business_personas').select('*').eq('search_id', searchId).order('rank')
     ]);
     
     if (businessResult.error) throw businessResult.error;
@@ -117,7 +117,7 @@ export async function intelligentPersonaMapping(searchId: string, userMessage?: 
         }
       });
       
-      return supabase
+      return supa
         .from('businesses')
         .update({
           persona_id: bestPersona.id,
