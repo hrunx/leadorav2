@@ -173,7 +173,11 @@ export async function retryWithBackoff<T>(
       }
       
       // Exponential backoff with jitter
-      const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+      // Use crypto.getRandomValues for better randomness in jitter
+  const jitterArray = new Uint32Array(1);
+  crypto.getRandomValues(jitterArray);
+  const jitter = (jitterArray[0] / 0xFFFFFFFF) * 1000; // 0-1000ms jitter
+  const delay = baseDelay * Math.pow(2, attempt) + jitter;
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }

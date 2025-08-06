@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
-const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
-const DEMO_USER_EMAIL = 'demo@leadora.com';
+import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser, DEMO_USER_PROFILE } from '../constants/demo';
 
 export interface AppUser {
   id: string;
@@ -25,29 +24,14 @@ export function useProfile() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
+  // Demo user detection function is now imported from constants
 
   useEffect(() => {
     let mounted = true;
 
     // Check if this is a demo user first
     if (isDemoUser(authState.user?.id, authState.user?.email)) {
-      const demoProfile: AppUser = {
-        id: 'demo-user',
-        email: 'demo@leadora.com',
-        full_name: 'Demo User',
-        company: 'Demo Company Inc.',
-        country: 'United States',
-        phone: '+1 (555) 123-4567',
-        role: 'user',
-        onboarding: {},
-        preferences: {},
-        created_at: '2024-01-01T00:00:00.000Z',
-        updated_at: '2024-01-01T00:00:00.000Z'
-      };
+      const demoProfile: AppUser = DEMO_USER_PROFILE;
       
       if (mounted) {
         setProfile(demoProfile);

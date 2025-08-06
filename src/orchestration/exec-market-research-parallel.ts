@@ -83,7 +83,7 @@ export async function execMarketResearchParallel(payload: {
   }
 }
 
-async function parseMarketAnalysis(analysis: string, sources: any[]): Promise<any> {
+async function parseMarketAnalysis(analysis: string, _sources: any[]): Promise<any> {
   // Try to extract JSON from the analysis
   let insights;
   
@@ -101,52 +101,40 @@ async function parseMarketAnalysis(analysis: string, sources: any[]): Promise<an
     insights = await generateStructuredInsights(analysis);
   }
 
-  // Ensure all required fields exist
+  // Return only real data - no fake placeholders
   return {
     tam_data: insights.tam_data || {
-      value: "$50.0B",
-      growth: "+12%",
+      value: "Data not available",
+      growth: "Unknown",
       description: "Total Addressable Market",
-      calculation: "Based on industry analysis and web research"
+      calculation: "Insufficient data for reliable market size calculation",
+      data_quality: "unavailable"
     },
     sam_data: insights.sam_data || {
-      value: "$10.0B",
-      growth: "+15%",
+      value: "Data not available", 
+      growth: "Unknown",
       description: "Serviceable Addressable Market",
-      calculation: "Geographic and segment filtering"
+      calculation: "Insufficient data for reliable market segmentation",
+      data_quality: "unavailable"
     },
     som_data: insights.som_data || {
-      value: "$500M",
-      growth: "+18%",
+      value: "Data not available",
+      growth: "Unknown",
       description: "Serviceable Obtainable Market",
-      calculation: "Realistic market capture potential"
+      calculation: "Insufficient data for realistic capture estimation",
+      data_quality: "unavailable"
     },
-    competitor_data: insights.competitor_data || [
-      {
-        name: "Market Leader",
-        marketShare: "25%",
-        description: "Established player with strong brand",
-        strengths: ["Brand recognition", "Distribution network"],
-        weaknesses: ["High prices", "Slow innovation"]
-      }
-    ],
-    trends: insights.trends || [
-      {
-        title: "Digital Transformation",
-        impact: "High",
-        description: "Increasing adoption of digital solutions",
-        timeline: "1-2 years"
-      }
-    ],
-    opportunities: insights.opportunities || [
-      {
-        title: "Market Gap",
-        description: "Underserved customer segment identified",
-        potential: "High",
-        timeframe: "Short term"
-      }
-    ],
-    methodology: "AI-powered analysis with real-time web research and competitive intelligence"
+    competitor_data: insights.competitor_data || [],
+    trends: insights.trends || [],
+    opportunities: insights.opportunities || {
+      summary: "Market research incomplete - requires additional data sources",
+      playbook: [],
+      market_gaps: [],
+      timing: "Cannot determine without reliable market data"
+    },
+    sources: _sources || insights.sources || [],
+    analysis_summary: insights.analysis_summary || "Market research incomplete due to insufficient data",
+    research_methodology: insights.research_methodology || "Limited data available - requires industry reports and market intelligence"
   };
 }
 
@@ -203,7 +191,7 @@ function extractCompetitorData(analysis: string): any[] {
   }
   
   // Return extracted competitors (simplified - real implementation would be more sophisticated)
-  return matches.slice(0, 3).map((match, index) => ({
+  return matches.slice(0, 3).map((match) => ({
     name: match.replace(/^.*:\s*/, '').trim(),
     marketShare: "Unknown",
     description: "Mentioned in market analysis",
@@ -229,7 +217,7 @@ function extractTrends(analysis: string): any[] {
   }
   
   // Return extracted trends (simplified)
-  return matches.slice(0, 3).map((match, index) => ({
+  return matches.slice(0, 3).map((match) => ({
     title: match.replace(/^.*?(?:trend|growth|emerging|increasing|rising)[\s:]*/, '').trim(),
     impact: "Unknown",
     description: "Mentioned in market analysis",
@@ -256,7 +244,7 @@ function extractOpportunities(analysis: string): any[] {
   }
   
   // Return extracted opportunities (simplified)
-  return matches.slice(0, 3).map((match, index) => ({
+  return matches.slice(0, 3).map((match) => ({
     title: match.replace(/^.*?(?:opportunity|potential|gap|opening)[\s:]*/, '').trim(),
     description: "Mentioned in market analysis",
     potential: "Unknown",

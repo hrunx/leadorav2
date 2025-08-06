@@ -20,7 +20,7 @@ You are a market research analyst. Create comprehensive market insights for the 
 
 Product/Service: ${search.product_service}
 Industry: ${search.industries[0]}
-Target Country: ${search.countries[0]}
+Target Countries: ${search.countries.join(', ')}
 
 Business Context:
 - Found ${bp.length} business personas: ${bp.map((p:any) => p.title).join(', ')}

@@ -218,7 +218,9 @@ export async function runBusinessDiscovery(search: {
     
     const countries = search.countries.join(', ');
     const industries = search.industries.join(', ');
-    const gl = countryToGL(search.countries[0]); // Use first country for GL code
+    // Process all target countries for comprehensive business discovery
+  console.log(`Processing business discovery for countries: ${search.countries.join(', ')}`);
+  const gl = countryToGL(search.countries[0]); // Primary country for GL code
     const intent = search.search_type === 'customer' ? 'need' : 'sell provide';
     const q = `${search.product_service} ${intent} ${industries} ${countries}`;
     const msg = `search_id=${search.id} user_id=${search.user_id} 

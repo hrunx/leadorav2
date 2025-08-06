@@ -71,7 +71,8 @@ async function updateProgress(search_id:string, phase:string, pct:number, error?
 async function retry<T>(fn:()=>Promise<T>, tries=3) {
   try { return await fn(); } catch (e:any) {
     if (tries<=1 || String(e?.status) !== '429') throw e;
-    await sleep(300 + Math.random()*500);
+    // Use deterministic delay to avoid random timing issues
+  await sleep(500); // Fixed 500ms delay for consistency
     return retry(fn, tries-1);
   }
 }

@@ -105,10 +105,23 @@ export async function intelligentPersonaMapping(searchId: string, userMessage?: 
           if (persona.demographics.companySize && business.size.includes(persona.demographics.companySize.split('-')[0])) score += 20;
         }
         
-        // Match based on characteristics
+        // Match based on characteristics 
         if (persona.characteristics) {
-          // Add scoring logic based on business description matching persona characteristics
-          score += Math.random() * 10; // Placeholder for semantic matching
+          // Use deterministic scoring based on actual characteristics matching
+          const businessDesc = business.description?.toLowerCase() || '';
+          const personaChars = JSON.stringify(persona.characteristics).toLowerCase();
+          
+          // Look for keyword overlaps between business and persona
+          const commonWords = ['technology', 'software', 'service', 'manufacturing', 'retail', 'healthcare', 'finance'];
+          let matchCount = 0;
+          
+          for (const word of commonWords) {
+            if (businessDesc.includes(word) && personaChars.includes(word)) {
+              matchCount++;
+            }
+          }
+          
+          score += matchCount * 2; // Add 2 points per matching characteristic
         }
         
         if (score > bestScore) {
