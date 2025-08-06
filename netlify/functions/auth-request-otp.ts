@@ -12,7 +12,11 @@ function hashCode(code: string) {
 }
 
 function generateCode() {
-  return String(Math.floor(100000 + Math.random() * 900000)); // 6-digit
+  // Use cryptographically secure random number generation
+  const randomBytes = crypto.randomBytes(4);
+  const randomNumber = randomBytes.readUInt32BE(0);
+  const otp = String(100000 + (randomNumber % 900000));
+  return otp.substring(0, 6); // Ensure exactly 6 digits
 }
 
 async function sendEmail({ to, subject, html }: { to: string; subject: string; html: string }) {

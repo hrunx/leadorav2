@@ -18,9 +18,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { UserDataProvider, useUserData } from './context/UserDataContext';
 import { AppProvider, useAppContext } from './context/AppContext';
 
-// Demo user constants
-const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
-const DEMO_USER_EMAIL = 'demo@leadora.com';
+import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from './constants/demo';
 
 function AppContent() {
   const { state: authState, login } = useAuth();

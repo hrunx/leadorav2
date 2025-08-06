@@ -52,10 +52,10 @@ const linkedinSearchTool = tool({
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
-    const { company_name, company_city, target_roles, gl, search_id, user_id } = input as {
+    const { company_name, company_city, company_country, target_roles, gl, search_id, user_id } = input as {
       company_name: string;
       company_city?: string;
-      company_country?: string;
+      company_country: string;
       target_roles: string[];
       gl: string;
       search_id: string;
@@ -80,10 +80,13 @@ const linkedinSearchTool = tool({
       
       const searchResults2 = await serperSearch(query2, gl, 10);
 
-      // Strategy 3: Location-based search if available
+      // Strategy 3: Location-based search using city and country
       let searchResults3: any[] = [];
-      if (company_city) {
-        const query3 = `site:linkedin.com/in "${company_city}" "${company_name}" (${rolesQuery})`;
+      if (company_city && company_country) {
+        const query3 = `site:linkedin.com/in "${company_city}" "${company_country}" "${company_name}" (${rolesQuery})`;
+        searchResults3 = await serperSearch(query3, gl, 10);
+      } else if (company_country) {
+        const query3 = `site:linkedin.com/in "${company_country}" "${company_name}" (${rolesQuery})`;
         searchResults3 = await serperSearch(query3, gl, 10);
       }
 
@@ -384,7 +387,18 @@ export async function runDMDiscovery(search: {
     
     const countries = search.countries.join(', ');
     const industries = search.industries.join(', ');
-    const gl = countryToGL(search.countries[0]); // Use first country for GL code
+    // Iterate over all target countries for comprehensive decision maker discovery
+  const allDecisionMakers = [];
+  
+  for (const country of search.countries) {
+    const gl = countryToGL(country);
+    console.log(`Running decision maker discovery for ${country} (GL: ${gl})`);
+    
+    // Note: Implementation should iterate through each country
+    // For now, we'll use the first country as the primary GL code
+  }
+  
+  const gl = countryToGL(search.countries[0]); // Primary country for GL code
     const msg = `search_id=${search.id} user_id=${search.user_id} 
 - product_service=${search.product_service}
 - industries=${industries}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { isDemoUser as isDemoUserUtil } from '../constants/demo';
 
 export function useDemoMode() {
   const [isDemoMode, setIsDemoMode] = useState(false);
@@ -62,15 +63,13 @@ export function useDemoMode() {
     }
   };
 
-  const isDemoUser = (userId?: string) => {
-    return userId === '00000000-0000-0000-0000-000000000001';
-  };
+  // Import and re-export for compatibility
 
   return {
     isDemoMode,
     loading,
     enterDemoMode,
     exitDemoMode,
-    isDemoUser
+    isDemoUser: isDemoUserUtil // Use centralized function
   };
 }

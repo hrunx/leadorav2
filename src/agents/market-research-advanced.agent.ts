@@ -128,6 +128,97 @@ async function performWebSearch(query: string, focus: string, countryCode: strin
   }
 }
 
+function extractMarketSizeFromSearch(searchResults: any[], args: any): any {
+  const marketSizeRegex = /\$[\d,.]+[BMK]?/g;
+  const percentageRegex = /\d+(?:\.\d+)?%/g;
+  
+  let allText = searchResults.map(r => `${r.title} ${r.snippet}`).join(' ');
+  const marketSizes = allText.match(marketSizeRegex) || [];
+  const percentages = allText.match(percentageRegex) || [];
+  
+  return {
+    tam: marketSizes[0] || 'Market size data not found in search results',
+    sam: marketSizes[1] || 'Segmentation data not available',
+    som: marketSizes[2] || 'Obtainable market data not available',
+    methodology: args?.methodology || 'Web search analysis of market reports and industry data',
+    sources: searchResults.map(r => r.link).slice(0, 5),
+    growth_rate: percentages[0] || 'Growth rate not specified',
+    confidence: marketSizes.length > 0 ? 'medium' : 'low',
+    note: marketSizes.length > 0 ? 'Market size extracted from industry sources' : 'Limited market data available from web search'
+  };
+}
+
+function extractCompetitorsFromSearch(searchResults: any[]): any {
+  // Extract company names and competitive information
+  const competitors = [];
+  const companyRegex = /\b[A-Z][a-zA-Z\s&]+(?:Inc|LLC|Corp|Company|Ltd|Group)\b/g;
+  
+  for (const result of searchResults.slice(0, 10)) {
+    const text = `${result.title} ${result.snippet}`;
+    const companies = text.match(companyRegex) || [];
+    
+    for (const company of companies.slice(0, 2)) {
+      if (!competitors.find(c => c.name === company)) {
+        competitors.push({
+          name: company,
+          source: result.link,
+          description: result.snippet.substring(0, 100) + '...',
+          found_in: result.title
+        });
+      }
+    }
+    
+    if (competitors.length >= 5) break;
+  }
+  
+  return {
+    competitors: competitors,
+    total_found: competitors.length,
+    sources: searchResults.map(r => r.link).slice(0, 5),
+    note: competitors.length > 0 ? 'Competitors identified from web search results' : 'No clear competitors found in search results',
+    confidence: competitors.length >= 3 ? 'medium' : 'low'
+  };
+}
+
+function extractTrendsFromSearch(searchResults: any[]): any {
+  // Extract trends and market insights
+  const trendKeywords = ['trend', 'growth', 'forecast', 'outlook', 'future', 'emerging', 'rising', 'increasing', 'adoption'];
+  const trends = [];
+  
+  for (const result of searchResults.slice(0, 8)) {
+    const text = `${result.title} ${result.snippet}`.toLowerCase();
+    
+    for (const keyword of trendKeywords) {
+      if (text.includes(keyword)) {
+        const sentences = result.snippet.split('.').filter(s => 
+          s.toLowerCase().includes(keyword) && s.length > 20
+        );
+        
+        for (const sentence of sentences.slice(0, 1)) {
+          trends.push({
+            description: sentence.trim(),
+            source: result.link,
+            confidence: 'medium',
+            category: keyword,
+            found_in: result.title
+          });
+        }
+        break;
+      }
+    }
+    
+    if (trends.length >= 5) break;
+  }
+  
+  return {
+    trends: trends,
+    total_found: trends.length,
+    sources: searchResults.map(r => r.link).slice(0, 5),
+    note: trends.length > 0 ? 'Market trends extracted from industry analysis' : 'Limited trend data available from web search',
+    confidence: trends.length >= 3 ? 'medium' : 'low'
+  };
+}
+
 export async function executeAdvancedMarketResearch(searchData: {
   product_service: string;
   industries: string[];
@@ -191,28 +282,31 @@ Start by searching for current market data, then analyze competitors, and finall
             response = await performWebSearch(call.args?.query, call.args?.focus, searchData.countries[0]);
             break;
           case 'calculate_market_size':
-            response = {
-              tam: 'Data not available - requires industry-specific research',
-              sam: 'Data not available - requires market segmentation analysis',
-              som: 'Data not available - requires competitive positioning data',
-              methodology: call.args?.methodology || 'Unable to determine without market data',
-              sources: call.args?.data_sources || ['No reliable sources found'],
-              note: 'Market size calculation requires validated industry reports and financial data'
-            };
+            // Use actual web search data to estimate market size
+            const marketSearchResults = await performWebSearch(
+              `${searchData.product_service} market size ${searchData.countries.join(' ')} ${searchData.industries.join(' ')}`,
+              'market sizing',
+              searchData.countries[0]
+            );
+            response = extractMarketSizeFromSearch(marketSearchResults, call.args);
             break;
           case 'analyze_competitors':
-            response = {
-              competitors: [],
-              note: 'Competitor analysis requires comprehensive market research and validated financial data',
-              disclaimer: 'No reliable competitive intelligence available from current sources'
-            };
+            // Use web search for competitor analysis
+            const competitorSearchResults = await performWebSearch(
+              `${searchData.product_service} competitors ${searchData.countries.join(' ')} ${searchData.industries.join(' ')}`,
+              'competitive analysis',
+              searchData.countries[0]
+            );
+            response = extractCompetitorsFromSearch(competitorSearchResults);
             break;
           case 'analyze_trends':
-            response = {
-              trends: [],
-              note: 'Trend analysis requires access to industry reports and market intelligence platforms',
-              disclaimer: 'Unable to provide validated trend data without authoritative sources'
-            };
+            // Use web search for trend analysis
+            const trendSearchResults = await performWebSearch(
+              `${searchData.product_service} trends ${searchData.industries.join(' ')} market outlook`,
+              'trend analysis',
+              searchData.countries[0]
+            );
+            response = extractTrendsFromSearch(trendSearchResults);
             break;
           default:
             response = { error: 'Unknown function' };
