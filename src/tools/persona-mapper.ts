@@ -13,7 +13,7 @@ export async function mapBusinessesToPersonas(searchId: string) {
       .from('businesses')
       .select('*')
       .eq('search_id', searchId)
-      .eq('persona_id', 'default-persona');
+      .is('persona_id', null);
     
     if (businessError) throw businessError;
     if (!businesses || businesses.length === 0) {
