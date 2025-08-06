@@ -3,7 +3,7 @@ import { serperPlaces, serperSearch } from '../tools/serper';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 import { loadBusinessPersonas } from '../tools/db.read';
 import { countryToGL, buildBusinessData } from '../tools/util';
-import { extractJson } from '../tools/json';
+
 import { gemini } from './clients';
 
 const readPersonasTool = tool({
@@ -282,17 +282,6 @@ Requirements:
         return {
           company: company_name,
           analysis: {
-
-      // Parse JSON response using utility
-      let analysis;
-      const parsed = extractJson(responseText);
-      if (!parsed) {
-        console.error('Error parsing Gemini analysis response', {
-          responseSnippet: responseText.slice(0, 200)
-        });
-        analysis = {
-          main
-          company_analysis: { 
             exact_products_services: [],
             relevant_departments: [],
             recent_activities: [],
@@ -312,15 +301,13 @@ Requirements:
           },
           error: error.message
         };
-      } else {
-        analysis = parsed;
       }
-  }
+    }
 });
 
 const storeBusinessesTool = tool({
   name: 'storeBusinesses',
-  description: 'Insert businesses bucketed by persona_id.',
+  description: 'Insert businesses with complete analysis from Gemini AI.',
   parameters: { 
     type: 'object',
     properties: {
@@ -339,13 +326,17 @@ const storeBusinessesTool = tool({
             website: { type: 'string' },
             rating: { type: 'number' },
             persona_id: { type: 'string' },
+            persona_type: { type: 'string' },
             city: { type: 'string' },
             size: { type: 'string' },
             revenue: { type: 'string' },
             description: { type: 'string' },
-            match_score: { type: 'number' }
+            match_score: { type: 'number' },
+            relevant_departments: { type: 'array', items: { type: 'string' } },
+            key_products: { type: 'array', items: { type: 'string' } },
+            recent_activity: { type: 'array', items: { type: 'string' } }
           },
-          required: ['name', 'address', 'phone', 'website', 'rating', 'persona_id', 'city', 'size', 'revenue', 'description', 'match_score'],
+          required: ['name', 'persona_id', 'persona_type', 'match_score'],
           additionalProperties: false
         }
       }
@@ -361,20 +352,24 @@ const storeBusinessesTool = tool({
       country: string; 
       items: any[] 
     };
-    const rows = items.slice(0, 10).map((b: any) => buildBusinessData({
+    
+    const rows = items.slice(0, 20).map((b: any) => buildBusinessData({
       search_id,
       user_id,
       persona_id: b.persona_id,
       name: b.name,
       industry,
       country,
-      address: b.address,
-      city: b.city,
-      size: b.size,
-      revenue: b.revenue,
-      description: b.description,
+      address: b.address || '',
+      city: b.city || country,
+      size: b.size || 'Unknown',
+      revenue: b.revenue || 'Unknown',
+      description: b.description || 'Business discovered via search',
       match_score: b.match_score || 75,
-      persona_type: 'business'
+      persona_type: b.persona_type || 'business',
+      relevant_departments: b.relevant_departments || [],
+      key_products: b.key_products || [],
+      recent_activity: b.recent_activity || []
     }));
     
     console.log(`Inserting ${rows.length} businesses for search ${search_id}`);
@@ -385,38 +380,29 @@ const storeBusinessesTool = tool({
 export const BusinessDiscoveryAgent = new Agent({
   name: 'BusinessDiscoveryAgent',
   instructions: `
-Goal: Find real businesses from Serper Places and analyze them with Gemini AI for complete business intelligence.
+You are a business discovery agent. Your job is to find real businesses using Serper Places API and store them in the database.
 
-ENHANCED DISCOVERY PROCESS:
-1) Call readBusinessPersonas to get persona_id mappings and exact search criteria
-2) For EACH persona, create hyper-specific Serper Places queries:
-   - Use EXACT country, industry, and product/service from search
-   - Query: "{product_service} {industry} companies in {exact_city/country}"
-   - For customer searches: "companies need {product_service}" or "{target_industry} {city}"
-   - For supplier searches: "companies provide {product_service}" or "{service_providers} {city}"
-3) Call serperPlaces with precise geographic targeting (correct gl country code)
-4) For EACH business found, call analyzeBusiness to extract complete details:
-   - Exact products and services offered
-   - Relevant departments and key contacts
-   - Recent business activities and news
-   - Complete contact information (email, website, phone)
-   - Company size and revenue estimates
-   - Match reasoning to search criteria
-5) Store businesses with COMPLETE information in database:
-   - All contact details from analysis
-   - Products/services from Gemini analysis
-   - Relevant departments identified
-   - Recent activities discovered
-   - Match scores and persona mapping
+STEP-BY-STEP PROCESS:
+1. Call readBusinessPersonas to get persona information
+2. Call serperPlaces to find businesses (use limit: 10 for maximum results)
+3. For each business found, call analyzeBusiness to get detailed information
+4. Call storeBusinesses to save all businesses to database
 
-CRITICAL REQUIREMENTS:
-- Use EXACT search criteria - no generalizations
-- Get complete business intelligence for each company
-- Extract all available contact information
-- Map businesses precisely to personas based on analysis
-- Store complete business profiles in database
+IMPORTANT RULES:
+- ALWAYS call serperPlaces with limit: 10 to get maximum businesses
+- ALWAYS analyze EVERY business you find with analyzeBusiness
+- ALWAYS store ALL analyzed businesses with storeBusinesses
+- Use the search_id and user_id provided in the user message
+- Extract country and industry from the user message
+- Map each business to the most appropriate persona_id
 
-Quality over quantity - focus on businesses that precisely match the search criteria.`,
+EXAMPLE WORKFLOW:
+1. readBusinessPersonas(search_id)
+2. serperPlaces(q="software companies in United States", gl="us", limit=10, search_id, user_id)
+3. For each place returned: analyzeBusiness(company details)
+4. storeBusinesses(all analyzed businesses)
+
+DO NOT SKIP STEPS. Find businesses, analyze them, and store them ALL.`,
   tools: [readPersonasTool, serperPlacesTool, analyzeBusinessTool, storeBusinessesTool],
   handoffDescription: 'Discovers and analyzes real businesses with complete intelligence via Serper Places + Gemini AI',
   handoffs: [],

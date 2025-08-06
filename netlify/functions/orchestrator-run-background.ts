@@ -90,11 +90,11 @@ export const handler: Handler = async (event) => {
     // Load orchestrator parts dynamically to reduce cold-start/bundle issues
     const [{ execBusinessPersonas }, { execDMPersonas }, { execBusinessDiscovery }, { execDMDiscovery }, { execMarketResearchParallel }] =
       await Promise.all([
-        import('../../src/orchestration/exec-business-personas').catch(()=>import('../../src/orchestration/exec-business-personas.js')),
-        import('../../src/orchestration/exec-dm-personas').catch(()=>import('../../src/orchestration/exec-dm-personas.js')),
+        import('../../src/orchestration/exec-business-personas'),
+        import('../../src/orchestration/exec-dm-personas'),
         import('../../src/orchestration/exec-business-discovery'),
-        import('../../src/orchestration/exec-dm-discovery').catch(()=>import('../../src/orchestration/exec-dm-discovery.js')),
-        import('../../src/orchestration/exec-market-research-parallel').catch(()=>import('../../src/orchestration/exec-market-research-parallel.js')),
+        import('../../src/orchestration/exec-dm-discovery'),
+        import('../../src/orchestration/exec-market-research-parallel'),
       ]);
 
     // START MARKET RESEARCH IN PARALLEL - runs throughout the entire process

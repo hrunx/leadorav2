@@ -81,6 +81,9 @@ export function buildBusinessData(params: {
   description?: string;
   match_score?: number;
   persona_type?: string;
+  relevant_departments?: string[];
+  key_products?: string[];
+  recent_activity?: string[];
 }) {
   // Extract city from address if not provided
   const parsedCity = params.city || extractCityFromAddress(params.address) || null;
@@ -97,9 +100,9 @@ export function buildBusinessData(params: {
     revenue: params.revenue || null,
     description: params.description || params.address || '',
     match_score: params.match_score || 75,
-    relevant_departments: [],
-    key_products: [],
-    recent_activity: [],
+    relevant_departments: params.relevant_departments || [],
+    key_products: params.key_products || [],
+    recent_activity: params.recent_activity || [],
     persona_type: params.persona_type || 'business'
   };
 }
