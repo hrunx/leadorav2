@@ -35,24 +35,43 @@ export async function execDMDiscovery(payload: {
   const search = await loadSearch(payload.search_id);
   if (!search) throw new Error(`Search ${payload.search_id} not found`);
 
-  const country = search.countries[0]; 
-  const gl = countryToGL(country);
-  const msg = `search_id=${search.id} user_id=${search.user_id} gl=${gl} industry=${search.industries[0]} country=${country}
-    
-Find decision makers for each company using LinkedIn search. Focus on senior roles like Directors, VPs, Heads, and Managers.
+  const results = [];
+  
+  // Iterate through all countries and industries for comprehensive coverage
+  for (const country of search.countries) {
+    for (const industry of search.industries) {
+      const gl = countryToGL(country);
+      const msg = `search_id=${search.id} user_id=${search.user_id} gl=${gl} industry=${industry} country=${country}
+        
+Find decision makers for companies in ${industry} industry in ${country} using LinkedIn search. Focus on senior roles like Directors, VPs, Heads, and Managers.
 
 Store basic profiles immediately for fast UI display. Detailed enrichment happens in background.`;
 
-  // Execute fast DM discovery
-  const result = await run(
-    DMDiscoveryAgent,
-    [{ role: 'user', content: msg }],
-  );
+      console.log(`Starting DM discovery for ${industry} in ${country} (gl: ${gl})`);
+      
+      // Execute fast DM discovery for this country/industry combination
+      const result = await run(
+        DMDiscoveryAgent,
+        [{ role: 'user', content: msg }],
+      );
 
-  // Start background enrichment (non-blocking)
+      results.push({
+        country,
+        industry,
+        result: result.text
+      });
+      
+      console.log(`DM Discovery completed for ${industry} in ${country}:`, result.text);
+    }
+  }
+  
+  // Start background enrichment (non-blocking) - only once after all discoveries
   enrichDecisionMakersWorker(search.id).catch(error => {
     console.error('Background enrichment failed:', error);
   });
-
-  return result;
+  
+  return {
+    text: `Completed DM discovery for ${results.length} country/industry combinations`,
+    results
+  };
 }

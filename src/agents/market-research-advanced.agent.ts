@@ -192,26 +192,27 @@ Start by searching for current market data, then analyze competitors, and finall
             break;
           case 'calculate_market_size':
             response = {
-              tam: `$${(Math.random() * 100 + 50).toFixed(1)}B`,
-              sam: `$${(Math.random() * 20 + 10).toFixed(1)}B`,
-              som: `$${(Math.random() * 2 + 1).toFixed(1)}B`,
-              methodology: call.args?.methodology,
-              sources: call.args?.data_sources
+              tam: 'Data not available - requires industry-specific research',
+              sam: 'Data not available - requires market segmentation analysis',
+              som: 'Data not available - requires competitive positioning data',
+              methodology: call.args?.methodology || 'Unable to determine without market data',
+              sources: call.args?.data_sources || ['No reliable sources found'],
+              note: 'Market size calculation requires validated industry reports and financial data'
             };
             break;
           case 'analyze_competitors':
-            response = [
-              { name: 'Market Leader A', share: '25%', revenue: '$2.5B' },
-              { name: 'Competitor B', share: '18%', revenue: '$1.8B' },
-              { name: 'Rising Player C', share: '12%', revenue: '$1.2B' }
-            ];
+            response = {
+              competitors: [],
+              note: 'Competitor analysis requires comprehensive market research and validated financial data',
+              disclaimer: 'No reliable competitive intelligence available from current sources'
+            };
             break;
           case 'analyze_trends':
-            response = [
-              { trend: 'AI Integration', impact: 'High', timeline: '1-2 years' },
-              { trend: 'Sustainability Focus', impact: 'Medium', timeline: '2-3 years' },
-              { trend: 'Market Consolidation', impact: 'High', timeline: '3-5 years' }
-            ];
+            response = {
+              trends: [],
+              note: 'Trend analysis requires access to industry reports and market intelligence platforms',
+              disclaimer: 'Unable to provide validated trend data without authoritative sources'
+            };
             break;
           default:
             response = { error: 'Unknown function' };
