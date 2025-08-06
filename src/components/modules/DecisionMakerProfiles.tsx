@@ -1175,8 +1175,12 @@ export default function DecisionMakerProfiles() {
     );
   }
 
-  // Show discovery progress UI for real users
-  if (isLoading || (discoveryStatus === 'discovering' && decisionMakerPersonas.length === 0)) {
+  // Show discovery progress UI for real users (always show loading for real searches)
+  const currentSearch = getCurrentSearch();
+  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+  
+  if (isLoading || (discoveryStatus === 'discovering' && decisionMakerPersonas.length === 0) || 
+      (!isDemo && currentSearch && decisionMakerPersonas.length === 0)) {
     return (
       <div className="flex items-center justify-center min-h-96">
         <div className="text-center max-w-md">

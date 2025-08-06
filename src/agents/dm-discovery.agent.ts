@@ -139,10 +139,27 @@ Requirements:
       // Parse JSON response
       let profiles = [];
       try {
-        // Clean up response to extract JSON
-        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        // Clean up response to extract JSON - handle markdown code blocks
+        let jsonStr = responseText;
+        
+        // Remove markdown code blocks if present
+        if (jsonStr.includes('```json')) {
+          jsonStr = jsonStr.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        }
+        
+        // Extract JSON array
+        const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
-          profiles = JSON.parse(jsonMatch[0]);
+          let cleanJson = jsonMatch[0];
+          
+          // Fix common JSON issues
+          cleanJson = cleanJson
+            .replace(/,\s*}/g, '}')  // Remove trailing commas in objects
+            .replace(/,\s*]/g, ']')  // Remove trailing commas in arrays
+            .replace(/\/\*[\s\S]*?\*\//g, '') // Remove comments
+            .replace(/\/\/.*$/gm, ''); // Remove single-line comments
+          
+          profiles = JSON.parse(cleanJson);
         }
       } catch (parseError) {
         console.error('Error parsing Gemini response:', parseError);

@@ -1,7 +1,7 @@
 // Enhanced country to GL mapping
 const GL_BY_ISO2: Record<string, string> = {
-  SA: 'sa',   // Saudi Arabia (keep existing)
-  ZA: 'za',   // South Africa (NEW - correct mapping for ZA)
+  SA: 'sa',   // Saudi Arabia (PRIORITY)
+  ZA: 'za',   // South Africa  
   AE: 'ae', QA: 'qa', KW: 'kw', OM: 'om', BH: 'bh',
   EG: 'eg', TR: 'tr', US: 'us', GB: 'gb', DE: 'de', FR: 'fr',
   CA: 'ca', AU: 'au', JP: 'jp', SG: 'sg', NL: 'nl', CH: 'ch',
@@ -22,9 +22,10 @@ export const countryToGL = (country: string): string => {
   const iso2 = country.toUpperCase();
   if (GL_BY_ISO2[iso2]) return GL_BY_ISO2[iso2];
   
-  // Fuzzy matching for common variations (order matters!)
-  if (c.includes('saudi arabia') || c.includes('saudi')) return 'sa'; // Saudi Arabia first
-  if (c.includes('south africa')) return 'za';  // South Africa second (use full name)
+  // Fuzzy matching for common variations (order matters - Saudi Arabia ALWAYS first!)
+  if (c.includes('saudi arabia') || c.includes('saudi')) return 'sa'; // Saudi Arabia PRIORITY
+  // Remove South Africa from fuzzy matching to avoid conflicts with SA
+  // South Africa should only be accessible via full name or ZA code
   if (c.includes('emirates') || c.includes('uae')) return 'ae';
   if (c.includes('qatar')) return 'qa';
   if (c.includes('kuwait')) return 'kw';
