@@ -7,11 +7,33 @@ const supa = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const handler: Handler = async (event) => {
   try {
     const { search_id } = JSON.parse(event.body || '{}');
     if (!search_id) {
       return { statusCode: 400, body: JSON.stringify({ error: 'search_id required' }) };
+    }
+
+    // Handle fallback/non-UUID search IDs (offline mode)
+    if (!UUID_REGEX.test(search_id)) {
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          search_id,
+          progress: { phase: 'offline', progress_pct: 0, status: 'offline' },
+          data_counts: {
+            business_personas: 0,
+            businesses: 0,
+            dm_personas: 0,
+            decision_makers: 0,
+            market_insights: 0
+          },
+          recent_api_calls: []
+        })
+      };
     }
 
     // Get search progress
