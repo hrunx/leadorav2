@@ -106,9 +106,20 @@ export default function BusinessResults() {
         let dbBusinesses = await SearchService.getBusinesses(currentSearch.id);
         
         if (dbBusinesses.length === 0) {
-          // For existing searches, just show no data available
-          // Don't generate new businesses when viewing historical searches
-          console.log(`No businesses found for search ${currentSearch.id}`);
+          // Check if search is recent (less than 5 minutes old) - might still be processing
+          const searchAge = Date.now() - new Date(currentSearch.created_at).getTime();
+          const isRecentSearch = searchAge < 5 * 60 * 1000; // 5 minutes
+          
+          if (isRecentSearch) {
+            console.log(`Search ${currentSearch.id} is recent and still processing businesses...`);
+            // Keep loading state for recent searches
+            setIsLoading(true);
+            // Check again in a few seconds
+            setTimeout(() => loadBusinesses(), 3000);
+            return;
+          } else {
+            console.log(`No businesses found for completed search ${currentSearch.id}`);
+          }
         }
         
         // Convert database format to component format

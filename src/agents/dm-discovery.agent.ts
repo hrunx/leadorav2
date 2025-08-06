@@ -75,8 +75,18 @@ const linkedInDiscoveryTool = tool({
       const roleQueries = target_roles.map(role => `"${role}"`).join(' OR ');
       const locationPart = company_city ? ` "${company_city}"` : '';
       
-      // Enhanced LinkedIn search pattern
-      const query = `site:linkedin.com/in "${company_name}"${locationPart} (${roleQueries}) (Director OR VP OR "Vice President" OR Manager OR Head OR Chief OR Lead)`;
+      // Enhanced LinkedIn search pattern with multiple strategies
+      const strategies = [
+        // Strategy 1: Company name + roles + seniority
+        `site:linkedin.com/in "${company_name}"${locationPart} (${roleQueries}) (Director OR VP OR "Vice President" OR Manager OR Head OR Chief OR Lead)`,
+        // Strategy 2: Company name + roles (broader)
+        `site:linkedin.com/in "${company_name}" (${roleQueries})`,
+        // Strategy 3: Company name + seniority levels (if roles don't work)
+        `site:linkedin.com/in "${company_name}" (CEO OR CTO OR CFO OR Director OR "Vice President" OR VP OR Manager OR Head)`
+      ];
+      
+      // Try the first strategy
+      const query = strategies[0];
       
       console.log(`LinkedIn search for ${company_name}: ${query}`);
       
@@ -118,8 +128,8 @@ Requirements:
 - Maximum 5 profiles per company
 - Return empty array if no valid profiles found`;
 
-      // @ts-ignore – gemini SDK typing mismatch
-    const geminiResponse = await (gemini as any).generateContent({
+      const model = gemini.getGenerativeModel({ model: 'gemini-1.5-pro' });
+      const geminiResponse = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }]
       });
 

@@ -131,6 +131,16 @@ export const handler: Handler = async (event) => {
     const businessResult = await businessDiscoveryPromise;
     if (businessResult) {
       console.log('Business discovery completed successfully');
+      
+      // Map businesses to personas now that both are available
+      console.log('Mapping businesses to personas...');
+      try {
+        const { mapBusinessesToPersonas } = await import('../../src/tools/persona-mapper');
+        await mapBusinessesToPersonas(search_id);
+        console.log('Business-persona mapping completed');
+      } catch (mappingError) {
+        console.error('Persona mapping failed (non-blocking):', mappingError);
+      }
     } else {
       console.log('Business discovery failed - proceeding with available data');
     }
