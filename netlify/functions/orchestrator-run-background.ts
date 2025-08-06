@@ -97,32 +97,48 @@ export const handler: Handler = async (event) => {
         import('../../src/orchestration/exec-market-research-parallel'),
       ]);
 
-    // START MARKET RESEARCH IN PARALLEL - runs throughout the entire process
-    console.log('Starting parallel market research (runs in background)...');
+    // START ALL AGENTS IN PARALLEL - everything begins immediately!
+    console.log('Starting all agents in parallel for maximum speed...');
+    
+    // Start market research in background (non-blocking)
     const marketResearchPromise = retry(() => 
       withTimeout(execMarketResearchParallel({ search_id, user_id }), 300_000, 'market_research')
     ).catch(e => {
       console.error('Market research failed (non-blocking):', e.message);
-      return null; // Don't fail the entire orchestration if market research fails
+      return null;
     });
 
-    // PHASE 1: personas in parallel (with timeouts)
-    await updateProgress(search_id, 'personas', 5);
+    // Start business discovery immediately (non-blocking)
+    await updateProgress(search_id, 'starting_discovery', 5);
+    const businessDiscoveryPromise = retry(() => 
+      withTimeout(execBusinessDiscovery({ search_id, user_id }), 240_000, 'business_discovery')
+    ).catch(e => {
+      console.error('Business discovery failed (non-blocking):', e.message);
+      return null;
+    });
+
+    // Start personas in parallel (these typically finish first)
+    await updateProgress(search_id, 'personas', 10);
     console.log('Starting persona generation...');
     await retry(() => withTimeout(Promise.all([
       limiter(()=>execBusinessPersonas({ search_id, user_id })),
       limiter(()=>execDMPersonas({ search_id, user_id })),
-    ]), 120_000, 'phase1'));
+    ]), 120_000, 'personas'));
 
-    // PHASE 2: businesses
-    await updateProgress(search_id, 'businesses', 25);
-    console.log('Starting business discovery...');
-    await retry(() => withTimeout(execBusinessDiscovery({ search_id, user_id }), 240_000, 'phase2'));
+    // Wait for business discovery to complete (should have businesses by now)
+    await updateProgress(search_id, 'businesses', 40);
+    console.log('Waiting for business discovery...');
+    const businessResult = await businessDiscoveryPromise;
+    if (businessResult) {
+      console.log('Business discovery completed successfully');
+    } else {
+      console.log('Business discovery failed - proceeding with available data');
+    }
 
-    // PHASE 3: decision makers
+    // Now start decision makers (needs both personas and businesses)
     await updateProgress(search_id, 'decision_makers', 65);
     console.log('Starting DM discovery...');
-    await retry(() => withTimeout(execDMDiscovery({ search_id, user_id }), 180_000, 'phase3'));
+    await retry(() => withTimeout(execDMDiscovery({ search_id, user_id }), 180_000, 'decision_makers'));
 
     // PHASE 4: Wait for market research to complete (should be done by now)
     await updateProgress(search_id, 'market_insights', 85);
