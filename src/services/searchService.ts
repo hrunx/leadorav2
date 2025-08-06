@@ -279,11 +279,27 @@ export class SearchService {
     return await this.getDecisionMakers(searchId);
   }
 
-  // Get decision makers for a search
+  // Get decision makers for a search with linked business context
   static async getDecisionMakers(searchId: string): Promise<DecisionMaker[]> {
     const { data, error } = await supabase
       .from('decision_makers')
-      .select('*')
+      .select(`
+        *,
+        business:business_id (
+          id,
+          name,
+          industry,
+          country,
+          city,
+          size,
+          revenue,
+          description,
+          rating,
+          address,
+          phone,
+          website
+        )
+      `)
       .eq('search_id', searchId)
       .order('influence', { ascending: false });
 

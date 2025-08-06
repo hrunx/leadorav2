@@ -2,6 +2,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { serperSearch } from '../tools/serper';
 import { logApiUsage } from '../tools/db.write';
+import { glToCountryName } from '../tools/util';
 
 const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -85,26 +86,28 @@ const trendAnalysisTool = {
 };
 
 // Real web search function using Serper
-async function performWebSearch(query: string, focus: string, country: string): Promise<any[]> {
+async function performWebSearch(query: string, focus: string, countryCode: string): Promise<any[]> {
   const startTime = Date.now();
   try {
+    // Convert country code to proper country name for search query
+    const countryName = glToCountryName(countryCode);
     let searchQuery = query;
     
-    // Enhance query based on focus area
+    // Enhance query based on focus area and include proper country name
     if (focus === 'market_size') {
-      searchQuery = `${query} market size value industry report 2024`;
+      searchQuery = `${query} market size ${countryName} market size value industry report 2024`;
     } else if (focus === 'competitors') {
-      searchQuery = `${query} top companies market leaders competitors revenue`;
+      searchQuery = `${query} ${countryName} top companies market leaders competitors revenue`;
     } else if (focus === 'trends') {
-      searchQuery = `${query} market trends forecast growth drivers 2024 2025`;
+      searchQuery = `${query} ${countryName} market trends forecast growth drivers 2024 2025`;
     } else if (focus === 'financial_data') {
-      searchQuery = `${query} revenue financial performance investment funding`;
+      searchQuery = `${query} ${countryName} revenue financial performance investment funding`;
     } else if (focus === 'industry_reports') {
-      searchQuery = `${query} industry analysis market research report`;
+      searchQuery = `${query} ${countryName} industry analysis market research report`;
     }
     
     console.log(`Market research web search: "${searchQuery}" (focus: ${focus})`);
-    const results = await serperSearch(searchQuery, country, 5);
+    const results = await serperSearch(searchQuery, countryCode, 5);
     
     // Note: API usage logging will be handled by caller with proper user_id/search_id
     

@@ -53,6 +53,39 @@ export const countryToGL = (country: string): string => {
   return 'us'; // Default fallback
 };
 
+// Reverse mapping: GL code to proper country name
+export const glToCountryName = (gl: string): string => {
+  const glMap: Record<string, string> = {
+    'sa': 'Saudi Arabia',
+    'za': 'South Africa',
+    'ae': 'United Arab Emirates',
+    'qa': 'Qatar',
+    'kw': 'Kuwait',
+    'om': 'Oman',
+    'bh': 'Bahrain',
+    'eg': 'Egypt',
+    'tr': 'Turkey',
+    'us': 'United States',
+    'gb': 'United Kingdom',
+    'de': 'Germany',
+    'fr': 'France',
+    'ca': 'Canada',
+    'au': 'Australia',
+    'jp': 'Japan',
+    'sg': 'Singapore',
+    'nl': 'Netherlands',
+    'ch': 'Switzerland',
+    'se': 'Sweden',
+    'no': 'Norway',
+    'in': 'India',
+    'cn': 'China',
+    'br': 'Brazil',
+    'mx': 'Mexico'
+  };
+  
+  return glMap[gl.toLowerCase()] || gl.toUpperCase();
+};
+
 // CSV contact parsing for decision maker discovery
 export function parseContactsCSV(csv: string) {
   return csv.trim().split('\n').map(line => {

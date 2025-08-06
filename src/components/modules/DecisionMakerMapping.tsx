@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Building, User, Crown, Shield, Users, Plus, Save, ArrowRight, Target, TrendingUp, Filter, UserCheck, Mail, Phone, Linkedin, MapPin, Calendar, Briefcase, Award, MessageSquare, Search } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
@@ -44,6 +44,20 @@ interface DecisionMaker {
     preferredChannel: string;
   };
   enrichmentStatus?: 'pending' | 'done';
+  business?: {
+    id: string;
+    name: string;
+    industry: string;
+    country: string;
+    city: string;
+    size: string;
+    revenue: string;
+    description: string;
+    rating?: number;
+    address?: string;
+    phone?: string;
+    website?: string;
+  };
 }
 
 export default function DecisionMakerMapping() {
@@ -59,6 +73,8 @@ export default function DecisionMakerMapping() {
   const [decisionMakers, setDecisionMakers] = useState<DecisionMaker[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasSearch, setHasSearch] = useState(false);
+  const subscriptionRef = useRef<any>(null);
+  const currentSearchIdRef = useRef<string | null>(null);
 
 // Disable auto-filter so all decision makers show by default
   // If you want to re-enable filtering when a persona chip is clicked elsewhere,
@@ -81,12 +97,33 @@ export default function DecisionMakerMapping() {
     const currentSearch = getCurrentSearch();
     const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
     
-    if (!currentSearch || isDemo) return;
+    // If no search or demo user, clean up any existing subscription
+    if (!currentSearch || isDemo) {
+      if (subscriptionRef.current) {
+        console.log('Cleaning up decision makers realtime subscription (no search/demo)');
+        supabase.removeChannel(subscriptionRef.current);
+        subscriptionRef.current = null;
+        currentSearchIdRef.current = null;
+      }
+      return;
+    }
+
+    // If search hasn't changed, don't recreate subscription
+    if (currentSearchIdRef.current === currentSearch.id && subscriptionRef.current) {
+      return;
+    }
+
+    // Clean up existing subscription if search changed
+    if (subscriptionRef.current) {
+      console.log('Cleaning up previous decision makers realtime subscription');
+      supabase.removeChannel(subscriptionRef.current);
+    }
 
     console.log(`Setting up realtime subscription for decision makers in search ${currentSearch.id}`);
+    currentSearchIdRef.current = currentSearch.id;
 
     const channel = supabase
-      .channel('decision-makers-changes')
+      .channel(`decision-makers-${currentSearch.id}`)
       .on('postgres_changes', 
         { 
           event: 'INSERT', 
@@ -131,7 +168,8 @@ export default function DecisionMakerMapping() {
               bestContactTime: enrichment.best_contact_time || '',
               preferredChannel: enrichment.preferred_contact_method || ''
             },
-            enrichmentStatus: newDM.enrichment_status || 'pending'
+            enrichmentStatus: newDM.enrichment_status || 'pending',
+            business: newDM.business
           };
           
           setDecisionMakers(prev => {
@@ -182,9 +220,15 @@ export default function DecisionMakerMapping() {
       )
       .subscribe();
 
+    subscriptionRef.current = channel;
+
     return () => {
-      console.log('Cleaning up decision makers realtime subscription');
-      supabase.removeChannel(channel);
+      if (subscriptionRef.current) {
+        console.log('Cleaning up decision makers realtime subscription');
+        supabase.removeChannel(subscriptionRef.current);
+        subscriptionRef.current = null;
+        currentSearchIdRef.current = null;
+      }
     };
   }, [getCurrentSearch, authState.user]);
 
@@ -226,9 +270,9 @@ export default function DecisionMakerMapping() {
             decisionFactors: dm.decision_factors || enrichment.decision_factors || [],
             personaType: dm.persona_type,
             companyContext: dm.company_context || {
-              industry: '',
-              size: '',
-              revenue: '',
+              industry: dm.business?.industry || '',
+              size: dm.business?.size || '',
+              revenue: dm.business?.revenue || '',
               challenges: enrichment.current_challenges || [],
               priorities: []
             },
@@ -240,7 +284,9 @@ export default function DecisionMakerMapping() {
               preferredChannel: enrichment.preferred_contact_method || ''
             },
             // Add enrichment status for UI indicators
-            enrichmentStatus: dm.enrichment_status || 'pending'
+            enrichmentStatus: dm.enrichment_status || 'pending',
+            // Include business context if available
+            business: dm.business
           };
         });
         setDecisionMakers(transformedData);
@@ -886,18 +932,43 @@ export default function DecisionMakerMapping() {
                 {/* Company Context */}
                 <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
                   <h3 className="font-semibold text-blue-900 mb-3">Company Context</h3>
+                  {selectedEmployee.business && (
+                    <div className="mb-4 p-3 bg-white rounded-lg border border-blue-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-blue-900">{selectedEmployee.business.name}</h4>
+                        {selectedEmployee.business.rating && (
+                          <div className="flex items-center space-x-1">
+                            <span className="text-sm text-yellow-600">★</span>
+                            <span className="text-sm text-blue-700">{selectedEmployee.business.rating}</span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm text-blue-700 mb-2">{selectedEmployee.business.description}</p>
+                      <div className="flex items-center space-x-4 text-xs text-blue-600">
+                        {selectedEmployee.business.city && (
+                          <span>{selectedEmployee.business.city}, {selectedEmployee.business.country}</span>
+                        )}
+                        {selectedEmployee.business.website && (
+                          <a href={selectedEmployee.business.website} target="_blank" rel="noopener noreferrer" 
+                             className="text-blue-600 hover:text-blue-800 underline">
+                            Website
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                     <div>
                       <span className="text-blue-700 font-medium">Industry:</span>
-                      <p className="text-blue-900">{selectedEmployee.companyContext?.industry ?? 'Not specified'}</p>
+                      <p className="text-blue-900">{selectedEmployee.business?.industry || selectedEmployee.companyContext?.industry || 'Not specified'}</p>
                     </div>
                     <div>
                       <span className="text-blue-700 font-medium">Size:</span>
-                      <p className="text-blue-900">{selectedEmployee.companyContext?.size || 'Not specified'}</p>
+                      <p className="text-blue-900">{selectedEmployee.business?.size || selectedEmployee.companyContext?.size || 'Not specified'}</p>
                     </div>
                     <div>
                       <span className="text-blue-700 font-medium">Revenue:</span>
-                      <p className="text-blue-900">{selectedEmployee.companyContext?.revenue || 'Not specified'}</p>
+                      <p className="text-blue-900">{selectedEmployee.business?.revenue || selectedEmployee.companyContext?.revenue || 'Not specified'}</p>
                     </div>
                     <div>
                       <span className="text-blue-700 font-medium">Experience:</span>
