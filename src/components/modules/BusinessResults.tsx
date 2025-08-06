@@ -81,13 +81,31 @@ export default function BusinessResults() {
         if (dataCounts?.businesses > 0) {
           setDiscoveryStatus('completed');
           setIsLoading(false);
-          // Reload businesses if we have new ones
-          loadBusinesses();
+          // Reload businesses if we have new ones - but don't let it override loading state
+          const currentSearch = getCurrentSearch();
+          if (currentSearch) {
+            SearchService.getBusinesses(currentSearch.id).then(dbBusinesses => {
+              const formattedBusinesses = dbBusinesses.map(business => ({
+                ...business,
+                matchScore: business.match_score,
+                relevantDepartments: business.relevant_departments || [],
+                keyProducts: business.key_products || [],
+                recentActivity: business.recent_activity || [],
+                personaType: business.persona_type
+              }));
+              setBusinesses(formattedBusinesses);
+              setHasSearch(true);
+            });
+          }
         } else if (progress?.phase === 'completed') {
           setDiscoveryStatus('completed');
           setIsLoading(false);
         } else if (progress?.phase === 'starting_discovery' || progress?.phase === 'personas' || progress?.phase === 'businesses') {
           setDiscoveryStatus('discovering');
+          // Don't override loading state if we're actively discovering
+          if (!isLoading) {
+            setIsLoading(true);
+          }
           // Keep checking progress
           setTimeout(() => checkDiscoveryProgress(searchId), 2000);
         } else {
@@ -150,10 +168,12 @@ export default function BusinessResults() {
       if (isDemo) {
         setBusinesses(getStaticBusinesses());
         setHasSearch(true);
+        setIsLoading(false);
       } else if (!currentSearch) {
         // Real user with no search - show empty state
         setBusinesses([]);
         setHasSearch(false);
+        setIsLoading(false);
       } else {
         // Real user with search - load from database
         let dbBusinesses = await SearchService.getBusinesses(currentSearch.id);
@@ -165,8 +185,11 @@ export default function BusinessResults() {
           
           if (isRecentSearch) {
             console.log(`Search ${currentSearch.id} is recent and still processing businesses...`);
-            // Keep loading state for recent searches
+            // Keep loading state for recent searches and start progress checking
             setIsLoading(true);
+            setDiscoveryStatus('discovering');
+            // Start progress checking
+            checkDiscoveryProgress(currentSearch.id);
             // Check again in a few seconds
             setTimeout(() => loadBusinesses(), 3000);
             return;
@@ -187,14 +210,15 @@ export default function BusinessResults() {
         
         setBusinesses(formattedBusinesses);
         setHasSearch(true);
+        setIsLoading(false); // Only stop loading when we have results or confirmed no results
       }
     } catch (error) {
       console.error('Error loading businesses:', error);
       setBusinesses([]);
       setHasSearch(false);
-    } finally {
       setIsLoading(false);
     }
+    // Note: No finally block - we manage loading state manually for recent searches
   };
 
   const getStaticBusinesses = (): Business[] => [
@@ -442,6 +466,31 @@ export default function BusinessResults() {
         </div>
       </div>
     );
+  }
+
+  // Show "still processing" state for users with search but no businesses yet
+  const currentSearch = getCurrentSearch();
+  if (hasSearch && businesses.length === 0 && !isLoading && discoveryStatus !== 'discovering' && !isDemoUser(authState.user?.id, authState.user?.email)) {
+    // Check if this is a recent search that might still be processing
+    if (currentSearch) {
+      const searchAge = Date.now() - new Date(currentSearch.created_at).getTime();
+      const isRecentSearch = searchAge < 10 * 60 * 1000; // 10 minutes
+      
+      if (isRecentSearch) {
+        // Show processing message for recent searches with no results yet
+        return (
+          <div className="flex items-center justify-center min-h-96">
+            <div className="text-center max-w-md">
+              <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <h3 className="text-lg font-semibold text-gray-900">Still searching for businesses...</h3>
+              <p className="text-gray-600 mt-2">
+                Our AI agents are working to find the best matching businesses. This may take a few minutes.
+              </p>
+            </div>
+          </div>
+        );
+      }
+    }
   }
 
   // Show empty state for real users without any searches
