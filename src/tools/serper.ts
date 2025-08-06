@@ -52,13 +52,26 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     }
     
     const data = await r.json();
-    const places = (data.places || []).slice(0, limit).map((p: any) => ({
-      name: p.title || 'Unknown Business',
-      address: p.address || '',
-      phone: p.phoneNumber || '',
-      website: p.website || '',
-      rating: p.rating || null
-    }));
+    const places = (data.places || []).slice(0, limit).map((p: any) => {
+      // Extract city from address
+      let city = '';
+      if (p.address) {
+        const addressParts = p.address.split(',').map((part: string) => part.trim());
+        // Usually the city is the first or second part
+        if (addressParts.length > 1) {
+          city = addressParts[0];
+        }
+      }
+      
+      return {
+        name: p.title || 'Unknown Business',
+        address: p.address || '',
+        phone: p.phoneNumber || '',
+        website: p.website || '',
+        rating: p.rating || null,
+        city: city || country // Fallback to country if city not found
+      };
+    });
     
     console.log(`Found ${places.length} places for query: "${q}" in ${country}`);
     return places;

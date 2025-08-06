@@ -5,6 +5,7 @@ import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
 import { useDemoMode } from '../../hooks/useDemoMode';
+import { supabase } from '../../lib/supabase';
 
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
 const DEMO_USER_EMAIL = 'demo@leadora.com';
@@ -51,6 +52,40 @@ export default function BusinessResults() {
   useEffect(() => {
     loadBusinesses();
   }, [getCurrentSearch, authState.user]);
+
+  // Real-time subscription for streaming newly inserted businesses
+  useEffect(() => {
+    const currentSearch = getCurrentSearch();
+    if (!currentSearch) return;
+    
+    const channel = supabase
+      .channel('businesses-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'businesses',
+          filter: `search_id=eq.${currentSearch.id}`
+        },
+        (payload) => {
+          const b = payload.new;
+          setBusinesses(prev => [
+            ...prev,
+            {
+              ...b,
+              matchScore: b.match_score,
+              relevantDepartments: b.relevant_departments || [],
+              keyProducts: b.key_products || [],
+              recentActivity: b.recent_activity || [],
+              personaType: b.persona_type
+            }
+          ]);
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [getCurrentSearch]);
 
   const loadBusinesses = async () => {
     setIsLoading(true);

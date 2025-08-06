@@ -27,14 +27,35 @@ export class CampaignService {
 
   // Get user's campaigns
   static async getUserCampaigns(userId: string): Promise<EmailCampaign[]> {
-    const { data, error } = await supabase
-      .from('email_campaigns')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('email_campaigns')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
 
-    if (error) throw error;
-    return data || [];
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      // Fallback to proxy if direct Supabase call fails (CORS issues)
+      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
+        console.log('CORS issue detected for campaigns, falling back to proxy...');
+        try {
+          const response = await fetch(`/.netlify/functions/user-data-proxy?table=email_campaigns&user_id=${userId}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+          return await response.json();
+        } catch (proxyError) {
+          console.log('Proxy also failed for campaigns, returning empty array...');
+          return []; // Return empty array as final fallback
+        }
+      }
+      throw error;
+    }
   }
 
   // Update campaign

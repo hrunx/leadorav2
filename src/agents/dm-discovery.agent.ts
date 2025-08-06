@@ -3,7 +3,6 @@ import { serperSearch } from '../tools/serper';
 import { loadBusinesses, loadDMPersonas } from '../tools/db.read';
 import { insertDMs, updateSearchProgress, logApiUsage } from '../tools/db.write';
 import { countryToGL } from '../tools/util';
-import { extractJson } from '../tools/json';
 import { gemini } from './clients';
 
 const readCompaniesTool = tool({
@@ -54,93 +53,37 @@ const linkedInDiscoveryTool = tool({
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
- 
-    const {
-      company_name,
-      company_city,
-
     const { 
-      company_name,
-      company_city,
-      company_country,
- 
-      target_roles,
-      gl,
-      search_id,
-      user_id
-    } = input as {
+      company_name, 
+      company_city, 
+      target_roles, 
+      gl, 
+      search_id, 
+      user_id 
+    } = input as { 
       company_name: string;
       company_city?: string;
-      company_country: string;
       target_roles: string[];
-      gl: string;
-      search_id: string;
-      user_id: string;
+      gl: string; 
+      search_id: string; 
+      user_id: string; 
     };
 
-    // Build comprehensive LinkedIn search query
-    const roleQueries = target_roles.map(role => `"${role}"`).join(' OR ');
-    const locationPart = company_city ? ` "${company_city}"` : '';
-
-    // Enhanced LinkedIn search pattern
-    const query = `site:linkedin.com/in "${company_name}"${locationPart} (${roleQueries}) (Director OR VP OR "Vice President" OR Manager OR Head OR Chief OR Lead)`;
-
-    console.log(`LinkedIn search for ${company_name}: ${query}`);
-
-    // Execute Serper search with individual timer
-    const serperStartTime = Date.now();
-    let searchResults;
+    const startTime = Date.now();
     try {
-
-      searchResults = await serperSearch(query, gl, 10);
-      const serperEndTime = Date.now();
-      await logApiUsage({
-        user_id,
-        search_id,
-        provider: 'serper',
-        endpoint: 'web_search',
-        status: 200,
-        ms: serperEndTime - serperStartTime,
-        request: { query, gl, num: 10, startTime: serperStartTime },
-        response: { count: searchResults.length, endTime: serperEndTime }
-      });
-    } catch (error: any) {
-      const serperEndTime = Date.now();
-      await logApiUsage({
-        user_id,
-        search_id,
-        provider: 'serper',
-        endpoint: 'web_search',
-        status: 500,
-        ms: serperEndTime - serperStartTime,
-        request: { query, gl, num: 10, startTime: serperStartTime },
-        response: { error: error.message, endTime: serperEndTime }
-      });
-
-      console.error(`LinkedIn discovery error for ${company_name}:`, error);
-      return { company: company_name, profiles: [], error: error.message };
-    }
-
-    // Use Gemini to extract and structure LinkedIn profile data
-    const prompt = `
-
       // Build comprehensive LinkedIn search query
       const roleQueries = target_roles.map(role => `"${role}"`).join(' OR ');
-      const locationPart = [company_city, company_country]
-        .filter(Boolean)
-        .map(loc => ` "${loc}"`)
-        .join('');
+      const locationPart = company_city ? ` "${company_city}"` : '';
       
       // Enhanced LinkedIn search pattern
       const query = `site:linkedin.com/in "${company_name}"${locationPart} (${roleQueries}) (Director OR VP OR "Vice President" OR Manager OR Head OR Chief OR Lead)`;
-
-      console.log(`LinkedIn search for ${company_name} (${company_country}): ${query}`);
-
-      const searchResults = await serperSearch(query, company_country, 10);
+      
+      console.log(`LinkedIn search for ${company_name}: ${query}`);
+      
+      const searchResults = await serperSearch(query, gl, 10);
       
       // Use Gemini to extract and structure LinkedIn profile data
       const prompt = `
-
 Analyze these LinkedIn search results for ${company_name} and extract decision maker profiles.
 
 Search Results:
@@ -150,7 +93,7 @@ Your task:
 1. Extract real LinkedIn profiles (ignore company pages, ads, or irrelevant results)
 2. For each valid profile, extract:
    - Full name (first and last name)
-   - Current job title
+   - Current job title 
    - Company name (must match "${company_name}" or be very similar)
    - LinkedIn profile URL
    - Location if mentioned
@@ -175,40 +118,38 @@ Requirements:
 - Maximum 5 profiles per company
 - Return empty array if no valid profiles found`;
 
-    const geminiStartTime = Date.now();
-    try {
       // @ts-ignore – gemini SDK typing mismatch
-      const geminiResponse = await (gemini as any).generateContent({
+    const geminiResponse = await (gemini as any).generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }]
       });
-      const geminiEndTime = Date.now();
 
       const responseText = geminiResponse.response.text();
       console.log(`Gemini LinkedIn extraction response: ${responseText.substring(0, 200)}...`);
 
-      // Parse JSON response using utility
+      // Parse JSON response
       let profiles = [];
-      const parsedProfiles = extractJson(responseText);
-      if (!parsedProfiles || !Array.isArray(parsedProfiles)) {
-        console.error('Error parsing Gemini response', {
-          responseSnippet: responseText.slice(0, 200)
-        });
-      } else {
-        profiles = parsedProfiles;
+      try {
+        // Clean up response to extract JSON
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          profiles = JSON.parse(jsonMatch[0]);
+        }
+      } catch (parseError) {
+        console.error('Error parsing Gemini response:', parseError);
+        console.error('Raw response:', responseText);
       }
 
       // Log API usage for both Serper and Gemini
-     await logApiUsage({
+      await logApiUsage({
         user_id,
         search_id,
         provider: 'serper',
         endpoint: 'web_search',
         status: 200,
         ms: Date.now() - startTime,
-        request: { query, gl, country: company_country, num: 10 },
+        request: { query, gl, num: 10 },
         response: { count: searchResults.length }
       });
-
 
       await logApiUsage({
         user_id,
@@ -216,43 +157,36 @@ Requirements:
         provider: 'gemini',
         endpoint: 'generateContent',
         status: 200,
-
-        ms: geminiEndTime - geminiStartTime,
-        request: { company: company_name, profiles_found: profiles.length, startTime: geminiStartTime },
-        response: { extracted_profiles: profiles.length, endTime: geminiEndTime }
-
         ms: Date.now() - startTime,
-        request: { company: company_name, country: company_country, profiles_found: profiles.length },
+        request: { company: company_name, profiles_found: profiles.length },
         response: { extracted_profiles: profiles.length }
-
       });
 
-      return {
+      return { 
         company: company_name,
         profiles: profiles,
-        raw_search_count: searchResults.length
+        raw_search_count: searchResults.length 
       };
+
     } catch (error: any) {
-      const geminiEndTime = Date.now();
+      console.error(`LinkedIn discovery error for ${company_name}:`, error);
+      
       await logApiUsage({
         user_id,
         search_id,
-        provider: 'gemini',
-        endpoint: 'generateContent',
+        provider: 'serper',
+        endpoint: 'web_search',
         status: 500,
-
-        ms: geminiEndTime - geminiStartTime,
-        request: { company: company_name, startTime: geminiStartTime },
-        response: { error: error.message, endTime: geminiEndTime }
-
         ms: Date.now() - startTime,
-        request: { company: company_name, country: company_country },
+        request: { company: company_name },
         response: { error: error.message }
-
       });
 
-      console.error(`Gemini extraction error for ${company_name}:`, error);
-      return { company: company_name, profiles: [], error: error.message };
+      return { 
+        company: company_name,
+        profiles: [],
+        error: error.message 
+      };
     }
   }
 });
@@ -281,10 +215,9 @@ const storeDMsProfilesTool = tool({
                   company: { type: 'string' },
                   linkedin: { type: 'string' },
                   location: { type: 'string' },
-                  department: { type: 'string' },
-                  persona_id: { type: 'string' }
+                  department: { type: 'string' }
                 },
-                required: ['name', 'title', 'company', 'linkedin', 'location', 'persona_id'],
+                required: ['name', 'title', 'company', 'linkedin', 'location', 'department'],
                 additionalProperties: false
               }
             }
@@ -300,7 +233,7 @@ const storeDMsProfilesTool = tool({
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
-    const { company_profiles, search_id, user_id } = input as {
+    const { company_profiles, search_id, user_id } = input as { 
       company_profiles: Array<{
         company: string;
         profiles: Array<{
@@ -310,7 +243,6 @@ const storeDMsProfilesTool = tool({
           linkedin?: string;
           location?: string;
           department?: string;
-          persona_id: string;
         }>;
       }>;
       search_id: string;
@@ -334,16 +266,16 @@ const storeDMsProfilesTool = tool({
           .replace(/(inc|corp|llc|ltd|company|co)$/, '') + '.com';
         const email = `${firstName}.${lastName}@${companyDomain}`;
         
-          return {
-            search_id,
-            user_id,
-            persona_id: profile.persona_id,
-            name: profile.name,
-            title: profile.title,
-            level: inferLevel(profile.title),
-            department: profile.department || inferDepartment(profile.title),
-            influence: inferInfluence(profile.title),
-            company: profile.company,
+        return {
+          search_id,
+          user_id,
+          persona_id: null, // Will be mapped by the agent
+          name: profile.name,
+          title: profile.title,
+          level: inferLevel(profile.title),
+          department: profile.department || inferDepartment(profile.title),
+          influence: inferInfluence(profile.title),
+          company: profile.company,
           location: profile.location || '',
           match_score: 85,
           email: email,
@@ -423,7 +355,6 @@ PRECISION MAPPING PROCESS:
    - Consider decision authority level (C-Level, VP, Director, Manager)
    - Account for industry-specific variations in titles
 5) Store decision makers with PRECISE persona assignments:
-   - Call storeDMsProfiles providing persona_id for each profile
    - Each DM linked to their best-matching persona_id
    - Complete profile information from LinkedIn
    - Detailed reasoning for persona assignment
@@ -476,7 +407,7 @@ export async function runDMDiscovery(search: {
 - search_type=${search.search_type}
 - gl=${gl}
 
-  CRITICAL: Find decision makers for companies across ALL specified countries (${countries}) and ALL specified industries (${industries}) who would be decision makers for "${search.product_service}". Use LinkedIn search targeting senior roles like Directors, VPs, Heads, and Managers in roles relevant to the product/service. Map each decision maker to the appropriate persona_id and include persona_id when storing profiles.`;
+CRITICAL: Find decision makers for companies across ALL specified countries (${countries}) and ALL specified industries (${industries}) who would be decision makers for "${search.product_service}". Use LinkedIn search targeting senior roles like Directors, VPs, Heads, and Managers in roles relevant to the product/service.`;
     
     console.log(`Starting decision maker discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries} | Product: ${search.product_service}`);
     
