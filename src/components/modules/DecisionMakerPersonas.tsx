@@ -5,6 +5,7 @@ import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
 import { useDemoMode } from '../../hooks/useDemoMode';
+import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
 
@@ -50,21 +51,50 @@ export default function DecisionMakerPersonas() {
   const { state, updateSelectedDecisionMakerPersonas } = useAppContext();
   const { getCurrentSearch } = useUserData();
   const { state: authState } = useAuth();
-  // Simple demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
+  const currentSearch = getCurrentSearch();
+  
+  // Real-time data hook for progressive loading
+  const realTimeData = useRealTimeSearch(currentSearch?.id || null);
+  
+  // UI state
   const [selectedPersona, setSelectedPersona] = useState<DecisionMakerPersona | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [expandedPersonas, setExpandedPersonas] = useState<string[]>([]);
-  const [personas, setPersonas] = useState<DecisionMakerPersona[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasSearch, setHasSearch] = useState(false);
+  
+  // Legacy demo state
+  const [demoPersonas, setDemoPersonas] = useState<DecisionMakerPersona[]>([]);
+  const [isLoadingDemo, setIsLoadingDemo] = useState(true);
+  
+  // Determine if we're in demo mode
+  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+  
+  // Use real-time data for real users, demo data for demo users
+  const personas = isDemo ? demoPersonas : realTimeData.dmPersonas.map(p => ({
+    id: p.id,
+    title: p.title,
+    rank: p.rank,
+    description: p.description || `Key ${p.title} decision maker persona`,
+    responsibilities: p.responsibilities || [],
+    painPoints: p.pain_points || [],
+    preferredChannels: p.preferred_channels || [],
+    keyMessages: p.key_messages || [],
+    avgSalary: p.avg_salary || '$0',
+    influence: p.influence || 'High',
+    decisionCriteria: p.decision_criteria || [],
+    industries: p.industries || [],
+    companies: []
+  }));
+  
+  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && personas.length === 0);
+  const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
 
-  // Load personas on component mount
+  // Load demo data for demo users only
   useEffect(() => {
-    loadPersonas();
-  }, [getCurrentSearch, authState.user]);
+    if (isDemo) {
+      setDemoPersonas(getStaticDMPersonas());
+      setIsLoadingDemo(false);
+    }
+  }, [isDemo]);
 
   const loadPersonas = async () => {
     setIsLoading(true);

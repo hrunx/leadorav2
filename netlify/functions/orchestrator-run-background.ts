@@ -149,7 +149,14 @@ export const handler: Handler = async (event) => {
     // Now start decision makers (needs both personas and businesses)
     await updateProgress(search_id, 'decision_makers', 65);
     console.log('Starting DM discovery...');
-    await retry(() => withTimeout(execDMDiscovery({ search_id, user_id }), 180_000, 'decision_makers'));
+    
+    // Only start DM discovery if we have businesses
+    if (businessResult) {
+      await retry(() => withTimeout(execDMDiscovery({ search_id, user_id }), 180_000, 'decision_makers'));
+      console.log('DM discovery completed successfully');
+    } else {
+      console.log('Skipping DM discovery - no businesses found');
+    }
 
     // PHASE 4: Wait for market research to complete (should be done by now)
     await updateProgress(search_id, 'market_insights', 85);
