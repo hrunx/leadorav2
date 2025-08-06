@@ -231,8 +231,11 @@ export async function runBusinessDiscovery(search: {
 - gl=${gl}
 - discovery_query="${q}"
 
-CRITICAL: Find businesses across ALL specified countries
-- When calling serperPlaces you MUST pass limit: 10 (${countries}) and ALL specified industries (${industries}) that are relevant to "${search.product_service}". Use precise geographic targeting and industry filtering.`;
+CRITICAL: Find businesses across ALL specified countries: ${search.countries.join(', ')}
+- Call serperPlaces MULTIPLE TIMES for comprehensive coverage:
+  ${search.countries.map(country => `  * For ${country}: serperPlaces(q="${search.product_service} ${intent} ${industries} ${country}", gl="${countryToGL(country)}", limit=10)`).join('\n')}
+- Store ALL results from all countries combined
+- Use geographic targeting for each country separately`;
     
     console.log(`Starting business discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries} | Query: "${q}"`);
     
