@@ -160,22 +160,25 @@ async function generateStructuredInsights(analysis: string): Promise<any> {
   
   return {
     tam_data: {
-      value: marketSizes[0] || "$50.0B",
-      growth: percentages[0] || "+12%",
+      value: marketSizes[0] || "Data not available",
+      growth: percentages[0] || "Unknown",
       description: "Total Addressable Market",
-      calculation: "Extracted from market research analysis"
+      calculation: marketSizes[0] ? "Extracted from market research analysis" : "Insufficient data for reliable calculation",
+      data_quality: marketSizes[0] ? "extracted" : "unavailable"
     },
     sam_data: {
-      value: marketSizes[1] || "$10.0B", 
-      growth: percentages[1] || "+15%",
+      value: marketSizes[1] || "Data not available", 
+      growth: percentages[1] || "Unknown",
       description: "Serviceable Addressable Market",
-      calculation: "Geographic and segment analysis"
+      calculation: marketSizes[1] ? "Geographic and segment analysis" : "Insufficient data for reliable calculation",
+      data_quality: marketSizes[1] ? "extracted" : "unavailable"
     },
     som_data: {
-      value: marketSizes[2] || "$500M",
-      growth: percentages[2] || "+18%",
+      value: marketSizes[2] || "Data not available",
+      growth: percentages[2] || "Unknown",
       description: "Serviceable Obtainable Market", 
-      calculation: "Realistic capture potential"
+      calculation: marketSizes[2] ? "Realistic capture potential" : "Insufficient data for reliable calculation",
+      data_quality: marketSizes[2] ? "extracted" : "unavailable"
     },
     competitor_data: extractCompetitorData(analysis),
     trends: extractTrends(analysis),
@@ -184,55 +187,81 @@ async function generateStructuredInsights(analysis: string): Promise<any> {
 }
 
 function extractCompetitorData(analysis: string): any[] {
-  // Simple extraction - in production this would be more sophisticated
-  return [
-    {
-      name: "Leading Market Player",
-      marketShare: "25%", 
-      description: "Dominant player with established presence",
-      strengths: ["Market leadership", "Brand recognition"],
-      weaknesses: ["High pricing", "Legacy systems"]
-    },
-    {
-      name: "Growing Competitor",
-      marketShare: "18%",
-      description: "Fast-growing challenger with innovative approach", 
-      strengths: ["Innovation", "Agile operations"],
-      weaknesses: ["Limited scale", "Brand awareness"]
-    }
-  ];
+  // Try to extract competitor data from analysis text
+  // Look for company names and competitive mentions
+  const competitorRegex = /(?:competitor|company|player):\s*([A-Z][^.!?]*)/gi;
+  const matches = analysis.match(competitorRegex) || [];
+  
+  if (matches.length === 0) {
+    return [{
+      name: "No competitor data available",
+      marketShare: "Unknown", 
+      description: "Insufficient data for competitive analysis",
+      data_quality: "unavailable",
+      note: "Competitive intelligence requires access to validated market research reports"
+    }];
+  }
+  
+  // Return extracted competitors (simplified - real implementation would be more sophisticated)
+  return matches.slice(0, 3).map((match, index) => ({
+    name: match.replace(/^.*:\s*/, '').trim(),
+    marketShare: "Unknown",
+    description: "Mentioned in market analysis",
+    data_quality: "extracted",
+    note: "Data extracted from available sources - may require validation"
+  }));
 }
 
 function extractTrends(analysis: string): any[] {
-  return [
-    {
-      title: "Digital Adoption",
-      impact: "High",
-      description: "Accelerating shift to digital solutions",
-      timeline: "1-2 years"
-    },
-    {
-      title: "Sustainability Focus", 
-      impact: "Medium",
-      description: "Increasing emphasis on environmental responsibility",
-      timeline: "2-3 years"
-    }
-  ];
+  // Try to extract trend mentions from analysis text
+  const trendRegex = /(?:trend|growth|emerging|increasing|rising)[\s:]*([^.!?]*)/gi;
+  const matches = analysis.match(trendRegex) || [];
+  
+  if (matches.length === 0) {
+    return [{
+      title: "No trend data available",
+      impact: "Unknown",
+      description: "Insufficient data for trend analysis",
+      timeline: "Unknown",
+      data_quality: "unavailable",
+      note: "Trend analysis requires access to current market intelligence and forecasting reports"
+    }];
+  }
+  
+  // Return extracted trends (simplified)
+  return matches.slice(0, 3).map((match, index) => ({
+    title: match.replace(/^.*?(?:trend|growth|emerging|increasing|rising)[\s:]*/, '').trim(),
+    impact: "Unknown",
+    description: "Mentioned in market analysis",
+    timeline: "Unknown",
+    data_quality: "extracted",
+    note: "Data extracted from available sources - requires validation"
+  }));
 }
 
 function extractOpportunities(analysis: string): any[] {
-  return [
-    {
-      title: "Underserved Segments",
-      description: "Identified gaps in current market coverage",
-      potential: "High", 
-      timeframe: "Short term"
-    },
-    {
-      title: "Technology Integration",
-      description: "Opportunity for advanced technology adoption",
-      potential: "Medium",
-      timeframe: "Medium term"
-    }
-  ];
+  // Try to extract opportunity mentions from analysis text
+  const opportunityRegex = /(?:opportunity|potential|gap|opening)[\s:]*([^.!?]*)/gi;
+  const matches = analysis.match(opportunityRegex) || [];
+  
+  if (matches.length === 0) {
+    return [{
+      title: "No opportunity data available",
+      description: "Insufficient data for opportunity analysis",
+      potential: "Unknown", 
+      timeframe: "Unknown",
+      data_quality: "unavailable",
+      note: "Opportunity analysis requires comprehensive market research and competitive intelligence"
+    }];
+  }
+  
+  // Return extracted opportunities (simplified)
+  return matches.slice(0, 3).map((match, index) => ({
+    title: match.replace(/^.*?(?:opportunity|potential|gap|opening)[\s:]*/, '').trim(),
+    description: "Mentioned in market analysis",
+    potential: "Unknown",
+    timeframe: "Unknown",
+    data_quality: "extracted",
+    note: "Data extracted from available sources - requires validation and deeper analysis"
+  }));
 }

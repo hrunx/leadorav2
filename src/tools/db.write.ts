@@ -18,12 +18,6 @@ export const insertDMPersonas = async (rows: any[]) => {
   return data!;
 };
 
-export const insertDMs = async (rows: any[]) => {
-  const { data, error } = await supa.from('decision_makers').insert(rows).select('id,name,company');
-  if (error) throw error; 
-  return data!;
-};
-
 // Insert basic DM data with enrichment_status = 'pending'
 export const insertDecisionMakersBasic = async (rows: any[]) => {
   const basicRows = rows.map(row => ({
