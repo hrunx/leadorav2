@@ -145,7 +145,20 @@ const storeBusinessesTool = tool({
     }));
     
     console.log(`Inserting ${rows.length} businesses for search ${search_id}`);
-    return await insertBusinesses(rows);
+    const insertedBusinesses = await insertBusinesses(rows);
+    
+    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately
+    setTimeout(async () => {
+      try {
+        console.log(`🎯 Triggering instant DM discovery for ${insertedBusinesses.length} businesses`);
+        const { triggerInstantDMDiscovery } = await import('../tools/instant-dm-discovery');
+        await triggerInstantDMDiscovery(search_id, user_id, insertedBusinesses);
+      } catch (error) {
+        console.error('Failed to trigger instant DM discovery:', error);
+      }
+    }, 1000); // Small delay to ensure businesses are stored
+    
+    return insertedBusinesses;
   }
 });
 

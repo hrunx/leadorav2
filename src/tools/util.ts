@@ -191,3 +191,100 @@ export async function retryWithBackoff<T>(
   
   throw lastError!;
 }
+
+// Build decision maker data with all required fields
+export function buildDMData(params: {
+  search_id: string;
+  user_id: string;
+  business_id: string;
+  persona_id?: string | null;
+  name: string;
+  title: string;
+  company: string;
+  linkedin: string;
+  email: string;
+  phone?: string | null;
+  bio?: string;
+  location?: string;
+  enrichment_status?: string;
+}) {
+  return {
+    search_id: params.search_id,
+    user_id: params.user_id,
+    business_id: params.business_id,
+    persona_id: params.persona_id,
+    name: params.name,
+    title: params.title,
+    company: params.company,
+    linkedin: params.linkedin,
+    email: params.email,
+    phone: params.phone || null,
+    bio: params.bio || '',
+    location: params.location || '',
+    enrichment_status: params.enrichment_status || 'pending',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+}
+
+/**
+ * Smart persona mapping for decision makers
+ * Maps DM to most relevant persona based on title, department, and seniority
+ */
+export function mapDMToPersona(employee: any, dmPersonas: any[]): any | null {
+  if (!dmPersonas || dmPersonas.length === 0) return null;
+  
+  const title = employee.title?.toLowerCase() || '';
+  
+  // Define role keywords for smart matching
+  const roleKeywords = {
+    'c-level': ['ceo', 'chief executive', 'cto', 'chief technology', 'cmo', 'chief marketing', 'cfo', 'chief financial', 'chief', 'president'],
+    'vp': ['vice president', 'vp', 'senior vice'],
+    'director': ['director', 'head of', 'senior director'],
+    'manager': ['manager', 'senior manager', 'team lead'],
+    'technical': ['engineer', 'developer', 'tech', 'technology', 'cto', 'architect', 'devops'],
+    'marketing': ['marketing', 'cmo', 'brand', 'growth', 'digital'],
+    'sales': ['sales', 'business development', 'account', 'revenue'],
+    'finance': ['finance', 'cfo', 'accounting', 'controller'],
+    'operations': ['operations', 'ops', 'supply chain', 'logistics'],
+    'hr': ['human resources', 'hr', 'people', 'talent']
+  };
+  
+  // Calculate match scores for each persona
+  const personaScores = dmPersonas.map(persona => {
+    const personaTitle = persona.title?.toLowerCase() || '';
+    let score = 0;
+    
+    // Match by persona keywords
+    for (const [category, keywords] of Object.entries(roleKeywords)) {
+      const titleMatches = keywords.some(keyword => title.includes(keyword));
+      const personaMatches = keywords.some(keyword => personaTitle.includes(keyword));
+      
+      if (titleMatches && personaMatches) {
+        score += 10; // Strong match
+      } else if (titleMatches || personaMatches) {
+        score += 5; // Partial match
+      }
+    }
+    
+    // Boost score for exact keyword matches
+    if (personaTitle.includes('c-level') && roleKeywords['c-level'].some(k => title.includes(k))) {
+      score += 15;
+    }
+    if (personaTitle.includes('executive') && (title.includes('vp') || title.includes('director'))) {
+      score += 10;
+    }
+    if (personaTitle.includes('manager') && title.includes('manager')) {
+      score += 10;
+    }
+    
+    return { persona, score };
+  });
+  
+  // Return the persona with highest score (minimum threshold of 5)
+  const bestMatch = personaScores
+    .filter(p => p.score >= 5)
+    .sort((a, b) => b.score - a.score)[0];
+  
+  return bestMatch?.persona || dmPersonas[0]; // Fallback to first persona if no good match
+}

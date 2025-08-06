@@ -170,3 +170,25 @@ export const logApiUsage = async (params: {
     // Don't throw - API logging shouldn't break the main flow
   }
 };
+
+export const updateDecisionMakerEnrichment = async (dmId: string, enrichmentData: {
+  email?: string;
+  phone?: string;
+  enrichment_status?: string;
+  enrichment_confidence?: number;
+  enrichment_sources?: string[];
+  enrichment_error?: string;
+}) => {
+  const supa = getSupabaseClient();
+  const { data, error } = await supa
+    .from('decision_makers')
+    .update({
+      ...enrichmentData,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', dmId)
+    .select('id,name,email,phone');
+  
+  if (error) throw error;
+  return data;
+};
