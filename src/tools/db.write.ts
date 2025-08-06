@@ -49,22 +49,7 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
   return data!;
 };
 
-// Update enrichment data for a specific decision maker
-export const updateDecisionMakerEnrichment = async (id: string, enrichmentData: any) => {
-  const supa = getSupabaseClient();
-  const { data, error } = await supa
-    .from('decision_makers')
-    .update({
-      enrichment_status: 'done' as const,
-      enrichment: enrichmentData,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', id)
-    .select('id,name');
-    
-  if (error) throw error;
-  return data;
-};
+// Update enrichment data for a specific decision maker - moved to end of file
 
 export const insertMarketInsights = async (row: any) => {
   const supa = getSupabaseClient();
@@ -105,6 +90,7 @@ export async function updateSearchProgress(
   status = 'in_progress'
 ) {
   const normPhase = normalizePhase(phase);
+  const supa = getSupabaseClient();
   const { error } = await supa
     .from('user_searches')
     .update({
@@ -119,6 +105,7 @@ export async function updateSearchProgress(
 }
 
 export const markSearchCompleted = async (search_id: string) => {
+  const supa = getSupabaseClient();
   const { error } = await supa
     .from('user_searches')
     .update({ 
@@ -146,6 +133,7 @@ export const logApiUsage = async (params: {
   response?: any;
 }) => {
   try {
+    const supa = getSupabaseClient();
     const { error } = await supa
       .from('api_usage_logs')
       .insert({
