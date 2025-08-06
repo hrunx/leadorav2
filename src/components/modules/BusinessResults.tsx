@@ -77,6 +77,14 @@ export default function BusinessResults() {
         
         console.log(`Discovery progress: ${progress?.phase}, Businesses found: ${dataCounts?.businesses || 0}`);
         
+        // Handle offline/fallback search state
+        if (progress?.phase === 'offline') {
+          console.log('Offline search detected, stopping progress checks');
+          setDiscoveryStatus('completed');
+          setIsLoading(false);
+          return;
+        }
+        
         // Update discovery status based on progress and data
         if (dataCounts?.businesses > 0) {
           setDiscoveryStatus('completed');

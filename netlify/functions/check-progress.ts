@@ -21,19 +21,38 @@ export const handler: Handler = async (event) => {
       .eq('id', search_id)
       .single();
 
-    if (searchError) throw searchError;
+    // Handle case where search doesn't exist (fallback/offline search)
+    if (searchError) {
+      if (searchError.code === 'PGRST116') {
+        // Search not found - return fallback response for offline/fallback searches
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            search_id,
+            progress: { phase: 'offline', progress_pct: 0, status: 'offline' },
+            data_counts: {
+              business_personas: 0,
+              businesses: 0,
+              dm_personas: 0,
+              decision_makers: 0,
+              market_insights: 0
+            },
+            recent_api_calls: []
+          })
+        };
+      }
+      throw searchError;
+    }
 
-    // Get recent API logs
-    const { data: logs, error: logsError } = await supa
+    // Get recent API logs (with error handling)
+    const { data: logs } = await supa
       .from('api_usage_logs')
       .select('provider, endpoint, status, ms, created_at')
       .eq('search_id', search_id)
       .order('created_at', { ascending: false })
       .limit(10);
 
-    if (logsError) throw logsError;
-
-    // Get data counts
+    // Get data counts (with error handling)
     const [businessPersonas, businesses, dmPersonas, dms, marketInsights] = await Promise.all([
       supa.from('business_personas').select('id').eq('search_id', search_id),
       supa.from('businesses').select('id').eq('search_id', search_id),
