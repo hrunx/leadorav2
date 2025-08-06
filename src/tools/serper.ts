@@ -3,8 +3,8 @@ import { retryWithBackoff } from './util';
 // Improved country to GL code mapping
 function glFromCountry(country: string): string {
   const m = new Map([
-    ['saudi arabia','sa'],['sa','sa'], // SA defaults to Saudi Arabia
-    ['south africa','za'],
+    ['saudi arabia','sa'],['sa','sa'], // SA ALWAYS = Saudi Arabia
+    // South Africa removed from mapping to avoid conflicts
     ['united arab emirates','ae'],['uae','ae'],
     ['qatar','qa'],['bahrain','bh'],['kuwait','kw'],['oman','om'],
     ['egypt','eg'],['jordan','jo'],['morocco','ma'],['turkey','tr'],
