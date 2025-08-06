@@ -41,6 +41,7 @@ export default function BusinessResults() {
   const [isLoading, setIsLoading] = useState(true);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [hasSearch, setHasSearch] = useState(false);
+  const [discoveryStatus, setDiscoveryStatus] = useState<'idle' | 'discovering' | 'completed'>('idle');
 
   // Check if we came from a specific persona selection
   useEffect(() => {
@@ -51,7 +52,55 @@ export default function BusinessResults() {
 
   useEffect(() => {
     loadBusinesses();
+    
+    // Start checking discovery progress for real users
+    const currentSearch = getCurrentSearch();
+    if (currentSearch && !isDemoUser(authState.user?.id, authState.user?.email)) {
+      setDiscoveryStatus('discovering');
+      checkDiscoveryProgress(currentSearch.id);
+    }
   }, [getCurrentSearch, authState.user]);
+
+  // Function to check orchestration progress
+  const checkDiscoveryProgress = async (searchId: string) => {
+    try {
+      const response = await fetch('/.netlify/functions/check-progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id: searchId })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        const progress = result.progress;
+        const dataCounts = result.data_counts;
+        
+        console.log(`Discovery progress: ${progress?.phase}, Businesses found: ${dataCounts?.businesses || 0}`);
+        
+        // Update discovery status based on progress and data
+        if (dataCounts?.businesses > 0) {
+          setDiscoveryStatus('completed');
+          setIsLoading(false);
+          // Reload businesses if we have new ones
+          loadBusinesses();
+        } else if (progress?.phase === 'completed') {
+          setDiscoveryStatus('completed');
+          setIsLoading(false);
+        } else if (progress?.phase === 'starting_discovery' || progress?.phase === 'personas' || progress?.phase === 'businesses') {
+          setDiscoveryStatus('discovering');
+          // Keep checking progress
+          setTimeout(() => checkDiscoveryProgress(searchId), 2000);
+        } else {
+          // Keep checking for a reasonable time
+          setTimeout(() => checkDiscoveryProgress(searchId), 3000);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking discovery progress:', error);
+      // Fallback - stop checking after a while
+      setTimeout(() => setDiscoveryStatus('completed'), 10000);
+    }
+  };
 
   // Real-time subscription for streaming newly inserted businesses
   useEffect(() => {
@@ -81,6 +130,10 @@ export default function BusinessResults() {
               personaType: b.persona_type
             }
           ]);
+          
+          // Update discovery status when first business appears
+          setDiscoveryStatus('completed');
+          setIsLoading(false);
         }
       )
       .subscribe();
@@ -358,13 +411,34 @@ export default function BusinessResults() {
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'decision-maker-profiles' }));
   };
 
-  if (isLoading) {
+  // Show discovery progress UI for real users
+  if (isLoading || (discoveryStatus === 'discovering' && businesses.length === 0)) {
     return (
       <div className="flex items-center justify-center min-h-96">
-        <div className="text-center">
+        <div className="text-center max-w-md">
           <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <h3 className="text-lg font-semibold text-gray-900">Discovering businesses...</h3>
-          <p className="text-gray-600">AI agents are finding businesses that match your criteria</p>
+          <p className="text-gray-600 mb-4">AI agents are searching for businesses using Serper Places API</p>
+          
+          {/* Progress indicators */}
+          <div className="space-y-2 text-sm text-gray-500">
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span>Business personas generated</span>
+            </div>
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <span>Searching for businesses in your target market...</span>
+            </div>
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+              <span>Analyzing business profiles with AI</span>
+            </div>
+          </div>
+          
+          <div className="mt-6 text-xs text-gray-400">
+            Results will appear as soon as businesses are found
+          </div>
         </div>
       </div>
     );

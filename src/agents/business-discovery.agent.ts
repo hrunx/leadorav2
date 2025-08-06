@@ -380,7 +380,7 @@ const storeBusinessesTool = tool({
     const rows = items.slice(0, 20).map((b: any) => buildBusinessData({
       search_id,
       user_id,
-      persona_id: b.persona_id || 'default-persona', // Use default if no persona mapping yet
+      persona_id: b.persona_id || null, // Use null if no persona mapping yet (will be updated later)
       name: b.name,
       industry,
       country,
