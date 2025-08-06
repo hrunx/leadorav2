@@ -5,6 +5,7 @@ import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
 import { useDemoMode } from '../../hooks/useDemoMode';
+import { supabase } from '../../lib/supabase';
 
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
 const DEMO_USER_EMAIL = 'demo@leadora.com';
@@ -88,11 +89,94 @@ export default function DecisionMakerProfiles() {
   const [decisionMakerPersonas, setDecisionMakerPersonas] = useState<DecisionMakerPersona[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasSearch, setHasSearch] = useState(false);
+  const [discoveryStatus, setDiscoveryStatus] = useState<'idle' | 'discovering' | 'completed'>('idle');
 
   // Load data on component mount
   useEffect(() => {
     loadData();
+    
+    // Start checking discovery progress for real users
+    const currentSearch = getCurrentSearch();
+    if (currentSearch && !isDemoUser(authState.user?.id, authState.user?.email)) {
+      setDiscoveryStatus('discovering');
+      checkDiscoveryProgress(currentSearch.id);
+    }
   }, [getCurrentSearch, authState.user]);
+
+  // Function to check orchestration progress for decision makers
+  const checkDiscoveryProgress = async (searchId: string) => {
+    try {
+      const response = await fetch('/.netlify/functions/check-progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id: searchId })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        const progress = result.progress;
+        const dataCounts = result.data_counts;
+        
+        console.log(`DM Discovery progress: ${progress?.phase}, Decision makers found: ${dataCounts?.decision_makers || 0}`);
+        
+        // Update discovery status based on progress and data
+        if (dataCounts?.decision_makers > 0) {
+          setDiscoveryStatus('completed');
+          setIsLoading(false);
+          // Reload data if we have new decision makers
+          loadData();
+        } else if (progress?.phase === 'completed') {
+          setDiscoveryStatus('completed');
+          setIsLoading(false);
+        } else if (progress?.phase === 'decision_makers') {
+          setDiscoveryStatus('discovering');
+          // Keep checking progress
+          setTimeout(() => checkDiscoveryProgress(searchId), 2000);
+        } else if (progress?.phase === 'businesses' || progress?.phase === 'starting_discovery' || progress?.phase === 'personas') {
+          setDiscoveryStatus('discovering');
+          // DM discovery comes after businesses, so keep checking
+          setTimeout(() => checkDiscoveryProgress(searchId), 3000);
+        } else {
+          // Keep checking for a reasonable time
+          setTimeout(() => checkDiscoveryProgress(searchId), 5000);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking DM discovery progress:', error);
+      // Fallback - stop checking after a while
+      setTimeout(() => setDiscoveryStatus('completed'), 15000);
+    }
+  };
+
+  // Real-time subscription for streaming newly inserted decision makers
+  useEffect(() => {
+    const currentSearch = getCurrentSearch();
+    if (!currentSearch) return;
+    
+    const channel = supabase
+      .channel('decision-makers-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'decision_makers',
+          filter: `search_id=eq.${currentSearch.id}`
+        },
+        (payload) => {
+          console.log('New decision maker found:', payload.new);
+          
+          // Update discovery status when first decision maker appears
+          setDiscoveryStatus('completed');
+          setIsLoading(false);
+          
+          // Reload data to get the complete persona structure
+          loadData();
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [getCurrentSearch]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -115,10 +199,24 @@ export default function DecisionMakerProfiles() {
           ]);
 
           if (dmPersonas.length === 0) {
-            console.log(`No decision maker personas found for search ${currentSearch.id}`);
-            setDecisionMakerPersonas([]);
-            setHasSearch(true);
-            return;
+            // Check if search is recent (less than 10 minutes old) - might still be processing
+            const searchAge = Date.now() - new Date(currentSearch.created_at).getTime();
+            const isRecentSearch = searchAge < 10 * 60 * 1000; // 10 minutes
+            
+            if (isRecentSearch) {
+              console.log(`Search ${currentSearch.id} is recent and still processing decision makers...`);
+              setDiscoveryStatus('discovering');
+              // Keep loading state for recent searches
+              setIsLoading(true);
+              // Check again in a few seconds
+              setTimeout(() => loadData(), 4000);
+              return;
+            } else {
+              console.log(`No decision maker personas found for completed search ${currentSearch.id}`);
+              setDecisionMakerPersonas([]);
+              setHasSearch(true);
+              return;
+            }
           }
 
           // Convert database personas to component format with actual employees
@@ -1077,13 +1175,42 @@ export default function DecisionMakerProfiles() {
     );
   }
 
-  if (isLoading) {
+  // Show discovery progress UI for real users
+  if (isLoading || (discoveryStatus === 'discovering' && decisionMakerPersonas.length === 0)) {
     return (
       <div className="flex items-center justify-center min-h-96">
-        <div className="text-center">
+        <div className="text-center max-w-md">
           <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <h3 className="text-lg font-semibold text-gray-900">Loading decision maker profiles...</h3>
-          <p className="text-gray-600">Analyzing decision makers who influence purchasing decisions</p>
+          <h3 className="text-lg font-semibold text-gray-900">Discovering decision makers...</h3>
+          <p className="text-gray-600 mb-4">AI agents are searching LinkedIn for key decision makers at target companies</p>
+          
+          {/* Progress indicators */}
+          <div className="space-y-2 text-sm text-gray-500">
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span>Business personas generated</span>
+            </div>
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span>Target businesses identified</span>
+            </div>
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span>Decision maker personas created</span>
+            </div>
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <span>Searching LinkedIn for decision makers...</span>
+            </div>
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+              <span>Analyzing profiles with AI</span>
+            </div>
+          </div>
+          
+          <div className="mt-6 text-xs text-gray-400">
+            Decision maker profiles will appear as soon as they're found
+          </div>
         </div>
       </div>
     );
