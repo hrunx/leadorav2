@@ -1,18 +1,35 @@
-import { supa } from '../agents/clients';
+import { createClient } from '@supabase/supabase-js';
+
+// Create a dedicated client for database operations that works in both browser and Netlify functions
+const getSupabaseClient = () => {
+  return createClient(
+    process.env.VITE_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { 
+      auth: { 
+        autoRefreshToken: false, 
+        persistSession: false
+      } 
+    }
+  );
+};
 
 export const insertBusinessPersonas = async (rows: any[]) => {
+  const supa = getSupabaseClient();
   const { data, error } = await supa.from('business_personas').insert(rows).select('id,title,rank');
   if (error) throw error; 
   return data!;
 };
 
 export const insertBusinesses = async (rows: any[]) => {
+  const supa = getSupabaseClient();
   const { data, error } = await supa.from('businesses').insert(rows).select('id,name,persona_id');
   if (error) throw error; 
   return data!;
 };
 
 export const insertDMPersonas = async (rows: any[]) => {
+  const supa = getSupabaseClient();
   const { data, error } = await supa.from('decision_maker_personas').insert(rows).select('id,title,rank');
   if (error) throw error; 
   return data!;
@@ -26,6 +43,7 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
     enrichment: null
   }));
   
+  const supa = getSupabaseClient();
   const { data, error } = await supa.from('decision_makers').insert(basicRows).select('id,name,company,title,linkedin');
   if (error) throw error; 
   return data!;
@@ -33,6 +51,7 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
 
 // Update enrichment data for a specific decision maker
 export const updateDecisionMakerEnrichment = async (id: string, enrichmentData: any) => {
+  const supa = getSupabaseClient();
   const { data, error } = await supa
     .from('decision_makers')
     .update({
@@ -48,6 +67,7 @@ export const updateDecisionMakerEnrichment = async (id: string, enrichmentData: 
 };
 
 export const insertMarketInsights = async (row: any) => {
+  const supa = getSupabaseClient();
   const { data, error } = await supa.from('market_insights').insert(row).select('id').single();
   if (error) throw error; 
   return data!;
