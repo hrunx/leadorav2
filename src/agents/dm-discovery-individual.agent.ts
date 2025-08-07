@@ -3,6 +3,7 @@ import { serperSearch } from '../tools/serper';
 import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
 import { buildDMData, mapDMToPersona } from '../tools/util';
+import { fetchContactEnrichment } from '../tools/contact-enrichment';
 
 const linkedinSearchTool = tool({
   name: 'linkedinSearch',
@@ -56,18 +57,25 @@ const linkedinSearchTool = tool({
                 title: extractTitleFromLinkedInTitle(item.title),
                 company: company_name,
                 linkedin: item.link,
-                email: generateProfessionalEmail(extractNameFromLinkedInTitle(item.title), company_name),
-                phone: '', // Will be enriched later
+                email: '',
+                phone: '',
                 bio: item.snippet || '',
                 location: company_country || 'Unknown'
               }));
-            
-            employees.forEach(emp => {
-            if (!emp.bio || emp.bio.trim() === '') emp.bio = 'Bio unavailable';
-            if (!emp.phone) emp.phone = '';
-            if (!emp.location) emp.location = 'Unknown';
-          });
-          allEmployees.push(...employees);
+
+            for (const emp of employees) {
+              if (!emp.bio || emp.bio.trim() === '') emp.bio = 'Bio unavailable';
+              if (!emp.location) emp.location = 'Unknown';
+              try {
+                const contact = await fetchContactEnrichment(emp.name, company_name);
+                if (contact.email) emp.email = contact.email;
+                if (contact.phone) emp.phone = contact.phone;
+              } catch (e) {
+                console.warn('Contact enrichment failed', e);
+              }
+            }
+
+            allEmployees.push(...employees);
           }
           
           // Small delay between searches to avoid rate limiting
@@ -285,12 +293,4 @@ function extractTitleFromLinkedInTitle(title: string): string {
   // Extract title from LinkedIn title
   const match = title.match(/[-|]\s*([^-|]+?)(?:\s+at\s+|\s*$)/);
   return match ? match[1].trim() : 'Professional';
-}
-
-function generateProfessionalEmail(name: string, company: string): string {
-  const firstName = name.split(' ')[0]?.toLowerCase() || 'contact';
-  const lastName = name.split(' ')[1]?.toLowerCase() || '';
-  const domain = company.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com';
-  
-  return lastName ? `${firstName}.${lastName}@${domain}` : `${firstName}@${domain}`;
 }
