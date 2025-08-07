@@ -111,14 +111,28 @@ export class SearchService {
 
   // Get business personas for a search
   static async getBusinessPersonas(searchId: string): Promise<BusinessPersona[]> {
-    const { data, error } = await supabase
-      .from('business_personas')
-      .select('*')
-      .eq('search_id', searchId)
-      .order('rank');
-
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data, error } = await supabase
+        .from('business_personas')
+        .select('*')
+        .eq('search_id', searchId)
+        .order('rank');
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
+        console.log('CORS issue detected, falling back to proxy for business_personas...');
+        try {
+          const response = await fetch(`/.netlify/functions/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET' });
+          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+          return await response.json();
+        } catch (proxyError) {
+          console.log('Proxy also failed for business_personas, returning empty array...');
+          return [];
+        }
+      }
+      throw error;
+    }
   }
 
   // Check if user should see demo data
@@ -176,14 +190,28 @@ export class SearchService {
 
   // Get businesses for a search
   static async getBusinesses(searchId: string): Promise<Business[]> {
-    const { data, error } = await supabase
-      .from('businesses')
-      .select('*')
-      .eq('search_id', searchId)
-      .order('match_score', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data, error } = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('search_id', searchId)
+        .order('match_score', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
+        console.log('CORS issue detected, falling back to proxy for businesses...');
+        try {
+          const response = await fetch(`/.netlify/functions/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET' });
+          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+          return await response.json();
+        } catch (proxyError) {
+          console.log('Proxy also failed for businesses, returning empty array...');
+          return [];
+        }
+      }
+      throw error;
+    }
   }
 
   // Get decision maker personas for a search (agents generate them automatically)
@@ -222,14 +250,28 @@ export class SearchService {
 
   // Get decision maker personas for a search
   static async getDecisionMakerPersonas(searchId: string): Promise<DecisionMakerPersona[]> {
-    const { data, error } = await supabase
-      .from('decision_maker_personas')
-      .select('*')
-      .eq('search_id', searchId)
-      .order('rank');
-
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data, error } = await supabase
+        .from('decision_maker_personas')
+        .select('*')
+        .eq('search_id', searchId)
+        .order('rank');
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
+        console.log('CORS issue detected, falling back to proxy for decision_maker_personas...');
+        try {
+          const response = await fetch(`/.netlify/functions/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET' });
+          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+          return await response.json();
+        } catch (proxyError) {
+          console.log('Proxy also failed for decision_maker_personas, returning empty array...');
+          return [];
+        }
+      }
+      throw error;
+    }
   }
 
   // Get decision makers for a search (agents generate them automatically via LinkedIn)
@@ -280,9 +322,10 @@ export class SearchService {
 
   // Get decision makers for a search with linked business context
   static async getDecisionMakers(searchId: string): Promise<DecisionMaker[]> {
-    const { data, error } = await supabase
-      .from('decision_makers')
-      .select(`
+    try {
+      const { data, error } = await supabase
+        .from('decision_makers')
+        .select(`
         *,
         business:business_id (
           id,
@@ -299,11 +342,24 @@ export class SearchService {
           website
         )
       `)
-      .eq('search_id', searchId)
-      .order('influence', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+        .eq('search_id', searchId)
+        .order('influence', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
+        console.log('CORS issue detected, falling back to proxy for decision_makers...');
+        try {
+          const response = await fetch(`/.netlify/functions/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET' });
+          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+          return await response.json();
+        } catch (proxyError) {
+          console.log('Proxy also failed for decision_makers, returning empty array...');
+          return [];
+        }
+      }
+      throw error;
+    }
   }
 
   // Get market insights for a search (agents generate them automatically via Gemini)
@@ -344,14 +400,29 @@ export class SearchService {
 
   // Get market insights for a search
   static async getMarketInsights(searchId: string): Promise<MarketInsight | null> {
-    const { data, error } = await supabase
-      .from('market_insights')
-      .select('*')
-      .eq('search_id', searchId)
-      .single();
-
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
+    try {
+      const { data, error } = await supabase
+        .from('market_insights')
+        .select('*')
+        .eq('search_id', searchId)
+        .single();
+      if (error && error.code !== 'PGRST116') throw error;
+      return data;
+    } catch (error: any) {
+      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
+        console.log('CORS issue detected, falling back to proxy for market_insights...');
+        try {
+          const response = await fetch(`/.netlify/functions/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET' });
+          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+          const arr = await response.json();
+          return arr && arr.length > 0 ? arr[0] : null;
+        } catch (proxyError) {
+          console.log('Proxy also failed for market_insights, returning null...');
+          return null;
+        }
+      }
+      throw error;
+    }
   }
 
   // Mock data generation methods (these would be replaced with actual AI generation)

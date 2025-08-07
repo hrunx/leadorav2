@@ -3,7 +3,8 @@ import { serperPlaces } from '../tools/serper';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
-import { triggerInstantDMDiscovery } from '../tools/instant-dm-discovery';
+import { triggerInstantDMDiscovery, processBusinessForDM } from '../tools/instant-dm-discovery.ts';
+import type { Business } from '../tools/instant-dm-discovery.ts';
 
 const serperPlacesTool = tool({
   name: 'serperPlaces',
@@ -75,6 +76,39 @@ const serperPlacesTool = tool({
   }
 });
 
+// --- Helper: Enrich business data with plausible departments, products, and activity ---
+function enrichBusiness(b: Business, industry: string, _country: string): Business {
+  // Heuristic enrichment for demo purposes; in production, use LLM or a lookup table
+  const departmentMap: Record<string, string[]> = {
+    'automotive': ['Engineering', 'Sales', 'Procurement', 'R&D'],
+    'energy': ['Operations', 'Finance', 'Sustainability', 'Engineering'],
+    'software': ['Product', 'Engineering', 'Customer Success', 'Sales'],
+    'default': ['Operations', 'Sales', 'Finance', 'HR']
+  };
+  const productMap: Record<string, string[]> = {
+    'automotive': ['EV Chargers', 'Batteries', 'Motors'],
+    'energy': ['Solar Panels', 'Wind Turbines', 'Batteries'],
+    'software': ['CRM Platform', 'Analytics Suite', 'API Gateway'],
+    'default': ['Consulting', 'Logistics', 'Support']
+  };
+  const activityMap: Record<string, string[]> = {
+    'automotive': ['Launched new EV model', 'Expanded to new market'],
+    'energy': ['Signed major supply contract', 'Opened new plant'],
+    'software': ['Released major update', 'Partnered with SaaS vendor'],
+    'default': ['Attended industry expo', 'Announced new partnership']
+  };
+  const key = (industry || '').toLowerCase();
+  const departments = departmentMap[key] || departmentMap['default'];
+  const products = productMap[key] || productMap['default'];
+  const activities = activityMap[key] || activityMap['default'];
+  return {
+    ...b,
+    relevant_departments: (b.relevant_departments && b.relevant_departments.length >= 2) ? b.relevant_departments : departments.slice(0, 2),
+    key_products: (b.key_products && b.key_products.length >= 2) ? b.key_products : products.slice(0, 2),
+    recent_activity: (b.recent_activity && b.recent_activity.length >= 1) ? b.recent_activity : [activities[0]]
+  };
+}
+
 const storeBusinessesTool = tool({
   name: 'storeBusinesses',
   description: 'Insert businesses with complete analysis from Gemini AI.',
@@ -120,10 +154,11 @@ const storeBusinessesTool = tool({
       user_id: string; 
       industry: string; 
       country: string; 
-      items: any[] 
+      items: Business[] 
     };
-    
-    const rows = items.slice(0, 20).map((b: any) => buildBusinessData({
+    // Enrich each business before DB insert
+    const enriched: Business[] = items.slice(0, 20).map((b: Business) => enrichBusiness(b, industry, country));
+    const rows = enriched.map((b: Business) => buildBusinessData({
       search_id,
       user_id,
       persona_id: b.persona_id || null, // Use null if no persona mapping yet (will be updated later)
@@ -132,9 +167,9 @@ const storeBusinessesTool = tool({
       country,
       address: b.address || '',
       city: b.city || country,
-      phone: b.phone || null,
-      website: b.website || null,
-      rating: b.rating || null,
+      phone: b.phone || undefined,
+      website: b.website || undefined,
+      rating: b.rating ?? undefined,
       size: b.size || 'Unknown',
       revenue: b.revenue || 'Unknown',
       description: b.description || 'Business discovered via search',
@@ -144,20 +179,29 @@ const storeBusinessesTool = tool({
       key_products: b.key_products || [],
       recent_activity: b.recent_activity || []
     }));
-    
     console.log(`Inserting ${rows.length} businesses for search ${search_id}`);
     const insertedBusinesses = await insertBusinesses(rows);
-    
-    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately
+    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately as it is inserted
+    for (const business of insertedBusinesses) {
+      processBusinessForDM(search_id, user_id, {
+        ...business,
+        country,
+        industry
+      });
+    }
+    // Optionally, keep the batch trigger as a fallback for bulk inserts
     setTimeout(async () => {
       try {
-        console.log(`🎯 Triggering instant DM discovery for ${insertedBusinesses.length} businesses`);
-        await triggerInstantDMDiscovery(search_id, user_id, insertedBusinesses);
+        console.log(`🎯 (Fallback) Triggering instant DM discovery for ${insertedBusinesses.length} businesses`);
+        await triggerInstantDMDiscovery(
+          search_id,
+          user_id,
+          insertedBusinesses.map(b => ({ ...b, country, industry }))
+        );
       } catch (error) {
         console.error('Failed to trigger instant DM discovery:', error);
       }
     }, 1000); // Small delay to ensure businesses are stored
-    
     return insertedBusinesses;
   }
 });

@@ -13,8 +13,8 @@ export async function execMarketResearchParallel(payload: {
     product_service: search.product_service,
     industries: search.industries || [],
     countries: search.countries || [],
-    search_id: search.id,
-    user_id: search.user_id
+    user_id: search.user_id,
+    search_id: search.id
   };
 
   console.log(`Starting parallel market research for: ${searchData.product_service} in ${searchData.industries[0]} (${searchData.countries[0]})`);

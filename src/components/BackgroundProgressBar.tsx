@@ -11,7 +11,7 @@ interface ProgressData {
   phase: string;
   progress_pct: number;
   status: string;
-  error?: any;
+  error?: unknown;
 }
 
 interface DataCounts {

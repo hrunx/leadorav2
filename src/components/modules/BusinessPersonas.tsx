@@ -149,7 +149,7 @@ export default function BusinessPersonas() {
         setHasSearch(false);
       } else {
         // Real user with search - load from database
-        let dbPersonas = await SearchService.getBusinessPersonas(currentSearch.id);
+        const dbPersonas = await SearchService.getBusinessPersonas(currentSearch.id);
         
         if (dbPersonas.length === 0) {
           // For existing searches, just show no data available
@@ -1043,17 +1043,17 @@ export default function BusinessPersonas() {
                       <div className="space-y-4">
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Buying Process</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.buyingProcess}</p>
+                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors?.buyingProcess ?? 'Unknown'}</p>
                         </div>
 
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Decision Timeline</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.decisionTimeline}</p>
+                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors?.decisionTimeline ?? 'Unknown'}</p>
                         </div>
 
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Budget Range</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.budgetRange}</p>
+                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors?.budgetRange ?? 'Unknown'}</p>
                         </div>
                       </div>
 
@@ -1061,7 +1061,7 @@ export default function BusinessPersonas() {
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-3">Preferred Channels</h4>
                           <div className="space-y-2">
-                            {selectedPersona.behaviors.preferredChannels.map((channel, index) => (
+                            {(selectedPersona.behaviors?.preferredChannels ?? []).map((channel, index) => (
                               <div key={index} className="flex items-center space-x-2">
                                 <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
                                 <span className="text-gray-700 text-sm">{channel}</span>

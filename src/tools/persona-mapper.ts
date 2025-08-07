@@ -1,5 +1,3 @@
-import { supa } from '../agents/clients';
-
 /**
  * Maps businesses to personas once both are available
  * This runs after business discovery and persona generation complete

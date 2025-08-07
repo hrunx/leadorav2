@@ -41,8 +41,15 @@ export default function MarketingInsights() {
   const [methodology, setMethodology] = useState<string>('');
 
   useEffect(() => {
-    loadData();
-  }, [getCurrentSearch, authState.user]);
+    if (isDemo) {
+      setDemoMarketData(getStaticMarketData());
+      setCompetitorData(getStaticCompetitorData());
+      setTrends(getStaticTrends());
+      setIsLoadingDemo(false);
+    }
+    // For real users, no need to set local state; rely on realTimeData
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getCurrentSearch, authState.user, isDemo]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -261,18 +268,18 @@ export default function MarketingInsights() {
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-6">Market Size Analysis</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {Object.entries(marketData).map(([key, data]) => (
+                  {Object.entries(marketData || {}).map(([key, data]) => (
                     <div key={key} className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-200">
                       <div className="flex items-center justify-between mb-4">
-                        <h4 className="font-semibold text-gray-900">{data.description}</h4>
+                        <h4 className="font-semibold text-gray-900">{data?.description || ''}</h4>
                         <div className={`flex items-center space-x-1 text-sm font-medium ${
-                          data.growth.startsWith('+') ? 'text-green-600' : 'text-red-600'
+                          data?.growth && typeof data.growth === 'string' && data.growth.startsWith('+') ? 'text-green-600' : 'text-red-600'
                         }`}>
-                          {data.growth.startsWith('+') ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
-                          <span>{data.growth}</span>
+                          {data?.growth && typeof data.growth === 'string' && data.growth.startsWith('+') ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
+                          <span>{data?.growth || 'N/A'}</span>
                         </div>
                       </div>
-                      <div className="text-3xl font-bold text-gray-900 mb-2">{data.value}</div>
+                      <div className="text-3xl font-bold text-gray-900 mb-2">{data?.value || 'N/A'}</div>
                       <div className="text-sm text-gray-600">
                         {key === 'tam' && 'Total market opportunity for your product category'}
                         {key === 'sam' && 'Portion of TAM you can realistically target'}

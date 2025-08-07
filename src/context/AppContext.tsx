@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
+import type { Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
 
 interface SearchData {
   type: 'customer' | 'supplier';
@@ -45,13 +46,13 @@ interface AppState {
   searchData: SearchData | null;
   icpData: ICPData;
   ispData: ISPData;
-  decisionMakers: any[];
-  companies: any[];
-  marketInsights: any;
+  decisionMakers: DecisionMaker[];
+  companies: Business[];
+  marketInsights: MarketInsight | null;
   gtmStrategy: any;
   emailCampaigns: any[];
-  selectedPersonas: any[];
-  selectedDecisionMakerPersonas: any[];
+  selectedPersonas: DecisionMakerPersona[];
+  selectedDecisionMakerPersonas: DecisionMakerPersona[];
 }
 
 interface AppContextType {
@@ -59,13 +60,13 @@ interface AppContextType {
   updateSearchData: (data: SearchData) => void;
   updateICP: (data: Partial<ICPData>) => void;
   updateISP: (data: Partial<ISPData>) => void;
-  updateDecisionMakers: (data: any[]) => void;
-  updateCompanies: (data: any[]) => void;
-  updateMarketInsights: (data: any) => void;
+  updateDecisionMakers: (data: DecisionMaker[]) => void;
+  updateCompanies: (data: Business[]) => void;
+  updateMarketInsights: (data: MarketInsight) => void;
   updateGTMStrategy: (data: any) => void;
   updateEmailCampaigns: (data: any[]) => void;
-  updateSelectedPersonas: (data: any[]) => void;
-  updateSelectedDecisionMakerPersonas: (data: any[]) => void;
+  updateSelectedPersonas: (data: DecisionMakerPersona[]) => void;
+  updateSelectedDecisionMakerPersonas: (data: DecisionMakerPersona[]) => void;
 }
 
 const initialState: AppState = {
@@ -184,15 +185,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'UPDATE_ISP', payload: data });
   };
 
-  const updateDecisionMakers = (data: any[]) => {
+  const updateDecisionMakers = (data: DecisionMaker[]) => {
     dispatch({ type: 'UPDATE_DECISION_MAKERS', payload: data });
   };
 
-  const updateCompanies = (data: any[]) => {
+  const updateCompanies = (data: Business[]) => {
     dispatch({ type: 'UPDATE_COMPANIES', payload: data });
   };
 
-  const updateMarketInsights = (data: any) => {
+  const updateMarketInsights = (data: MarketInsight) => {
     dispatch({ type: 'UPDATE_MARKET_INSIGHTS', payload: data });
   };
 
@@ -204,11 +205,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'UPDATE_EMAIL_CAMPAIGNS', payload: data });
   };
 
-  const updateSelectedPersonas = (data: any[]) => {
+  const updateSelectedPersonas = (data: DecisionMakerPersona[]) => {
     dispatch({ type: 'UPDATE_SELECTED_PERSONAS', payload: data });
   };
 
-  const updateSelectedDecisionMakerPersonas = (data: any[]) => {
+  const updateSelectedDecisionMakerPersonas = (data: DecisionMakerPersona[]) => {
     dispatch({ type: 'UPDATE_SELECTED_DECISION_MAKER_PERSONAS', payload: data });
   };
 

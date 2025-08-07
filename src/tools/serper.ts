@@ -1,5 +1,4 @@
 import { retryWithBackoff } from './util';
-
 // Improved country to GL code mapping
 function glFromCountry(country: string): string {
   const m = new Map([
