@@ -40,8 +40,8 @@ export const handler: Handler = async (event) => {
         search_id: search.id,
         user_id: search.user_id,
         search_details: search,
-        test_orchestrator: `curl -X POST https://leadora.net/.netlify/functions/agents-orchestrator -H "Content-Type: application/json" -d '{"search_id":"${search.id}","user_id":"${YOUR_USER_ID}"}'`,
-        problem_status: 'This creates the search successfully, but the orchestrator will fail with 502 due to ES module import issues detailed in COMPLETE_PROBLEM_ANALYSIS.md'
+        test_orchestrator: `curl -X POST https://leadora.net/.netlify/functions/orchestrator-run-background -H "Content-Type: application/json" -d '{"search_id":"${search.id}","user_id":"${YOUR_USER_ID}"}'`,
+        problem_status: 'This creates the search successfully and triggers the background orchestrator.'
       })
     };
   } catch (error: any) {
