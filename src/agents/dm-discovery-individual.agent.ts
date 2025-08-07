@@ -59,12 +59,13 @@ const linkedinSearchTool = tool({
                 email: generateProfessionalEmail(extractNameFromLinkedInTitle(item.title), company_name),
                 phone: '', // Will be enriched later
                 bio: item.snippet || '',
-                location: company_country
+                location: company_country || 'Unknown'
               }));
             
             employees.forEach(emp => {
             if (!emp.bio || emp.bio.trim() === '') emp.bio = 'Bio unavailable';
             if (!emp.phone) emp.phone = '';
+            if (!emp.location) emp.location = 'Unknown';
           });
           allEmployees.push(...employees);
           }
@@ -148,7 +149,7 @@ const storeDMsTool = tool({
             bio: { type: 'string' },
             location: { type: 'string' }
           },
-          required: ['name', 'title', 'company', 'linkedin', 'email', 'phone', 'bio'],
+          required: ['name', 'title', 'company', 'linkedin', 'email', 'phone', 'bio', 'location'],
           additionalProperties: false
         }
       }
@@ -163,14 +164,19 @@ const storeDMsTool = tool({
       business_id: string;
       employees: any[] 
     };
-    
+
+    // Defensive: ensure every employee has a location
+    const employeesWithLocation = employees.map((emp: any) => ({
+      ...emp,
+      location: emp.location || 'Unknown'
+    }));
+
     // Load DM personas for smart mapping
     const dmPersonas = await loadDMPersonas(search_id);
-    
-    const rows = employees.map((emp: any) => {
+
+    const rows = employeesWithLocation.map((emp: any) => {
       // 🎯 SMART PERSONA MAPPING: Match employee to most relevant persona
       const mappedPersona = mapDMToPersona(emp, dmPersonas);
-      
       return buildDMData({
         search_id,
         user_id,
@@ -187,7 +193,7 @@ const storeDMsTool = tool({
         enrichment_status: 'pending' // Will be enriched with real contact info
       });
     });
-    
+
     console.log(`💼 Storing ${rows.length} decision makers with smart persona mapping for business ${business_id}`);
     return await insertDecisionMakersBasic(rows);
   }

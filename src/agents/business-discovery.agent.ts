@@ -3,6 +3,7 @@ import { serperPlaces } from '../tools/serper';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
+import { triggerInstantDMDiscovery } from '../tools/instant-dm-discovery';
 
 const serperPlacesTool = tool({
   name: 'serperPlaces',
@@ -151,7 +152,6 @@ const storeBusinessesTool = tool({
     setTimeout(async () => {
       try {
         console.log(`🎯 Triggering instant DM discovery for ${insertedBusinesses.length} businesses`);
-        const { triggerInstantDMDiscovery } = await import('../tools/instant-dm-discovery');
         await triggerInstantDMDiscovery(search_id, user_id, insertedBusinesses);
       } catch (error) {
         console.error('Failed to trigger instant DM discovery:', error);
