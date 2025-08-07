@@ -3,7 +3,7 @@ import { serperPlaces } from '../tools/serper';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
-import { triggerInstantDMDiscovery, processBusinessForDM } from '../tools/instant-dm-discovery';
+import { triggerInstantDMDiscovery, processBusinessForDM, initDMDiscoveryProgress } from '../tools/instant-dm-discovery';
 import type { Business } from '../tools/instant-dm-discovery';
 
 const serperPlacesTool = tool({
@@ -181,6 +181,7 @@ const storeBusinessesTool = tool({
     }));
     console.log(`Inserting ${rows.length} businesses for search ${search_id}`);
     const insertedBusinesses = await insertBusinesses(rows);
+    initDMDiscoveryProgress(search_id, insertedBusinesses.length);
     // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately as it is inserted
     const triggeredBusinessIds = new Set<string>();
     await Promise.all(

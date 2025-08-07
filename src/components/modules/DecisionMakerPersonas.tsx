@@ -73,13 +73,16 @@ function toDecisionMakerPersona(p: Record<string, unknown>, getDecisionMakersFor
     behaviors: (p.behaviors as Record<string, unknown>) || {},
     market_potential: (p.market_potential as Record<string, unknown>) || {},
     created_at: (p.created_at as string) || '',
-    employees: (getDecisionMakersForPersona(p.id as string) || []).map((dm: DecisionMaker, idx: number): DecisionMakerEmployee => ({
-      id: dm.business_id || dm.id || String(idx),
-      name: dm.name || '',
-      title: dm.title || '',
-      company: dm.company || '',
-      match_score: typeof dm.match_score === 'number' ? dm.match_score : 85,
-    })),
+    employees: (getDecisionMakersForPersona(p.id as string) || []).map((dm: DecisionMaker, idx: number): DecisionMakerEmployee => {
+      const baseId = dm.business_id || dm.id || '';
+      return {
+        id: baseId ? `${baseId}-${idx}` : `employee-${idx}`,
+        name: dm.name || '',
+        title: dm.title || '',
+        company: dm.company || '',
+        match_score: typeof dm.match_score === 'number' ? dm.match_score : 85,
+      };
+    }),
   };
 }
 
@@ -316,8 +319,8 @@ export default function DecisionMakerPersonas() {
                 {expandedPersonas.includes(persona.id) && (
                   <div className="px-6 pb-4 bg-gray-50">
                     <div className="space-y-3">
-                      {persona.employees.map((employee, index) => (
-                        <div key={index} className="bg-white rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
+                      {persona.employees.map((employee) => (
+                        <div key={employee.id} className="bg-white rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <h4 className="font-medium text-gray-900">{employee.name}</h4>
