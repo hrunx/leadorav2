@@ -1,5 +1,6 @@
 import { supa } from '../agents/clients';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+import { mapDMToPersona } from './util';
 
 /**
  * Maps any businesses without a persona assignment to the available personas.
@@ -108,7 +109,7 @@ export function startPersonaMappingListener(searchId: string) {
  * Enhanced persona mapping using AI-based matching
  * This provides more intelligent mapping based on business characteristics
  */
-export async function intelligentPersonaMapping(searchId: string, userMessage?: string) {
+export async function intelligentPersonaMapping(searchId: string) {
   try {
     // Get businesses and personas
     const [businessResult, personaResult] = await Promise.all([
@@ -188,5 +189,57 @@ export async function intelligentPersonaMapping(searchId: string, userMessage?: 
     console.error('Error in intelligent persona mapping:', error);
     // Fallback to simple mapping
     return await mapBusinessesToPersonas(searchId);
+  }
+}
+
+/**
+ * Maps decision makers without persona assignments once personas are available
+ */
+export async function mapDecisionMakersToPersonas(searchId: string) {
+  try {
+    console.log(`Starting DM persona mapping for search ${searchId}`);
+
+    const { data: dms, error: dmError } = await supa
+      .from('decision_makers')
+      .select('id,title')
+      .eq('search_id', searchId)
+      .is('persona_id', null);
+
+    if (dmError) throw dmError;
+    if (!dms || dms.length === 0) {
+      console.log('No decision makers found requiring persona mapping');
+      return;
+    }
+
+    const { data: personas, error: personaError } = await supa
+      .from('decision_maker_personas')
+      .select('id,title,rank')
+      .eq('search_id', searchId)
+      .order('rank');
+
+    if (personaError) throw personaError;
+    if (!personas || personas.length === 0) {
+      console.log('No DM personas available yet for mapping');
+      return;
+    }
+
+    const updates = dms.map(dm => {
+      const persona = mapDMToPersona(dm, personas);
+      return supa
+        .from('decision_makers')
+        .update({ persona_id: persona?.id || personas[0].id })
+        .eq('id', dm.id);
+    });
+
+    const results = await Promise.allSettled(updates);
+    const successful = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+
+    console.log(`DM persona mapping completed: ${successful} successful, ${failed} failed`);
+
+    return { successful, failed, total: dms.length };
+  } catch (error) {
+    console.error('Error mapping decision makers to personas:', error);
+    throw error;
   }
 }
