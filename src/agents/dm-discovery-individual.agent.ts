@@ -255,11 +255,13 @@ const storeDMsTool = tool({
     }
 
     try {
-      // Trigger backend enrichment via Netlify function
-      await fetch(enrichUrl, {
+      // Trigger backend enrichment via Netlify function without blocking
+      void fetch(enrichUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_id })
+      }).catch(err => {
+        console.error('Failed to trigger enrichment:', err);
       });
     } catch (err) {
       console.error('Failed to trigger enrichment:', err);
