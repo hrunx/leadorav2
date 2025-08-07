@@ -30,24 +30,26 @@ const linkedinSearchTool = tool({
       company_name: { type: 'string' },
       company_country: { type: 'string' },
       search_id: { type: 'string' },
-      user_id: { type: 'string' }
+      user_id: { type: 'string' },
+      product_service: { type: 'string' }
     },
     required: ['company_name', 'company_country', 'search_id', 'user_id'],
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
-    const { company_name, company_country, search_id, user_id } = input as { 
+    const { company_name, company_country, search_id, user_id, product_service } = input as { 
       company_name: string; 
       company_country: string;
       search_id: string; 
       user_id: string;
+      product_service?: string;
     };
     
     const startTime = Date.now();
     
     try {
-      // Create LinkedIn-specific search queries for this company
-      const queries = [
+      // Create LinkedIn-specific search queries for this company with product/service context
+      const baseQueries = [
         `"${company_name}" site:linkedin.com/in/ CEO OR "Chief Executive"`,
         `"${company_name}" site:linkedin.com/in/ CTO OR "Chief Technology"`,
         `"${company_name}" site:linkedin.com/in/ CMO OR "Chief Marketing"`,
@@ -55,6 +57,30 @@ const linkedinSearchTool = tool({
         `"${company_name}" site:linkedin.com/in/ VP OR "Vice President"`,
         `"${company_name}" site:linkedin.com/in/ Director OR Manager`
       ];
+
+      // Add product/service-specific queries for better targeting
+      const contextualQueries = [];
+      if (product_service) {
+        const productKeywords = product_service.toLowerCase();
+        // Add queries targeting relevant departments for this product/service
+        if (productKeywords.includes('software') || productKeywords.includes('tech') || productKeywords.includes('saas') || productKeywords.includes('app')) {
+          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "IT Director" OR "Technology Manager" OR "Software Lead"`);
+        }
+        if (productKeywords.includes('marketing') || productKeywords.includes('advertising') || productKeywords.includes('campaign')) {
+          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "Marketing Director" OR "Brand Manager" OR "Digital Marketing"`);
+        }
+        if (productKeywords.includes('sales') || productKeywords.includes('crm') || productKeywords.includes('lead')) {
+          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "Sales Director" OR "Sales Manager" OR "Revenue"`);
+        }
+        if (productKeywords.includes('hr') || productKeywords.includes('human') || productKeywords.includes('employee') || productKeywords.includes('talent')) {
+          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "HR Director" OR "People Manager" OR "Human Resources"`);
+        }
+        if (productKeywords.includes('finance') || productKeywords.includes('accounting') || productKeywords.includes('invoice')) {
+          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "Finance Manager" OR "Controller" OR "Accounting"`);
+        }
+      }
+
+      const queries = [...baseQueries, ...contextualQueries];
       
       const allEmployees: Employee[] = [];
       
@@ -85,25 +111,9 @@ const linkedinSearchTool = tool({
               if (!emp.location) emp.location = 'Unknown';
             }
 
-            // Attempt contact enrichment before storing
-            const enrichedEmployees = await Promise.all(
-              employees.map(async (emp) => {
-                try {
-                  const contact = await fetchContactEnrichment(emp.name, company_name);
-                  return {
-                    ...emp,
-                    email: contact.email || null,
-                    phone: contact.phone || null,
-                    enrichment_status: contact.email || contact.phone ? 'completed' : 'pending'
-                  };
-                } catch (err) {
-                  console.warn('Contact enrichment failed for', emp.name, err);
-                  return { ...emp, email: null, phone: null, enrichment_status: 'pending' };
-                }
-              })
-            );
-
-            allEmployees.push(...enrichedEmployees);
+            // Remove blocking enrichment: do not call fetchContactEnrichment here
+            // Store employees immediately with enrichment_status: 'pending'
+            allEmployees.push(...employees);
           }
           
           // Small delay between searches to avoid rate limiting
@@ -162,10 +172,35 @@ const linkedinSearchTool = tool({
   }
 });
 
+// --- Helper: Validate Decision Maker completeness ---
+function isValidDecisionMaker(dm: any): boolean {
+  const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim() && !['unknown', 'n/a', 'default', 'none'].includes(v.trim().toLowerCase());
+  const isNonEmptyArray = (v: any) => Array.isArray(v) && v.length > 0 && v.every(isNonEmptyString);
+  try {
+    if (!isNonEmptyString(dm.name)) return false;
+    if (!isNonEmptyString(dm.title)) return false;
+    if (!isNonEmptyString(dm.level)) return false;
+    if (!isNonEmptyString(dm.department)) return false;
+    if (!isNonEmptyString(dm.company)) return false;
+    if (!isNonEmptyString(dm.location)) return false;
+    if (!isNonEmptyString(dm.persona_type)) return false;
+    if (!isNonEmptyString(dm.linkedin)) return false;
+    if (typeof dm.influence !== 'number' || dm.influence < 0) return false;
+    if (!isNonEmptyString(dm.search_id)) return false;
+    if (!isNonEmptyString(dm.user_id)) return false;
+    if (!isNonEmptyString(dm.business_id)) return false;
+    if (!dm.persona_id) return false;
+    // Optional: email, phone, experience, communication_preference, pain_points, motivations, decision_factors, company_context, personalized_approach, enrichment, match_score, enrichment_status, created_at
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const storeDMsTool = tool({
   name: 'storeDecisionMakers',
   description: 'Store decision makers with smart persona mapping.',
-  parameters: { 
+  parameters: {
     type: 'object',
     properties: {
       search_id: { type: 'string' },
@@ -173,9 +208,9 @@ const storeDMsTool = tool({
       business_id: { type: 'string' },
       employees: {
         type: 'array',
-        items: { 
+        items: {
           type: 'object',
-          properties: { 
+          properties: {
             name: { type: 'string' },
             title: { type: 'string' },
             company: { type: 'string' },
@@ -210,6 +245,7 @@ const storeDMsTool = tool({
     // Load DM personas for smart mapping
     const dmPersonas = await loadDMPersonas(search_id);
 
+    // Map and extend each employee to full DecisionMaker structure
     const rows = employeesWithLocation.map((emp) => {
       // 🎯 SMART PERSONA MAPPING: Match employee to most relevant persona
       const mappedPersona = mapDMToPersona(emp, dmPersonas);
@@ -218,27 +254,62 @@ const storeDMsTool = tool({
       if (!company || typeof company !== 'string' || !company.trim()) {
         company = emp.business_name || 'Unknown Company';
       }
-      return buildDMData({
+      // Infer missing fields as needed
+      const level = mappedPersona?.demographics?.level || 'manager';
+      const department = mappedPersona?.demographics?.department || 'General';
+      const influence = mappedPersona?.influence || 50;
+      const persona_type = mappedPersona?.title || 'decision_maker';
+      const match_score = mappedPersona?.match_score || 80;
+      const experience = mappedPersona?.demographics?.experience || '';
+      const communication_preference = mappedPersona?.behaviors?.communicationStyle || '';
+      const pain_points = mappedPersona?.characteristics?.painPoints || [];
+      const motivations = mappedPersona?.characteristics?.motivations || [];
+      const decision_factors = mappedPersona?.characteristics?.decisionFactors || [];
+      const company_context = {};
+      const personalized_approach = {};
+      const enrichment = {};
+      const created_at = new Date().toISOString();
+      return {
+        id: undefined, // Let DB autogen or set if needed
         search_id,
         user_id,
-        business_id,
-        persona_id: mappedPersona?.id || null, // Smart mapping instead of null
+        persona_id: mappedPersona?.id || null,
         name: emp.name,
         title: emp.title,
+        level,
+        influence,
+        department,
         company,
-        linkedin: emp.linkedin,
-        email: emp.email || null,
-        phone: emp.phone || null,
-        bio: emp.bio || '',
         location: emp.location || '',
-        enrichment_status: emp.enrichment_status || 'pending' // Will be enriched with real contact info
-      });
+        email: emp.email || '',
+        phone: emp.phone || '',
+        linkedin: emp.linkedin,
+        experience,
+        communication_preference,
+        pain_points,
+        motivations,
+        decision_factors,
+        persona_type,
+        company_context,
+        personalized_approach,
+        created_at,
+        match_score,
+        enrichment_status: emp.enrichment_status || 'pending',
+        enrichment,
+        business_id
+      };
     });
 
-    console.log(`💼 Storing ${rows.length} decision makers with smart persona mapping for business ${business_id}`);
-    const inserted = await insertDecisionMakersBasic(rows);
+    // Strict validation: reject any incomplete employee
+    const validRows = rows.filter(isValidDecisionMaker);
+    if (validRows.length !== rows.length) {
+      throw new Error('One or more decision makers are missing required fields or contain placeholders.');
+    }
 
-    // Trigger backend enrichment via Netlify function
+    console.log(`💼 Storing ${validRows.length} decision makers with smart persona mapping for business ${business_id}`);
+    const inserted = await insertDecisionMakersBasic(validRows);
+
+    // Deduplicate and harden enrichment trigger in storeDMsTool: Only trigger enrichment once, always catch errors, and never block DM storage on enrichment. Add comments for clarity.
     let enrichUrl = '/.netlify/functions/enrich-decision-makers';
     if (typeof process !== 'undefined' && process.env && (process.env.URL || process.env.DEPLOY_URL)) {
       enrichUrl = `${process.env.URL || process.env.DEPLOY_URL}/.netlify/functions/enrich-decision-makers`;
@@ -312,6 +383,7 @@ export async function runDMDiscoveryForBusiness(params: {
   business_name: string;
   company_country: string;
   industry: string;
+  product_service?: string;
 }) {
   // Ensure DM personas are available before running discovery
   await waitForPersonas(params.search_id);
@@ -321,11 +393,12 @@ export async function runDMDiscoveryForBusiness(params: {
 Company: ${params.business_name}
 Country: ${params.company_country}
 Industry: ${params.industry}
+Product/Service Context: ${params.product_service || 'Not specified'}
 Business ID: ${params.business_id}
 Search ID: ${params.search_id}
 User ID: ${params.user_id}
 
-Search LinkedIn for executives and decision makers, then store them with smart persona mapping.`;
+Search LinkedIn for executives and decision makers who would be involved in purchasing/using "${params.product_service || 'business solutions'}". Focus on relevant departments and roles that would influence buying decisions for this type of product/service. Store them with smart persona mapping.`;
 
   const result = await run(DMDiscoveryIndividualAgent, message);
   return result;

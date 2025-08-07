@@ -771,8 +771,8 @@ export default function BusinessPersonas() {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900 text-lg">{persona.title}</h3>
-                      <p className="text-gray-600 mt-1">{persona.targetDemographics.industry} • {persona.targetDemographics.companySize}</p>
-                      <p className="text-sm text-gray-500">{persona.targetDemographics.geography}</p>
+                      <p className="text-gray-600 mt-1">{persona.demographics.industry} • {persona.demographics.companySize}</p>
+                      <p className="text-sm text-gray-500">{persona.demographics.geography}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -797,13 +797,13 @@ export default function BusinessPersonas() {
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
                     <Building className="w-4 h-4" />
-                    <span>{persona.targetDemographics.revenue}</span>
+                    <span>{persona.demographics.revenue}</span>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {persona.characteristics.painPoints.slice(0, 2).map((point, index) => (
-                    <span key={index} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                  {persona.characteristics.painPoints.slice(0, 2).map((point) => (
+                    <span key={`${persona.id}-pain-${point.slice(0, 20)}`} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
                       {point}
                     </span>
                   ))}
@@ -838,7 +838,7 @@ export default function BusinessPersonas() {
                   <div className="px-6 pb-4 bg-gray-50">
                     <div className="space-y-3">
                       {persona.businesses.map((business, index) => (
-                        <div key={index} className="bg-white rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
+                        <div key={business.id} className="bg-white rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <h4 className="font-medium text-gray-900">{business.name}</h4>
@@ -935,15 +935,15 @@ export default function BusinessPersonas() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-green-700">Industry:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.targetDemographics.industry}</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.demographics.industry}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-green-700">Company Size:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.targetDemographics.companySize}</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.demographics.companySize}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-green-700">Revenue:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.targetDemographics.revenue}</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.demographics.revenue}</span>
                           </div>
                         </div>
                       </div>
@@ -953,8 +953,8 @@ export default function BusinessPersonas() {
                       <div>
                         <h4 className="font-semibold text-gray-900 mb-3">Top Pain Points</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.painPoints.map((point, index) => (
-                            <div key={index} className="flex items-start space-x-2">
+                          {selectedPersona.characteristics.painPoints.map((point) => (
+                            <div key={`${selectedPersona.id}-detail-pain-${point.slice(0, 20)}`} className="flex items-start space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
                               <span className="text-gray-700 text-sm">{point}</span>
                             </div>
@@ -965,8 +965,8 @@ export default function BusinessPersonas() {
                       <div>
                         <h4 className="font-semibold text-gray-900 mb-3">Key Motivations</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.motivations.map((motivation, index) => (
-                            <div key={index} className="flex items-start space-x-2">
+                          {selectedPersona.characteristics.motivations.map((motivation) => (
+                            <div key={`${selectedPersona.id}-detail-motivation-${motivation.slice(0, 20)}`} className="flex items-start space-x-2">
                               <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
                               <span className="text-gray-700 text-sm">{motivation}</span>
                             </div>
@@ -983,8 +983,8 @@ export default function BusinessPersonas() {
                       <div className="bg-red-50 rounded-xl p-4 border border-red-200">
                         <h4 className="font-semibold text-red-900 mb-3">Pain Points</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.painPoints.map((point, index) => (
-                            <div key={index} className="flex items-center space-x-2">
+                          {selectedPersona.characteristics.painPoints.map((point) => (
+                            <div key={`${selectedPersona.id}-char-pain-${point.slice(0, 20)}`} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                               <span className="text-red-800 text-sm">{point}</span>
                             </div>
@@ -995,8 +995,8 @@ export default function BusinessPersonas() {
                       <div className="bg-green-50 rounded-xl p-4 border border-green-200">
                         <h4 className="font-semibold text-green-900 mb-3">Motivations</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.motivations.map((motivation, index) => (
-                            <div key={index} className="flex items-center space-x-2">
+                          {selectedPersona.characteristics.motivations.map((motivation) => (
+                            <div key={`${selectedPersona.id}-char-motivation-${motivation.slice(0, 20)}`} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                               <span className="text-green-800 text-sm">{motivation}</span>
                             </div>
@@ -1007,8 +1007,8 @@ export default function BusinessPersonas() {
                       <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-200">
                         <h4 className="font-semibold text-yellow-900 mb-3">Challenges</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.challenges.map((challenge, index) => (
-                            <div key={index} className="flex items-center space-x-2">
+                          {selectedPersona.characteristics.challenges.map((challenge) => (
+                            <div key={`${selectedPersona.id}-char-challenge-${challenge.slice(0, 20)}`} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
                               <span className="text-yellow-800 text-sm">{challenge}</span>
                             </div>
@@ -1019,8 +1019,8 @@ export default function BusinessPersonas() {
                       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
                         <h4 className="font-semibold text-blue-900 mb-3">Decision Factors</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.decisionFactors.map((factor, index) => (
-                            <div key={index} className="flex items-center space-x-2">
+                          {selectedPersona.characteristics.decisionFactors.map((factor) => (
+                            <div key={`${selectedPersona.id}-char-factor-${factor.slice(0, 20)}`} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                               <span className="text-blue-800 text-sm">{factor}</span>
                             </div>
@@ -1055,8 +1055,8 @@ export default function BusinessPersonas() {
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-3">Preferred Channels</h4>
                           <div className="space-y-2">
-                            {(selectedPersona.behaviors?.preferredChannels ?? []).map((channel, index) => (
-                              <div key={index} className="flex items-center space-x-2">
+                            {(selectedPersona.behaviors?.preferredChannels ?? []).map((channel) => (
+                              <div key={`${selectedPersona.id}-channel-${channel.slice(0, 20)}`} className="flex items-center space-x-2">
                                 <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
                                 <span className="text-gray-700 text-sm">{channel}</span>
                               </div>

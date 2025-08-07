@@ -2,6 +2,87 @@ import { supa } from '../agents/clients';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { mapDMToPersona } from './util';
 
+// Intelligent business-persona matching functions
+function findBestMatchingPersona(business: any, personas: any[]): any {
+  let bestPersona = personas[0];
+  let bestScore = 0;
+
+  for (const persona of personas) {
+    const score = calculatePersonaMatchScore(business, persona);
+    if (score > bestScore) {
+      bestScore = score;
+      bestPersona = persona;
+    }
+  }
+
+  return bestPersona;
+}
+
+function calculatePersonaMatchScore(business: any, persona: any): number {
+  let score = business.match_score || 75; // Base score
+
+  // Analyze business characteristics for persona compatibility
+  const businessName = (business.name || '').toLowerCase();
+  const businessDesc = (business.description || '').toLowerCase();
+  const businessIndustry = (business.industry || '').toLowerCase();
+  const businessSize = (business.size || '').toLowerCase();
+  const businessRevenue = (business.revenue || '').toLowerCase();
+  
+  const personaTitle = (persona.title || '').toLowerCase();
+  const personaChars = persona.characteristics || {};
+  const personaDemos = persona.demographics || {};
+  
+  // Size-based matching
+  if (businessSize.includes('small') || businessSize.includes('startup')) {
+    if (personaTitle.includes('small') || personaTitle.includes('startup') || personaTitle.includes('emerging')) {
+      score += 15;
+    }
+  } else if (businessSize.includes('large') || businessSize.includes('enterprise')) {
+    if (personaTitle.includes('large') || personaTitle.includes('enterprise') || personaTitle.includes('corporate')) {
+      score += 15;
+    }
+  }
+
+  // Revenue-based matching
+  if (businessRevenue.includes('million') || businessRevenue.includes('high')) {
+    if (personaTitle.includes('premium') || personaTitle.includes('enterprise') || personaTitle.includes('corporate')) {
+      score += 10;
+    }
+  }
+
+  // Industry-specific matching
+  if (businessIndustry) {
+    if (personaTitle.includes(businessIndustry) || personaDemos?.industries?.includes?.(businessIndustry)) {
+      score += 20;
+    }
+  }
+
+  // Technology/Innovation matching
+  if (businessName.includes('tech') || businessDesc.includes('software') || businessDesc.includes('digital')) {
+    if (personaTitle.includes('tech') || personaTitle.includes('digital') || personaTitle.includes('innovative')) {
+      score += 10;
+    }
+  }
+
+  // Traditional business matching
+  if (businessDesc.includes('traditional') || businessDesc.includes('established') || businessDesc.includes('family')) {
+    if (personaTitle.includes('traditional') || personaTitle.includes('established') || personaTitle.includes('conservative')) {
+      score += 10;
+    }
+  }
+
+  // Geographic considerations (if available)
+  const businessLocation = (business.city || business.country || '').toLowerCase();
+  if (businessLocation.includes('urban') || businessLocation.includes('city')) {
+    if (personaTitle.includes('urban') || personaTitle.includes('metropolitan')) {
+      score += 5;
+    }
+  }
+
+  // Ensure score doesn't exceed reasonable bounds
+  return Math.min(score, 100);
+}
+
 /**
  * Maps any businesses without a persona assignment to the available personas.
  *
@@ -44,18 +125,19 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     console.log(`Mapping ${businesses.length} businesses to ${personas.length} personas`);
 
-    // Simple mapping logic: distribute businesses across personas based on match criteria
-    const updates = businesses.map((business, index) => {
-      // Use round-robin distribution for now, but could be enhanced with AI matching
-      const persona = personas[index % personas.length];
+    // Intelligent mapping logic: analyze business characteristics for best-fit persona matching
+    const updates = businesses.map((business) => {
+      // Find the best matching persona based on business characteristics
+      const bestPersona = findBestMatchingPersona(business, personas);
+      const matchScore = calculatePersonaMatchScore(business, bestPersona);
 
       return supa
         .from('businesses')
         .update({
-          persona_id: persona.id,
-          persona_type: persona.title,
-          // Boost match score slightly since we now have proper persona mapping
-          match_score: Math.min(business.match_score + 5, 100)
+          persona_id: bestPersona.id,
+          persona_type: bestPersona.title,
+          // Use calculated match score based on persona compatibility
+          match_score: Math.min(matchScore, 100)
         })
         .eq('id', business.id);
     });
