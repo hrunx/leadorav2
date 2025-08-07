@@ -61,6 +61,14 @@ export async function processBusinessForDM(
 ) {
   try {
     console.log(`⚡ Processing single business for instant DM discovery: ${business.name}`);
+    await runDMDiscoveryForBusiness({
+      search_id,
+      user_id,
+      business_id: business.id,
+      business_name: business.name,
+      company_country: business.country,
+      industry: business.industry
+    });
   } catch (error) {
     console.error(`❌ DM discovery failed for ${business.name}:`, error);
   }
