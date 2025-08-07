@@ -154,7 +154,7 @@ export default function DecisionMakerProfiles() {
         title: dm.title,
         company: dm.company,
         linkedin: dm.linkedin,
-        email: dm.email,
+        email: dm.email || 'Enriching...',
         phone: dm.phone || 'Enriching...',
         bio: dm.bio || '',
         location: dm.location || '',
