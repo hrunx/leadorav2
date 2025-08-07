@@ -35,6 +35,7 @@ const linkedinSearchTool = tool({
     required: ['company_name', 'company_country', 'search_id', 'user_id', 'product_service'],
     additionalProperties: false
   } as const,
+  strict: true,
   execute: async (input: unknown) => {
     const { company_name, company_country, search_id, user_id, product_service } = input as { 
       company_name: string; 
@@ -227,6 +228,7 @@ const storeDMsTool = tool({
     required: ['search_id', 'user_id', 'business_id', 'employees'],
     additionalProperties: false
   } as const,
+  strict: true,
   execute: async (input: unknown) => {
     const { search_id, user_id, business_id, employees } = input as {
       search_id: string;
