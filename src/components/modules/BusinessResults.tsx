@@ -68,7 +68,7 @@ export default function BusinessResults() {
   useEffect(() => {
     if (isDemo) return;
 
-    const formatted = realTimeData.businesses.map(b => ({
+    const formatted = (realTimeData.businesses ?? []).map(b => ({
       id: b.id,
       name: b.name,
       industry: b.industry,
@@ -126,6 +126,7 @@ export default function BusinessResults() {
           // Update discovery status when first business appears
           setDiscoveryStatus('completed');
           setIsLoading(false);
+          setHasSearch(true);
         }
       )
       .subscribe();
