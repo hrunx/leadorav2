@@ -5,6 +5,7 @@ import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
+import { isDemoUser } from '../../constants/demo';
 
 interface PersonaData {
   id: string;

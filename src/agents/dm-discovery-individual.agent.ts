@@ -1,4 +1,4 @@
-import { Agent, tool } from '@openai/agents';
+import { Agent, tool, run } from '@openai/agents';
 import { serperSearch } from '../tools/serper';
 import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
@@ -32,7 +32,7 @@ const linkedinSearchTool = tool({
       user_id: { type: 'string' },
       product_service: { type: 'string' }
     },
-    required: ['company_name', 'company_country', 'search_id', 'user_id'],
+    required: ['company_name', 'company_country', 'search_id', 'user_id', 'product_service'],
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
@@ -41,7 +41,7 @@ const linkedinSearchTool = tool({
       company_country: string;
       search_id: string; 
       user_id: string;
-      product_service?: string;
+      product_service: string;
     };
     
     const startTime = Date.now();
@@ -384,8 +384,11 @@ export async function runDMDiscoveryForBusiness(params: {
   industry: string;
   product_service?: string;
 }) {
-  // Ensure DM personas are available before running discovery
-  await waitForPersonas(params.search_id);
+  // Wait for DM personas with shorter timeout, proceed anyway if not ready
+  const personas = await waitForPersonas(params.search_id, 60000, 2000); // 1 minute timeout
+  if (personas.length === 0) {
+    console.warn(`⚠️ Proceeding with DM discovery for ${params.business_name} without personas (they may still be generating)`);
+  }
 
   const message = `Find LinkedIn employees for this company immediately:
 
@@ -404,14 +407,17 @@ Search LinkedIn for executives and decision makers who would be involved in purc
 }
 
 // Polls until DM personas exist or a timeout is reached
-async function waitForPersonas(search_id: string, timeoutMs = 300000, delayMs = 3000) {
+async function waitForPersonas(search_id: string, timeoutMs = 60000, delayMs = 2000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const personas = await loadDMPersonas(search_id);
-    if (personas && personas.length > 0) return personas;
+    if (personas && personas.length > 0) {
+      console.log(`✅ Found ${personas.length} DM personas for search ${search_id}`);
+      return personas;
+    }
     await new Promise(resolve => setTimeout(resolve, delayMs));
   }
-  console.warn(`DM personas not ready for search ${search_id} after ${Math.round(timeoutMs / 1000)}s.`);
+  console.warn(`⚠️ DM personas not ready for search ${search_id} after ${Math.round(timeoutMs / 1000)}s, proceeding anyway`);
   return [];
 }
 

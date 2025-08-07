@@ -14,6 +14,7 @@ export class SearchService {
       .from('user_searches')
       .insert({
         user_id: userId,
+        status: 'in_progress', // Explicitly set valid status
         ...searchData
       })
       .select()
