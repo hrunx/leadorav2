@@ -260,8 +260,11 @@ export async function runDMDiscoveryForBusiness(params: {
   company_country: string;
   industry: string;
 }) {
+  // Ensure DM personas are available before running discovery
+  await waitForPersonas(params.search_id);
+
   const message = `Find LinkedIn employees for this company immediately:
-  
+
 Company: ${params.business_name}
 Country: ${params.company_country}
 Industry: ${params.industry}
@@ -272,6 +275,17 @@ User ID: ${params.user_id}
 Search LinkedIn for executives and decision makers, then store them with smart persona mapping.`;
 
   return await run(DMDiscoveryIndividualAgent, message);
+}
+
+// Waits until loadDMPersonas returns personas or retries expire
+async function waitForPersonas(search_id: string, retries = 5, delayMs = 2000) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const personas = await loadDMPersonas(search_id);
+    if (personas && personas.length > 0) return personas;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  console.warn(`DM personas not ready for search ${search_id} after ${retries} attempts.`);
+  return [];
 }
 
 // Helper functions
