@@ -2,10 +2,8 @@ import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-// Use service role for backend operations
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY!;
+const backendApiUrl = process.env.BACKEND_API_URL!;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,7 +30,7 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  const { table, user_id, search_id } = event.queryStringParameters || {};
+  const { table, search_id, campaign_id } = event.queryStringParameters || {};
 
   if (!table) {
     return {
@@ -42,112 +40,114 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  try {
-    let query;
-    switch (table) {
-      case 'user_searches':
-        if (!user_id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing user_id parameter' }) };
-        query = supabase
-          .from('user_searches')
-          .select('*')
-          .eq('user_id', user_id)
-          .order('created_at', { ascending: false });
-        break;
-      case 'email_campaigns':
-        if (!user_id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing user_id parameter' }) };
-        query = supabase
-          .from('email_campaigns')
-          .select('*')
-          .eq('user_id', user_id)
-          .order('created_at', { ascending: false });
-        break;
-      case 'businesses':
-        if (!search_id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing search_id parameter' }) };
-        query = supabase
-          .from('businesses')
-          .select('*')
-          .eq('search_id', search_id)
-          .order('match_score', { ascending: false });
-        break;
-      case 'business_personas':
-        if (!search_id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing search_id parameter' }) };
-        query = supabase
-          .from('business_personas')
-          .select('*')
-          .eq('search_id', search_id)
-          .order('rank');
-        break;
-      case 'decision_maker_personas':
-        if (!search_id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing search_id parameter' }) };
-        query = supabase
-          .from('decision_maker_personas')
-          .select('*')
-          .eq('search_id', search_id)
-          .order('rank');
-        break;
-      case 'decision_makers':
-        if (!search_id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing search_id parameter' }) };
-        query = supabase
-          .from('decision_makers')
-          .select('*')
-          .eq('search_id', search_id)
-          .order('influence', { ascending: false });
-        break;
-      case 'market_insights':
-        if (!search_id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing search_id parameter' }) };
-        query = supabase
-          .from('market_insights')
-          .select('*')
-          .eq('search_id', search_id);
-        break;
-      case 'campaign_recipients':
-        if (!event.queryStringParameters?.campaign_id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing campaign_id parameter' }) };
-        query = supabase
-          .from('campaign_recipients')
-          .select('*')
-          .eq('campaign_id', event.queryStringParameters.campaign_id)
-          .order('created_at');
-        break;
-      case 'subscriptions':
-        if (!event.queryStringParameters?.user_id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing user_id parameter' }) };
-        query = supabase
-          .from('subscriptions')
-          .select('*')
-          .eq('user_id', event.queryStringParameters.user_id)
-          .order('created_at', { ascending: false });
-        break;
-      case 'app_users':
-        if (!event.queryStringParameters?.id) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing id parameter' }) };
-        query = supabase
-          .from('app_users')
-          .select('*')
-          .eq('id', event.queryStringParameters.id);
-        break;
-      default:
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'Invalid table parameter' })
-        };
-    }
+  // Validate caller identity
+  const authHeader = event.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
-    const { data, error } = await query;
+  if (!token) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Missing authorization token' })
+    };
+  }
 
-    if (error) {
-      console.error('Supabase error:', error);
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false },
+    global: { headers: { Authorization: `Bearer ${token}` } }
+  });
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+  if (authError || !user) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Unauthorized' })
+    };
+  }
+
+  // Ensure search belongs to user if provided
+  if (search_id) {
+    const { data: search } = await supabase
+      .from('user_searches')
+      .select('id')
+      .eq('id', search_id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (!search) {
       return {
-        statusCode: 500,
+        statusCode: 403,
         headers: corsHeaders,
-        body: JSON.stringify({ error: error.message })
+        body: JSON.stringify({ error: 'Invalid search_id' })
+      };
+    }
+  }
+
+  const tableMap: Record<string, string> = {
+    user_searches: 'user_searches',
+    email_campaigns: 'email_campaigns',
+    businesses: 'businesses',
+    business_personas: 'business_personas',
+    decision_maker_personas: 'decision_maker_personas',
+    decision_makers: 'decision_makers',
+    market_insights: 'market_insights',
+    campaign_recipients: 'campaign_recipients',
+    subscriptions: 'subscriptions',
+    app_users: 'app_users'
+  };
+
+  const path = tableMap[table];
+
+  if (!path) {
+    return {
+      statusCode: 400,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Invalid table parameter' })
+    };
+  }
+
+  const params = new URLSearchParams();
+
+  if (search_id) params.append('search_id', search_id);
+  if (['user_searches', 'email_campaigns', 'subscriptions'].includes(table)) {
+    params.append('user_id', user.id);
+  }
+  if (table === 'app_users') {
+    params.append('id', user.id);
+  }
+  if (table === 'campaign_recipients') {
+    if (!campaign_id) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Missing campaign_id parameter' })
+      };
+    }
+    params.append('campaign_id', campaign_id);
+  }
+
+  try {
+    const response = await fetch(`${backendApiUrl}/${path}?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        statusCode: response.status,
+        headers: corsHeaders,
+        body: text
       };
     }
 
+    const data = await response.json();
     return {
       statusCode: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify(data || [])
     };
-
   } catch (error: any) {
     console.error('Error fetching user data:', error);
     return {
@@ -157,3 +157,4 @@ export const handler: Handler = async (event) => {
     };
   }
 };
+
