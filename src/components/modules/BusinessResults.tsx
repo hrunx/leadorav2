@@ -3,12 +3,10 @@ import { Building, MapPin, Users, DollarSign, Star, ArrowRight, Filter, Target, 
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
-import { SearchService } from '../../services/searchService';
-import { useDemoMode } from '../../hooks/useDemoMode';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 import { supabase } from '../../lib/supabase';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
+import { isDemoUser } from '../../constants/demo';
 
 interface Business {
   id: string;
@@ -34,48 +32,20 @@ export default function BusinessResults() {
   
   // Real-time data hook for progressive loading
   const realTimeData = useRealTimeSearch(currentSearch?.id || null);
-  
+
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [discoveryStatus, setDiscoveryStatus] = useState<'discovering' | 'completed'>('discovering');
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasSearch, setHasSearch] = useState(false);
+
   // UI state
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [filterCountry, setFilterCountry] = useState('');
   const [filterIndustry, setFilterIndustry] = useState('');
   const [filterPersona, setFilterPersona] = useState('');
-  
-  // Legacy state for demo users
-  const [demoBusinesses, setDemoBusinesses] = useState<Business[]>([]);
-  const [isLoadingDemo, setIsLoadingDemo] = useState(true);
-  
+
   // Determine if we're in demo mode
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
-  
-  // Use real-time data for real users, demo data for demo users
-  const businesses = isDemo ? demoBusinesses : realTimeData.businesses.map(b => ({
-    id: b.id,
-    name: b.name,
-    industry: b.industry,
-    country: b.country,
-    city: b.city,
-    size: b.size || 'Unknown',
-    revenue: b.revenue || 'Unknown',
-    description: b.description || `${b.name} operates in the ${b.industry} industry.`,
-    matchScore: b.match_score ?? 0,
-    relevantDepartments: b.relevant_departments ?? [],
-    keyProducts: b.key_products ?? [],
-    recentActivity: b.recent_activity ?? [],
-    personaType: b.persona_type || 'General',
-    address: b.address,
-    phone: b.phone,
-    website: b.website,
-    rating: b.rating
-  }));
-  
-  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && businesses.length === 0);
-  const hasSearch = isDemo ? demoBusinesses.length > 0 : !!currentSearch;
-  
-  // Discovery status based on real-time progress
-  const discoveryStatus = isDemo ? 'completed' : 
-    realTimeData.progress.phase === 'completed' ? 'completed' :
-    businesses.length > 0 ? 'discovering' : 'discovering';
 
   // Check if we came from a specific persona selection
   useEffect(() => {
@@ -87,77 +57,42 @@ export default function BusinessResults() {
   // Load demo data for demo users only
   useEffect(() => {
     if (isDemo) {
-      setDemoBusinesses(getStaticBusinesses());
-      setIsLoadingDemo(false);
+      setBusinesses(getStaticBusinesses());
+      setIsLoading(false);
+      setHasSearch(true);
+      setDiscoveryStatus('completed');
     }
   }, [isDemo]);
 
-  // Function to check orchestration progress
-  const checkDiscoveryProgress = async (searchId: string) => {
-    try {
-      const response = await fetch('/.netlify/functions/check-progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ search_id: searchId })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        const progress = result.progress;
-        const dataCounts = result.data_counts;
-        
-        console.log(`Discovery progress: ${progress?.phase}, Businesses found: ${dataCounts?.businesses || 0}`);
-        
-        // Handle offline/fallback search state
-        if (progress?.phase === 'offline') {
-          console.log('Offline search detected, stopping progress checks');
-          setDiscoveryStatus('completed');
-          setIsLoading(false);
-          return;
-        }
-        
-        // Update discovery status based on progress and data
-        if (dataCounts?.businesses > 0) {
-          setDiscoveryStatus('completed');
-          setIsLoading(false);
-          // Reload businesses if we have new ones - but don't let it override loading state
-          const currentSearch = getCurrentSearch();
-          if (currentSearch) {
-            SearchService.getBusinesses(currentSearch.id).then(dbBusinesses => {
-              const formattedBusinesses = dbBusinesses.map(business => ({
-                ...business,
-                matchScore: business.match_score,
-                relevantDepartments: business.relevant_departments || [],
-                keyProducts: business.key_products || [],
-                recentActivity: business.recent_activity || [],
-                personaType: business.persona_type
-              }));
-              setBusinesses(formattedBusinesses);
-              // hasSearch should already be true since we have a search
-            });
-          }
-        } else if (progress?.phase === 'completed') {
-          setDiscoveryStatus('completed');
-          setIsLoading(false);
-        } else if (progress?.phase === 'starting_discovery' || progress?.phase === 'personas' || progress?.phase === 'businesses') {
-          setDiscoveryStatus('discovering');
-          // Don't override loading state if we're actively discovering
-          if (!isLoading) {
-            setIsLoading(true);
-          }
-          // Keep checking progress
-          setTimeout(() => checkDiscoveryProgress(searchId), 2000);
-        } else {
-          // Keep checking for a reasonable time
-          setTimeout(() => checkDiscoveryProgress(searchId), 3000);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking discovery progress:', error);
-      // Fallback - stop checking after a while
-      setTimeout(() => setDiscoveryStatus('completed'), 10000);
-    }
-  };
+  // Sync real-time search data to state for real users
+  useEffect(() => {
+    if (isDemo) return;
+
+    const formatted = realTimeData.businesses.map(b => ({
+      id: b.id,
+      name: b.name,
+      industry: b.industry,
+      country: b.country,
+      city: b.city,
+      size: b.size || 'Unknown',
+      revenue: b.revenue || 'Unknown',
+      description: b.description || `${b.name} operates in the ${b.industry} industry.`,
+      matchScore: b.match_score ?? 0,
+      relevantDepartments: b.relevant_departments ?? [],
+      keyProducts: b.key_products ?? [],
+      recentActivity: b.recent_activity ?? [],
+      personaType: b.persona_type || 'General',
+      address: b.address,
+      phone: b.phone,
+      website: b.website,
+      rating: b.rating
+    }));
+
+    setBusinesses(formatted);
+    setIsLoading(realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && formatted.length === 0));
+    setHasSearch(!!currentSearch);
+    setDiscoveryStatus(realTimeData.progress.phase === 'completed' ? 'completed' : 'discovering');
+  }, [realTimeData, currentSearch, isDemo]);
 
   // Real-time subscription for streaming newly inserted businesses
   useEffect(() => {
@@ -197,73 +132,6 @@ export default function BusinessResults() {
     return () => { supabase.removeChannel(channel); };
   }, [getCurrentSearch]);
 
-  const loadBusinesses = async () => {
-    setIsLoading(true);
-    try {
-      const currentSearch = getCurrentSearch();
-      const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
-      
-      // For demo users, use static data
-      if (isDemo) {
-        setBusinesses(getStaticBusinesses());
-        setHasSearch(true);
-        setIsLoading(false);
-      } else if (!currentSearch) {
-        // Real user with no search - show empty state
-        setBusinesses([]);
-        setHasSearch(false);
-        setIsLoading(false);
-      } else {
-        // Real user with search - always mark hasSearch as true since a search exists
-        setHasSearch(true);
-        
-        const dbBusinesses = await SearchService.getBusinesses(currentSearch.id);
-        
-        if (dbBusinesses.length === 0) {
-          // Check if search is recent (less than 5 minutes old) - might still be processing
-          const searchAge = Date.now() - new Date(currentSearch.created_at).getTime();
-          const isRecentSearch = searchAge < 5 * 60 * 1000; // 5 minutes
-          
-          if (isRecentSearch) {
-            console.log(`Search ${currentSearch.id} is recent and still processing businesses...`);
-            // Keep loading state for recent searches and start progress checking
-            setIsLoading(true);
-            setDiscoveryStatus('discovering');
-            // Start progress checking
-            checkDiscoveryProgress(currentSearch.id);
-            // Check again in a few seconds
-            setTimeout(() => loadBusinesses(), 3000);
-            return;
-          } else {
-            console.log(`No businesses found for completed search ${currentSearch.id}`);
-            // Search is completed but no businesses found - show empty results, not empty state
-            setBusinesses([]);
-            setIsLoading(false);
-            return;
-          }
-        }
-        
-        // Convert database format to component format
-        const formattedBusinesses = dbBusinesses.map(business => ({
-          ...business,
-          matchScore: business.match_score,
-          relevantDepartments: business.relevant_departments || [],
-          keyProducts: business.key_products || [],
-          recentActivity: business.recent_activity || [],
-          personaType: business.persona_type
-        }));
-        
-        setBusinesses(formattedBusinesses);
-        setIsLoading(false); // Only stop loading when we have results or confirmed no results
-      }
-    } catch (error) {
-      console.error('Error loading businesses:', error);
-      setBusinesses([]);
-      setHasSearch(false);
-      setIsLoading(false);
-    }
-    // Note: No finally block - we manage loading state manually for recent searches
-  };
 
   const getStaticBusinesses = (): Business[] => [
     {
