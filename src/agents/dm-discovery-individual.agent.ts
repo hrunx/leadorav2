@@ -3,6 +3,21 @@ import { serperSearch } from '../tools/serper';
 import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
 import { buildDMData, mapDMToPersona } from '../tools/util';
+import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
+
+interface Employee {
+  name: string;
+  title: string;
+  company: string;
+  linkedin: string;
+  email: string;
+  phone: string;
+  bio: string;
+  location: string;
+  business_name?: string;
+}
+
+type SerperItem = { link?: string; title?: string; snippet?: string };
 
 const linkedinSearchTool = tool({
   name: 'linkedinSearch',
@@ -39,19 +54,19 @@ const linkedinSearchTool = tool({
         `"${company_name}" site:linkedin.com/in/ Director OR Manager`
       ];
       
-      const allEmployees: any[] = [];
+      const allEmployees: Employee[] = [];
       
       // Search for employees in different roles
       for (const query of queries) {
         try {
-          const result = await serperSearch(query, company_country, 5);
+          const result = await serperSearch(query, company_country, 5) as { success: boolean; items?: SerperItem[] };
           if (result.success && result.items) {
             const employees = result.items
-              .filter(item => 
+              .filter((item: SerperItem) =>
                 item.link?.includes('linkedin.com/in/') &&
                 item.title?.toLowerCase().includes(company_name.toLowerCase())
               )
-              .map(item => ({
+              .map((item: SerperItem): Employee => ({
                 name: extractNameFromLinkedInTitle(item.title),
                 title: extractTitleFromLinkedInTitle(item.title),
                 company: company_name,
@@ -102,7 +117,7 @@ const linkedinSearchTool = tool({
       
       return { employees: uniqueEmployees.slice(0, 10) }; // Limit to 10 per company
       
-    } catch (error: any) {
+      } catch (error) {
       const endTime = Date.now();
       
       // Log error
@@ -158,15 +173,15 @@ const storeDMsTool = tool({
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
-    const { search_id, user_id, business_id, employees } = input as { 
-      search_id: string; 
-      user_id: string; 
+    const { search_id, user_id, business_id, employees } = input as {
+      search_id: string;
+      user_id: string;
       business_id: string;
-      employees: any[] 
+      employees: Employee[]
     };
 
     // Defensive: ensure every employee has a location
-    const employeesWithLocation = employees.map((emp: any) => ({
+    const employeesWithLocation: Employee[] = employees.map((emp) => ({
       ...emp,
       location: emp.location || 'Unknown'
     }));
@@ -174,7 +189,7 @@ const storeDMsTool = tool({
     // Load DM personas for smart mapping
     const dmPersonas = await loadDMPersonas(search_id);
 
-    const rows = employeesWithLocation.map((emp: any) => {
+    const rows = employeesWithLocation.map((emp) => {
       // 🎯 SMART PERSONA MAPPING: Match employee to most relevant persona
       const mappedPersona = mapDMToPersona(emp, dmPersonas);
       // Defensive: ensure company is always set
@@ -209,6 +224,23 @@ const storeDMsTool = tool({
     } else if (typeof window !== 'undefined' && window.location) {
       enrichUrl = `${window.location.origin}/.netlify/functions/enrich-decision-makers`;
     }
+
+    await fetch(enrichUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ search_id })
+    });
+
+    // Schedule follow-up persona assignment for any unmapped DMs
+    if (rows.some(r => !r.persona_id)) {
+      setTimeout(() => {
+        waitForPersonas(search_id)
+          .then(() => mapDecisionMakersToPersonas(search_id))
+          .catch(err => console.error('Deferred DM persona mapping failed:', err));
+      }, 10000);
+    }
+
+
     try {
       // Fire-and-forget enrichment; log any failures
       fetch(enrichUrl, {
@@ -221,6 +253,7 @@ const storeDMsTool = tool({
     } catch (err) {
       console.error('Failed to trigger enrichment:', err);
     }
+
     return inserted;
   }
 });
@@ -285,14 +318,15 @@ Search LinkedIn for executives and decision makers, then store them with smart p
   return result;
 }
 
-// Waits until loadDMPersonas returns personas or retries expire
-async function waitForPersonas(search_id: string, retries = 5, delayMs = 2000) {
-  for (let attempt = 0; attempt < retries; attempt++) {
+// Polls until DM personas exist or a timeout is reached
+async function waitForPersonas(search_id: string, timeoutMs = 300000, delayMs = 3000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
     const personas = await loadDMPersonas(search_id);
     if (personas && personas.length > 0) return personas;
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    await new Promise(resolve => setTimeout(resolve, delayMs));
   }
-  console.warn(`DM personas not ready for search ${search_id} after ${retries} attempts.`);
+  console.warn(`DM personas not ready for search ${search_id} after ${Math.round(timeoutMs / 1000)}s.`);
   return [];
 }
 
