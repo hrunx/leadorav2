@@ -1,5 +1,6 @@
 import { runDMDiscoveryForBusiness } from '../agents/dm-discovery-individual.agent';
 import { updateSearchProgress } from './db.write';
+import { loadSearch } from './db.read';
 
 // Track DM discovery progress per search
 const dmProgress: Record<string, { total: number; processed: number }> = {};
@@ -37,6 +38,9 @@ export async function triggerInstantDMDiscovery(
   console.log(`🎯 Starting instant DM discovery for ${businesses.length} businesses`);
   initDMDiscoveryProgress(search_id, businesses.length);
 
+  // Load search data once for all businesses to get product/service context
+  const searchData = await loadSearch(search_id);
+
   // Process businesses in small batches to avoid overwhelming the system
   const batchSize = 3;
   for (let i = 0; i < businesses.length; i += batchSize) {
@@ -67,21 +71,28 @@ export async function processBusinessForDM(
   search_id: string,
   user_id: string,
   business: Business
-) {
+): Promise<boolean> {
   try {
     console.log(`⚡ Processing single business for instant DM discovery: ${business.name}`);
+    
+    // Load search data to get product/service context
+    const searchData = await loadSearch(search_id);
+    
     await runDMDiscoveryForBusiness({
       search_id,
       user_id,
       business_id: business.id,
       business_name: business.name,
       company_country: business.country,
-      industry: business.industry
+      industry: business.industry,
+      product_service: searchData?.product_service
     });
+    await recordProgress(search_id);
+    return true;
   } catch (error) {
     console.error(`❌ DM discovery failed for ${business.name}:`, error);
-  } finally {
     await recordProgress(search_id);
+    return false;
   }
 }
 

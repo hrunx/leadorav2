@@ -284,8 +284,8 @@ export default function DecisionMakerPersonas() {
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {Array.isArray(asCharacteristics(persona.characteristics)?.painPoints) && asCharacteristics(persona.characteristics)?.painPoints?.slice(0, 2).map((point: string, index: number) => (
-                    <span key={index} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                  {Array.isArray(asCharacteristics(persona.characteristics)?.painPoints) && asCharacteristics(persona.characteristics)?.painPoints?.slice(0, 2).map((point: string) => (
+                    <span key={`${persona.id}-pain-${point.slice(0, 20)}`} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
                       {point}
                     </span>
                   ))}
@@ -436,8 +436,8 @@ export default function DecisionMakerPersonas() {
                       <div>
                         <h4 className="font-semibold text-gray-900 mb-3">Key Responsibilities</h4>
                         <div className="space-y-2">
-                          {asCharacteristics(selectedPersona.characteristics)?.responsibilities?.map((responsibility: string, index: number) => (
-                            <div key={index} className="flex items-start space-x-2">
+                          {asCharacteristics(selectedPersona.characteristics)?.responsibilities?.map((responsibility: string) => (
+                            <div key={`${selectedPersona.id}-resp-${responsibility.slice(0, 20)}`} className="flex items-start space-x-2">
                               <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
                               <span className="text-gray-700 text-sm">{responsibility}</span>
                             </div>
@@ -448,8 +448,8 @@ export default function DecisionMakerPersonas() {
                       <div>
                         <h4 className="font-semibold text-gray-900 mb-3">Top Pain Points</h4>
                         <div className="space-y-2">
-                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.painPoints) && asCharacteristics(selectedPersona.characteristics)?.painPoints?.map((point: string, index: number) => (
-                            <div key={index} className="flex items-start space-x-2">
+                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.painPoints) && asCharacteristics(selectedPersona.characteristics)?.painPoints?.map((point: string) => (
+                            <div key={`${selectedPersona.id}-detail-pain-${point.slice(0, 20)}`} className="flex items-start space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
                               <span className="text-gray-700 text-sm">{point}</span>
                             </div>
@@ -466,8 +466,8 @@ export default function DecisionMakerPersonas() {
                       <div className="bg-red-50 rounded-xl p-4 border border-red-200">
                         <h4 className="font-semibold text-red-900 mb-3">Pain Points</h4>
                         <div className="space-y-2">
-                          {Array.isArray(asCharacteristics(selectedPersona?.characteristics)?.painPoints) ? asCharacteristics(selectedPersona?.characteristics)?.painPoints?.map((point: string, index: number) => (
-                            <div key={index} className="flex items-center space-x-2">
+                          {Array.isArray(asCharacteristics(selectedPersona?.characteristics)?.painPoints) ? asCharacteristics(selectedPersona?.characteristics)?.painPoints?.map((point: string) => (
+                            <div key={`${selectedPersona.id}-char-pain-${point.slice(0, 20)}`} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                               <span className="text-red-800 text-sm">{point}</span>
                             </div>
@@ -478,8 +478,8 @@ export default function DecisionMakerPersonas() {
                       <div className="bg-green-50 rounded-xl p-4 border border-green-200">
                         <h4 className="font-semibold text-green-900 mb-3">Motivations</h4>
                         <div className="space-y-2">
-                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.motivations) && asCharacteristics(selectedPersona.characteristics)?.motivations?.map((motivation: string, index: number) => (
-                            <div key={index} className="flex items-center space-x-2">
+                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.motivations) && asCharacteristics(selectedPersona.characteristics)?.motivations?.map((motivation: string) => (
+                            <div key={`${selectedPersona.id}-char-motivation-${motivation.slice(0, 20)}`} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                               <span className="text-green-800 text-sm">{motivation}</span>
                             </div>
@@ -490,8 +490,8 @@ export default function DecisionMakerPersonas() {
                       <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-200">
                         <h4 className="font-semibold text-yellow-900 mb-3">Challenges</h4>
                         <div className="space-y-2">
-                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.challenges) && asCharacteristics(selectedPersona.characteristics)?.challenges?.map((challenge: string, index: number) => (
-                            <div key={index} className="flex items-center space-x-2">
+                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.challenges) && asCharacteristics(selectedPersona.characteristics)?.challenges?.map((challenge: string) => (
+                            <div key={`${selectedPersona.id}-char-challenge-${challenge.slice(0, 20)}`} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
                               <span className="text-yellow-800 text-sm">{challenge}</span>
                             </div>
@@ -502,8 +502,8 @@ export default function DecisionMakerPersonas() {
                       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
                         <h4 className="font-semibold text-blue-900 mb-3">Decision Factors</h4>
                         <div className="space-y-2">
-                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.decisionFactors) && asCharacteristics(selectedPersona.characteristics)?.decisionFactors?.map((factor: string, index: number) => (
-                            <div key={index} className="flex items-center space-x-2">
+                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.decisionFactors) && asCharacteristics(selectedPersona.characteristics)?.decisionFactors?.map((factor: string) => (
+                            <div key={`${selectedPersona.id}-char-factor-${factor.slice(0, 20)}`} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                               <span className="text-blue-800 text-sm">{factor}</span>
                             </div>
@@ -538,8 +538,8 @@ export default function DecisionMakerPersonas() {
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-3">Preferred Channels</h4>
                           <div className="space-y-2">
-                            {Array.isArray(asBehaviors(selectedPersona.behaviors)?.preferredChannels) && asBehaviors(selectedPersona.behaviors)?.preferredChannels?.map((channel: string, index: number) => (
-                              <div key={index} className="flex items-center space-x-2">
+                            {Array.isArray(asBehaviors(selectedPersona.behaviors)?.preferredChannels) && asBehaviors(selectedPersona.behaviors)?.preferredChannels?.map((channel: string) => (
+                              <div key={`${selectedPersona.id}-channel-${channel.slice(0, 20)}`} className="flex items-center space-x-2">
                                 <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
                                 <span className="text-gray-700 text-sm">{channel}</span>
                               </div>

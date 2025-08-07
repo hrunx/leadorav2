@@ -1,49 +1,52 @@
-import React, { useState, useEffect } from 'react';
-import { User, Crown, Shield, Users, Mail, Phone, Linkedin, ArrowRight, Building, Eye, X, Target, TrendingUp, Search, Plus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, Crown, Shield, Users, Mail, Phone, Linkedin, ArrowRight, Building, Eye, X, Target, TrendingUp, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
+import { isDemoUser } from '../../constants/demo';
 
 interface DecisionMakerPersona {
   id: string;
   title: string;
   rank: number;
-  matchScore: number;
-  level: 'executive' | 'director' | 'manager';
-  department: string;
-  influence: number;
+  match_score: number;
   demographics: {
-    experience: string;
-    typicalTitles: string[];
-    departments: string[];
-    companyTypes: string[];
+    experience: unknown;
+    typical_titles: unknown;
+    departments: unknown;
+    company_types: unknown;
   };
   characteristics: {
-    keyResponsibilities: string[];
-    painPoints: string[];
-    motivations: string[];
-    decisionFactors: string[];
+    key_responsibilities: unknown;
+    pain_points: unknown;
+    motivations: unknown;
+    decision_factors: unknown;
   };
   behaviors: {
-    communicationStyle: string;
-    decisionTimeline: string;
-    preferredApproach: string;
-    buyingInfluence: string;
+    communication_style: unknown;
+    decision_timeline: unknown;
+    preferred_approach: unknown;
+    buying_influence: unknown;
   };
-  marketPotential: {
-    totalDecisionMakers: number;
-    avgInfluence: number;
-    conversionRate: string;
+  market_potential: {
+    total_decision_makers: unknown;
+    avg_influence: unknown;
+    conversion_rate: unknown;
   };
   employees: {
     id: string;
     name: string;
     title: string;
     company: string;
-    matchScore: number;
+    linkedin: string;
+    email: string;
+    phone: string;
+    location: string;
+    match_score: number;
+    verified: boolean;
+    confidence: number;
   }[];
 }
 
@@ -58,64 +61,13 @@ interface DecisionMaker {
   phone: string;
   linkedin: string;
   company: string;
-  persona: {
-    experience: string;
-    priorities: string[];
-    communicationStyle: string;
-    decisionFactors: string[];
-    painPoints: string[];
-    preferredApproach: string;
-  };
-  recentActivity: string[];
-  personaType: string;
+  location?: string;
+  enrichment_status?: string;
+  persona_type: string;
 }
 
-const getDemoPersonas = (): DecisionMakerPersona[] => [
-  {
-    id: 'demo-1',
-    title: 'Chief Technology Officer',
-    rank: 1,
-    matchScore: 95,
-    level: 'executive',
-    department: 'Technology',
-    influence: 95,
-    demographics: {
-      experience: '15+ years in enterprise technology leadership',
-      typicalTitles: ['CTO'],
-      departments: ['Technology'],
-      companyTypes: ['Enterprise']
-    },
-    characteristics: {
-      keyResponsibilities: ['Technology strategy and vision'],
-      painPoints: ['Legacy system modernization'],
-      motivations: ['Drive digital transformation success'],
-      decisionFactors: ['Proven ROI and business impact']
-    },
-    behaviors: {
-      communicationStyle: 'Strategic, data-driven',
-      decisionTimeline: '6-12 months',
-      preferredApproach: 'Executive briefing with clear business case',
-      buyingInfluence: 'Final decision maker for technology investments over $500K'
-    },
-    marketPotential: {
-      totalDecisionMakers: 2500,
-      avgInfluence: 95,
-      conversionRate: '8%'
-    },
-    employees: [
-      {
-        id: '1',
-        name: 'Sarah Johnson',
-        title: 'Chief Technology Officer',
-        company: 'TechCorp Solutions',
-        matchScore: 95
-      }
-    ]
-  }
-];
-
 export default function DecisionMakerProfiles() {
-  const { state, updateSelectedPersonas } = useAppContext();
+  const { state } = useAppContext();
   const { getCurrentSearch } = useUserData();
   const { state: authState } = useAuth();
   const currentSearch = getCurrentSearch();
@@ -134,7 +86,7 @@ export default function DecisionMakerProfiles() {
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
 
   // Use real-time data for real users, demo data for demo users
-  const decisionMakerPersonas = isDemo ? getDemoPersonas() : realTimeData.dmPersonas.map(p => {
+  const decisionMakerPersonas = realTimeData.dmPersonas.map((p: any) => {
     // 🎯 TARGETED DISPLAY: Get only DMs mapped to this persona with enriched contact info
     const personaDecisionMakers = realTimeData.getDecisionMakersForPersona(p.id);
     
@@ -142,13 +94,31 @@ export default function DecisionMakerProfiles() {
       id: p.id,
       title: p.title,
       rank: p.rank,
-      description: p.description || `Key ${p.title} decision maker profile`,
-      responsibilities: p.responsibilities || [],
-      painPoints: p.pain_points || [],
-      preferredChannels: p.preferred_channels || [],
-      keyMessages: p.key_messages || [],
-      avgEmployees: personaDecisionMakers.length,
-      employeeProfiles: personaDecisionMakers.map(dm => ({
+      match_score: p.match_score,
+      demographics: {
+        experience: p.demographics?.experience,
+        typical_titles: p.demographics?.typical_titles,
+        departments: p.demographics?.departments,
+        company_types: p.demographics?.company_types,
+      },
+      characteristics: {
+        key_responsibilities: p.characteristics?.key_responsibilities,
+        pain_points: p.characteristics?.pain_points,
+        motivations: p.characteristics?.motivations,
+        decision_factors: p.characteristics?.decision_factors,
+      },
+      behaviors: {
+        communication_style: p.behaviors?.communication_style,
+        decision_timeline: p.behaviors?.decision_timeline,
+        preferred_approach: p.behaviors?.preferred_approach,
+        buying_influence: p.behaviors?.buying_influence,
+      },
+      market_potential: {
+        total_decision_makers: p.market_potential?.total_decision_makers,
+        avg_influence: p.market_potential?.avg_influence,
+        conversion_rate: p.market_potential?.conversion_rate,
+      },
+      employees: personaDecisionMakers.map((dm: any, index: number) => ({
         id: dm.id,
         name: dm.name,
         title: dm.title,
@@ -156,21 +126,19 @@ export default function DecisionMakerProfiles() {
         linkedin: dm.linkedin,
         email: dm.email || 'Enriching...',
         phone: dm.phone || 'Enriching...',
-        bio: dm.bio || '',
         location: dm.location || '',
-        matchScore: Math.min(95, Math.max(75, 90 - personaDecisionMakers.indexOf(dm) * 3)), // Dynamic scoring
+        match_score: Math.min(95, Math.max(75, 90 - index * 3)), // Dynamic scoring
         verified: dm.enrichment_status === 'completed',
         confidence: dm.enrichment_confidence || 0
       }))
     };
   });
   
-  const isLoading = isDemo ? false : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && decisionMakerPersonas.length === 0);
-  const hasSearch = isDemo ? true : !!currentSearch;
+  const isLoading = realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && decisionMakerPersonas.length === 0);
+  const hasSearch = !!currentSearch;
 
   // Discovery status based on real-time progress
-  const discoveryStatus = isDemo ? 'completed' :
-    realTimeData.progress.phase === 'completed' ? 'completed' :
+  const discoveryStatus = realTimeData.progress.phase === 'completed' ? 'completed' :
     realTimeData.progress.decision_makers_count > 0 ? 'discovering' : 'discovering';
 
   // Real-time progress logging
@@ -178,42 +146,12 @@ export default function DecisionMakerProfiles() {
     if (!isDemo && currentSearch) {
       console.log(`🎯 DM Real-time data for ${currentSearch.id}:`, {
         phase: realTimeData.progress.phase,
-        dmPersonas: realTimeData.dmPersonas.length,
-        decisionMakers: realTimeData.progress.decision_makers_count,
-        isLoading: realTimeData.isLoading
+        dm_personas: realTimeData.dmPersonas.length,
+        decision_makers: realTimeData.progress.decision_makers_count,
+        is_loading: realTimeData.isLoading
       });
     }
   }, [realTimeData, currentSearch, isDemo]);
-
-  const [detailedEmployees] = useState<DecisionMaker[]>([
-    {
-      id: '1',
-      name: 'Sarah Johnson',
-      title: 'Chief Technology Officer',
-      level: 'executive',
-      department: 'Technology',
-      influence: 95,
-      email: 's.johnson@techcorp.com',
-      phone: '+1 (555) 123-4567',
-      linkedin: 'linkedin.com/in/sarahjohnson',
-      company: 'TechCorp Solutions',
-      persona: {
-        experience: '15+ years in enterprise technology leadership',
-        priorities: ['Digital transformation', 'Operational efficiency', 'Team productivity', 'Innovation'],
-        communicationStyle: 'Strategic, data-driven, prefers executive summaries',
-        decisionFactors: ['ROI analysis', 'Strategic alignment', 'Implementation timeline', 'Vendor stability'],
-        painPoints: ['Legacy system integration', 'Budget constraints', 'Change management', 'Scalability issues'],
-        preferredApproach: 'Executive briefing with clear business case and ROI projections'
-      },
-      recentActivity: [
-        'Spoke at TechLeaders Summit 2024',
-        'Announced $10M digital transformation initiative',
-        'Published article on AI in enterprise'
-      ],
-      personaType: 'Chief Technology Officer'
-    },
-    // Add more detailed employees as needed...
-  ]);
 
   const getMatchScoreColor = (score: number) => {
     if (score >= 90) return 'text-green-600 bg-green-100';
@@ -251,7 +189,7 @@ export default function DecisionMakerProfiles() {
 
   const handleViewEmployeesForPersona = (persona: DecisionMakerPersona) => {
     // Filter employees by persona type and show detailed view
-    const filteredEmployees = detailedEmployees.filter(emp => emp.personaType === persona.title);
+    setSelectedPersona(persona);
     setShowEmployeeDetails(true);
     // In a real app, you'd pass this data to the next view
   };
@@ -299,7 +237,7 @@ export default function DecisionMakerProfiles() {
           <div className="space-y-4">
             <h2 className="text-xl font-semibold text-gray-900">Decision Maker Employees</h2>
             
-            {detailedEmployees.map((employee) => (
+            {realTimeData.getDecisionMakersForPersona(selectedPersona?.id || '').map((employee: any) => (
               <div
                 key={employee.id}
                 onClick={() => setSelectedEmployee(employee)}
@@ -334,7 +272,7 @@ export default function DecisionMakerProfiles() {
                     <div className="w-20 bg-gray-200 rounded-full h-2 mt-2">
                       <div
                         className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${employee.influence}%` }}
+                        style={{ width: `${employee.match_score}%` }}
                       />
                     </div>
                   </div>
@@ -386,36 +324,34 @@ export default function DecisionMakerProfiles() {
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-gray-900 mb-3">Experience</h4>
-                    <p className="text-gray-700">{selectedEmployee.persona.experience}</p>
-                  </div>
-
-                  <div>
-                    <h4 className="font-semibold text-gray-900 mb-3">Key Priorities</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedEmployee.persona.priorities.map((priority, index) => (
-                        <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
-                          {priority}
-                        </span>
-                      ))}
+                    <h4 className="font-semibold text-gray-900 mb-3">Professional Details</h4>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="font-medium text-gray-600">Level:</span>
+                        <span className="ml-2 text-gray-900">{selectedEmployee.level}</span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-600">Department:</span>
+                        <span className="ml-2 text-gray-900">{selectedEmployee.department}</span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-600">Influence:</span>
+                        <span className="ml-2 text-gray-900">{selectedEmployee.influence}%</span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-600">Type:</span>
+                        <span className="ml-2 text-gray-900">{selectedEmployee.persona_type}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <div>
-                    <h4 className="font-semibold text-gray-900 mb-3">Pain Points</h4>
-                    <ul className="space-y-2">
-                      {selectedEmployee.persona.painPoints.map((point, index) => (
-                        <li key={index} className="flex items-start space-x-2">
-                          <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
-                          <span className="text-gray-700 text-sm">{point}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
                   <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-                    <h4 className="font-semibold text-blue-900 mb-2">Recommended Approach</h4>
-                    <p className="text-blue-800 text-sm">{selectedEmployee.persona.preferredApproach}</p>
+                    <h4 className="font-semibold text-blue-900 mb-2">Contact Status</h4>
+                    <p className="text-blue-800 text-sm">
+                      {selectedEmployee.enrichment_status === 'completed' 
+                        ? 'Contact information verified and enriched' 
+                        : 'Contact enrichment in progress...'}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -523,7 +459,7 @@ export default function DecisionMakerProfiles() {
         <div className="space-y-4">
           <h2 className="text-xl font-semibold text-gray-900">Ranked Decision Maker Personas</h2>
           
-          {decisionMakerPersonas.map((persona) => (
+          {decisionMakerPersonas.map((persona: DecisionMakerPersona) => (
             <div key={persona.id} className="bg-white rounded-xl shadow-sm border border-gray-200">
               <div
                 onClick={() => setSelectedPersona(persona)}
@@ -538,17 +474,17 @@ export default function DecisionMakerProfiles() {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900 text-lg">{persona.title}</h3>
-                      <p className="text-gray-600 mt-1">{persona.department} • {persona.level}</p>
-                      <p className="text-sm text-gray-500">{persona.demographics.experience}</p>
+                      <p className="text-gray-600 mt-1">Decision Maker Persona #{persona.rank}</p>
+                      <p className="text-sm text-gray-500">{String(persona.demographics.experience || 'Experience data being processed...')}</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className={`px-3 py-1 rounded-full text-sm font-medium mb-2 ${getMatchScoreColor(persona.matchScore)}`}>
+                    <div className={`px-3 py-1 rounded-full text-sm font-medium mb-2 ${getMatchScoreColor(persona.match_score)}`}>
                       <Target className="w-4 h-4 inline mr-1" />
-                      {persona.matchScore}% match
+                      {persona.match_score}% match
                     </div>
                     <div className="text-sm text-gray-500">
-                      {persona.marketPotential.totalDecisionMakers.toLocaleString()} decision makers
+                      {String(persona.market_potential.total_decision_makers || 'N/A')} decision makers
                     </div>
                   </div>
                 </div>
@@ -556,29 +492,33 @@ export default function DecisionMakerProfiles() {
                 <div className="grid grid-cols-3 gap-4 text-sm mb-4">
                   <div className="flex items-center space-x-2 text-gray-600">
                     <TrendingUp className="w-4 h-4" />
-                    <span>{persona.influence}% avg influence</span>
+                    <span>{String(persona.market_potential.avg_influence || 'N/A')}% avg influence</span>
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
                     <Users className="w-4 h-4" />
-                    <span>{persona.marketPotential.conversionRate} conversion</span>
+                    <span>{String(persona.market_potential.conversion_rate || 'N/A')} conversion</span>
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
                     <Building className="w-4 h-4" />
-                    <span>{persona.behaviors.decisionTimeline}</span>
+                    <span>{String(persona.behaviors.decision_timeline || 'N/A')}</span>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {persona.characteristics.painPoints.slice(0, 2).map((point, index) => (
-                    <span key={index} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
-                      {point}
-                    </span>
-                  ))}
-                  {persona.characteristics.painPoints.length > 2 && (
-                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                      +{persona.characteristics.painPoints.length - 2} more
-                    </span>
-                  )}
+                  {Array.isArray(persona.characteristics.pain_points) && 
+                    (persona.characteristics.pain_points as string[]).slice(0, 2).map((point: string, index: number) => (
+                      <span key={index} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                        {point}
+                      </span>
+                    ))
+                  }
+                  {Array.isArray(persona.characteristics.pain_points) && 
+                    (persona.characteristics.pain_points as string[]).length > 2 && (
+                      <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                        +{(persona.characteristics.pain_points as string[]).length - 2} more
+                      </span>
+                    )
+                  }
                 </div>
               </div>
 
@@ -604,8 +544,8 @@ export default function DecisionMakerProfiles() {
                 {expandedPersonas.includes(persona.id) && (
                   <div className="px-6 pb-4 bg-gray-50">
                     <div className="space-y-3">
-                      {persona.employees.map((employee, index) => (
-                        <div key={index} className="bg-white rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
+                      {persona.employees.map((employee: any) => (
+                        <div key={employee.id} className="bg-white rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <h4 className="font-medium text-gray-900">{employee.name}</h4>
@@ -613,11 +553,11 @@ export default function DecisionMakerProfiles() {
                               <p className="text-xs text-gray-500">{employee.company}</p>
                             </div>
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              employee.matchScore >= 90 ? 'bg-green-100 text-green-800' :
-                              employee.matchScore >= 80 ? 'bg-blue-100 text-blue-800' :
+                              employee.match_score >= 90 ? 'bg-green-100 text-green-800' :
+                              employee.match_score >= 80 ? 'bg-blue-100 text-blue-800' :
                               'bg-yellow-100 text-yellow-800'
                             }`}>
-                              {employee.matchScore}% match
+                              {employee.match_score}% match
                             </span>
                           </div>
                         </div>
@@ -670,7 +610,7 @@ export default function DecisionMakerProfiles() {
                 <div className="flex items-start justify-between mb-6">
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900">{selectedPersona.title}</h2>
-                    <p className="text-gray-600 mt-1">Rank #{selectedPersona.rank} • {selectedPersona.matchScore}% Match</p>
+                    <p className="text-gray-600 mt-1">Rank #{selectedPersona.rank} • {selectedPersona.match_score}% Match</p>
                   </div>
                   <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl ${getRankColor(selectedPersona.rank)}`}>
                     #{selectedPersona.rank}
@@ -685,15 +625,15 @@ export default function DecisionMakerProfiles() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-blue-700">Total Decision Makers:</span>
-                            <span className="font-semibold text-blue-900">{selectedPersona.marketPotential.totalDecisionMakers.toLocaleString()}</span>
+                            <span className="font-semibold text-blue-900">{String(selectedPersona.market_potential.total_decision_makers || 'N/A')}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-blue-700">Avg Influence:</span>
-                            <span className="font-semibold text-blue-900">{selectedPersona.marketPotential.avgInfluence}%</span>
+                            <span className="font-semibold text-blue-900">{String(selectedPersona.market_potential.avg_influence || 'N/A')}%</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-blue-700">Conversion Rate:</span>
-                            <span className="font-semibold text-blue-900">{selectedPersona.marketPotential.conversionRate}</span>
+                            <span className="font-semibold text-blue-900">{String(selectedPersona.market_potential.conversion_rate || 'N/A')}</span>
                           </div>
                         </div>
                       </div>
@@ -702,16 +642,16 @@ export default function DecisionMakerProfiles() {
                         <h4 className="font-semibold text-green-900 mb-2">Demographics</h4>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-green-700">Level:</span>
-                            <span className="font-semibold text-green-900 capitalize">{selectedPersona.level}</span>
+                            <span className="text-green-700">Experience:</span>
+                            <span className="font-semibold text-green-900">{String(selectedPersona.demographics.experience || 'N/A')}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-green-700">Department:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.department}</span>
+                            <span className="text-green-700">Rank:</span>
+                            <span className="font-semibold text-green-900">#{selectedPersona.rank}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-green-700">Influence:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.influence}%</span>
+                            <span className="text-green-700">Match Score:</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.match_score}%</span>
                           </div>
                         </div>
                       </div>
@@ -721,19 +661,24 @@ export default function DecisionMakerProfiles() {
                       <div>
                         <h4 className="font-semibold text-gray-900 mb-3">Key Responsibilities</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.keyResponsibilities.map((responsibility, index) => (
-                            <div key={index} className="flex items-start space-x-2">
-                              <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                              <span className="text-gray-700 text-sm">{responsibility}</span>
-                            </div>
-                          ))}
+                          {Array.isArray(selectedPersona.characteristics.key_responsibilities) && 
+                            (selectedPersona.characteristics.key_responsibilities as string[]).map((responsibility: string, index: number) => (
+                              <div key={index} className="flex items-start space-x-2">
+                                <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
+                                <span className="text-gray-700 text-sm">{responsibility}</span>
+                              </div>
+                            ))
+                          }
+                          {!Array.isArray(selectedPersona.characteristics.key_responsibilities) && (
+                            <p className="text-gray-500 text-sm italic">Responsibilities data being processed...</p>
+                          )}
                         </div>
                       </div>
 
                       <div>
                         <h4 className="font-semibold text-gray-900 mb-3">Top Pain Points</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.painPoints.map((point, index) => (
+                          {selectedPersona.characteristics.pain_points.map((point, index) => (
                             <div key={index} className="flex items-start space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
                               <span className="text-gray-700 text-sm">{point}</span>
@@ -751,7 +696,7 @@ export default function DecisionMakerProfiles() {
                       <div className="bg-red-50 rounded-xl p-4 border border-red-200">
                         <h4 className="font-semibold text-red-900 mb-3">Pain Points</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.painPoints.map((point, index) => (
+                          {selectedPersona.characteristics.pain_points.map((point, index) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                               <span className="text-red-800 text-sm">{point}</span>
@@ -775,7 +720,7 @@ export default function DecisionMakerProfiles() {
                       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
                         <h4 className="font-semibold text-blue-900 mb-3">Decision Factors</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.decisionFactors.map((factor, index) => (
+                          {selectedPersona.characteristics.decision_factors.map((factor, index) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                               <span className="text-blue-800 text-sm">{factor}</span>
@@ -787,7 +732,7 @@ export default function DecisionMakerProfiles() {
                       <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
                         <h4 className="font-semibold text-purple-900 mb-3">Key Responsibilities</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.keyResponsibilities.slice(0, 4).map((responsibility, index) => (
+                          {selectedPersona.characteristics.key_responsibilities.slice(0, 4).map((responsibility, index) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
                               <span className="text-purple-800 text-sm">{responsibility}</span>
@@ -805,24 +750,24 @@ export default function DecisionMakerProfiles() {
                       <div className="space-y-4">
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Communication Style</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.communicationStyle}</p>
+                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.communication_style}</p>
                         </div>
 
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Decision Timeline</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.decisionTimeline}</p>
+                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.decision_timeline}</p>
                         </div>
                       </div>
 
                       <div className="space-y-4">
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Preferred Approach</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.preferredApproach}</p>
+                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.preferred_approach}</p>
                         </div>
 
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Buying Influence</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.buyingInfluence}</p>
+                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.buying_influence}</p>
                         </div>
                       </div>
                     </div>

@@ -38,11 +38,6 @@ interface StoreDMPersonasToolInput {
   personas: DMPersona[];
 }
 
-interface StoreDMPersonasToolOutput {
-  success: boolean;
-  message?: string;
-}
-
 const storeDMPersonasTool = tool({
   name: 'storeDMPersonas',
   description: 'Persist exactly 5 decision-maker personas for a search.',
@@ -120,10 +115,9 @@ const storeDMPersonasTool = tool({
     required: ['search_id', 'user_id', 'personas'],
     additionalProperties: false
   } as const,
-  execute: async (input: StoreDMPersonasToolInput) => {
-    // Runtime guard (defensive): ensures payload is usable even if model drifts
-    const { search_id, user_id, personas } = input;
-
+  strict: true,
+  execute: async (input: unknown) => {
+    const { search_id, user_id, personas } = input as StoreDMPersonasToolInput;
     if (!Array.isArray(personas) || personas.length !== 5) {
       throw new Error('Expected exactly 5 personas.');
     }
@@ -132,17 +126,17 @@ const storeDMPersonasTool = tool({
         if (!(k in p)) throw new Error(`persona missing key: ${k}`);
       }
     }
-
-    const rows = personas.slice(0,5).map((p:DMPersona)=>({
-      search_id, 
-      user_id, 
-      title:p.title, 
-      rank:p.rank, 
-      match_score:p.match_score,
-      demographics:p.demographics||{}, 
-      characteristics:p.characteristics||{},
-      behaviors:p.behaviors||{}, 
-      market_potential:p.market_potential||{}
+    const rows = personas.slice(0,5).map((p: DMPersona, idx: number) => ({
+      id: `${search_id}-dm-${idx+1}`,
+      search_id,
+      user_id,
+      title: p.title,
+      rank: p.rank,
+      match_score: p.match_score,
+      demographics: p.demographics || {},
+      characteristics: p.characteristics || {},
+      behaviors: p.behaviors || {},
+      market_potential: p.market_potential || {}
     }));
     return await insertDMPersonas(rows);
   }
@@ -205,9 +199,7 @@ export async function runDMPersonas(search: {
 }) {
   try {
     await updateSearchProgress(search.id, 10, 'dm_personas', 'in_progress');
-    let attempt = 0;
     let personas: DMPersona[] = [];
-    const maxRetries = 3;
     const improvedPrompt = `Generate 5 decision-maker personas for:
 - search_id=${search.id}
 - user_id=${search.user_id}
@@ -232,7 +224,8 @@ CRITICAL: Each persona must have:
       const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
       if (Array.isArray(json) && json.length === 5 && json.every(isRealisticDMPersona)) {
         personas = json;
-        const rows = personas.slice(0, 5).map((p: DMPersona) => ({
+        const rows = personas.slice(0, 5).map((p: DMPersona, idx: number) => ({
+          id: `${search.id}-dm-gemini-${idx+1}`,
           search_id: search.id,
           user_id: search.user_id,
           title: p.title,
@@ -243,16 +236,10 @@ CRITICAL: Each persona must have:
           behaviors: p.behaviors || {},
           market_potential: p.market_potential || {}
         }));
+        if (!rows.every(isRealisticDMPersona)) {
+          throw new Error('One or more personas failed strict validation.');
+        }
         await insertDMPersonas(rows);
-        // await logApiUsage({ // This line was not in the new_code, so it's removed.
-        //   user_id: search.user_id,
-        //   search_id: search.id,
-        //   provider: 'gemini',
-        //   endpoint: 'dm_personas',
-        //   status: 200,
-        //   request: { model: 'gemini-1.5-pro' },
-        //   response: { personas_generated: 5 }
-        // });
         await updateSearchProgress(search.id, 20, 'dm_personas_completed');
         console.log(`Completed DM persona generation for search ${search.id} (Gemini)`);
         return;
@@ -260,38 +247,92 @@ CRITICAL: Each persona must have:
     } catch (geminiError: any) {
       console.warn(`[DMPersona] Gemini failed:`, (geminiError as any).message);
     }
-    // Fallback to OpenAI (existing logic)
-    while (attempt < maxRetries) {
-      attempt++;
-      try {
-        console.log(`[DMPersona] Attempt ${attempt} for search ${search.id} (OpenAI fallback)`);
-        await run(DMPersonaAgent, [{ role: 'user', content: improvedPrompt }]);
-        break;
-      } catch (error: any) {
-        console.warn(`[DMPersona] Attempt ${attempt} failed:`, error.message);
-        if (attempt >= maxRetries) {
-          throw error;
+    // Try GPT-4 next
+    try {
+      const { OpenAI } = await import('openai');
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: improvedPrompt }],
+        max_tokens: 2048,
+        temperature: 0.7
+      });
+      const text = completion.choices[0]?.message?.content?.trim() || '';
+      const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
+      if (Array.isArray(json) && json.length === 5 && json.every(isRealisticDMPersona)) {
+        personas = json;
+        const rows = personas.slice(0, 5).map((p: DMPersona, idx: number) => ({
+          id: `${search.id}-dm-gpt4-${idx+1}`,
+          search_id: search.id,
+          user_id: search.user_id,
+          title: p.title,
+          rank: p.rank,
+          match_score: p.match_score,
+          demographics: p.demographics || {},
+          characteristics: p.characteristics || {},
+          behaviors: p.behaviors || {},
+          market_potential: p.market_potential || {}
+        }));
+        if (!rows.every(isRealisticDMPersona)) {
+          throw new Error('One or more personas failed strict validation.');
         }
+        await insertDMPersonas(rows);
+        await updateSearchProgress(search.id, 20, 'dm_personas_completed');
+        console.log(`Completed DM persona generation for search ${search.id} (GPT-4)`);
+        return;
       }
+    } catch (gptError: any) {
+      console.warn(`[DMPersona] GPT-4 failed:`, (gptError as any).message);
     }
-    if (!personas.length) {
-      console.error(`[DMPersona] All attempts failed for search ${search.id}. Inserting placeholder persona.`);
-      const placeholder = [{
-        search_id: search.id,
-        user_id: search.user_id,
-        title: 'Persona Generation Failed',
-        rank: 1,
-        match_score: 0,
-        demographics: { level: 'N/A', department: 'N/A', experience: 'N/A', geography: 'N/A' },
-        characteristics: { responsibilities: ['N/A'], painPoints: ['N/A'], motivations: ['N/A'], challenges: ['N/A'], decisionFactors: ['N/A'] },
-        behaviors: { decisionMaking: 'N/A', communicationStyle: 'N/A', buyingProcess: 'N/A', preferredChannels: ['N/A'] },
-        market_potential: { totalDecisionMakers: 0, avgInfluence: 0, conversionRate: 0 }
-      }];
-      await insertDMPersonas(placeholder);
-      await updateSearchProgress(search.id, 20, 'dm_personas_completed');
+    // Try DeepSeek next
+    try {
+      const { deepseek } = await import('./clients');
+      const model = deepseek.getGenerativeModel({ model: 'deepseek-coder' });
+      const res = await model.generateContent([{ text: improvedPrompt }]);
+      const text = res.response.text().trim();
+      const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
+      if (Array.isArray(json) && json.length === 5 && json.every(isRealisticDMPersona)) {
+        personas = json;
+        const rows = personas.slice(0, 5).map((p: DMPersona, idx: number) => ({
+          id: `${search.id}-dm-deepseek-${idx+1}`,
+          search_id: search.id,
+          user_id: search.user_id,
+          title: p.title,
+          rank: p.rank,
+          match_score: p.match_score,
+          demographics: p.demographics || {},
+          characteristics: p.characteristics || {},
+          behaviors: p.behaviors || {},
+          market_potential: p.market_potential || {}
+        }));
+        if (!rows.every(isRealisticDMPersona)) {
+          throw new Error('One or more personas failed strict validation.');
+        }
+        await insertDMPersonas(rows);
+        await updateSearchProgress(search.id, 20, 'dm_personas_completed');
+        console.log(`Completed DM persona generation for search ${search.id} (DeepSeek)`);
+        return;
+      }
+    } catch (deepseekError: any) {
+      console.warn(`[DMPersona] DeepSeek failed:`, (deepseekError as any).message);
     }
+    // All LLMs failed, insert placeholder
+    console.error(`[DMPersona] All LLMs failed for search ${search.id}. Inserting placeholder persona.`);
+    const placeholder = [{
+      id: `${search.id}-dm-placeholder-1`,
+      search_id: search.id,
+      user_id: search.user_id,
+      title: 'Persona Generation Failed',
+      rank: 1,
+      match_score: 0,
+      demographics: { level: 'N/A', department: 'N/A', experience: 'N/A', geography: 'N/A' },
+      characteristics: { responsibilities: ['N/A'], painPoints: ['N/A'], motivations: ['N/A'], challenges: ['N/A'], decisionFactors: ['N/A'] },
+      behaviors: { decisionMaking: 'N/A', communicationStyle: 'N/A', buyingProcess: 'N/A', preferredChannels: ['N/A'] },
+      market_potential: { totalDecisionMakers: 0, avgInfluence: 0, conversionRate: 0 }
+    }];
+    await insertDMPersonas(placeholder);
     await updateSearchProgress(search.id, 20, 'dm_personas_completed');
-    console.log(`Completed DM persona generation for search ${search.id}`);
+    console.log(`Inserted placeholder persona for search ${search.id}`);
   } catch (error) {
     console.error(`DM persona generation failed for search ${search.id}:`, error);
     throw error;

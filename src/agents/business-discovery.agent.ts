@@ -6,6 +6,85 @@ import { countryToGL, buildBusinessData } from '../tools/util';
 import { triggerInstantDMDiscovery, processBusinessForDM, initDMDiscoveryProgress } from '../tools/instant-dm-discovery';
 import type { Business } from '../tools/instant-dm-discovery';
 
+// Generate semantic variations of search queries using synonyms and industry jargon
+function generateSemanticQueries(productService: string, industries: string, country: string): string[] {
+  const queries: string[] = [];
+  const productLower = productService.toLowerCase();
+  
+  // Technology/Software variations
+  if (productLower.includes('software') || productLower.includes('app') || productLower.includes('saas') || productLower.includes('tech')) {
+    queries.push(`technology solutions ${industries} ${country}`);
+    queries.push(`software vendors ${industries}`);
+    queries.push(`digital solutions companies ${country}`);
+    queries.push(`IT services ${industries} ${country}`);
+    if (productLower.includes('saas')) {
+      queries.push(`cloud software companies ${industries}`);
+      queries.push(`subscription software ${country}`);
+    }
+  }
+  
+  // Marketing/Advertising variations
+  if (productLower.includes('marketing') || productLower.includes('advertising') || productLower.includes('campaign') || productLower.includes('digital')) {
+    queries.push(`marketing agencies ${industries} ${country}`);
+    queries.push(`advertising firms ${country}`);
+    queries.push(`digital marketing companies ${industries}`);
+    queries.push(`creative agencies ${country}`);
+  }
+  
+  // Sales/CRM variations
+  if (productLower.includes('sales') || productLower.includes('crm') || productLower.includes('lead') || productLower.includes('customer')) {
+    queries.push(`sales automation companies ${industries}`);
+    queries.push(`customer management solutions ${country}`);
+    queries.push(`lead generation services ${industries}`);
+  }
+  
+  // HR/Human Resources variations
+  if (productLower.includes('hr') || productLower.includes('human') || productLower.includes('employee') || productLower.includes('talent')) {
+    queries.push(`human resources software ${industries}`);
+    queries.push(`workforce management ${country}`);
+    queries.push(`talent acquisition companies ${industries}`);
+    queries.push(`employee management solutions ${country}`);
+  }
+  
+  // Finance/Accounting variations
+  if (productLower.includes('finance') || productLower.includes('accounting') || productLower.includes('invoice') || productLower.includes('payment')) {
+    queries.push(`financial software companies ${industries}`);
+    queries.push(`accounting services ${country}`);
+    queries.push(`payment processing ${industries}`);
+    queries.push(`fintech companies ${country}`);
+  }
+  
+  // Healthcare variations
+  if (productLower.includes('health') || productLower.includes('medical') || productLower.includes('clinic') || productLower.includes('hospital')) {
+    queries.push(`healthcare providers ${country}`);
+    queries.push(`medical services ${industries}`);
+    queries.push(`health technology ${country}`);
+  }
+  
+  // Manufacturing/Industrial variations
+  if (productLower.includes('manufacturing') || productLower.includes('industrial') || productLower.includes('equipment') || productLower.includes('machinery')) {
+    queries.push(`manufacturing companies ${industries} ${country}`);
+    queries.push(`industrial suppliers ${country}`);
+    queries.push(`equipment manufacturers ${industries}`);
+    queries.push(`machinery vendors ${country}`);
+  }
+  
+  // E-commerce/Retail variations
+  if (productLower.includes('ecommerce') || productLower.includes('retail') || productLower.includes('online') || productLower.includes('store')) {
+    queries.push(`retail companies ${industries} ${country}`);
+    queries.push(`ecommerce businesses ${country}`);
+    queries.push(`online retailers ${industries}`);
+  }
+  
+  // General business type variations
+  queries.push(`${industries} businesses ${country}`);
+  queries.push(`${industries} enterprises ${country}`);
+  queries.push(`${industries} organizations ${country}`);
+  
+  // Limit to prevent too many queries
+  return queries.slice(0, 4);
+}
+
 const serperPlacesTool = tool({
   name: 'serperPlaces',
   description: 'Search Serper Places, max 10.',
@@ -181,35 +260,41 @@ const storeBusinessesTool = tool({
     }));
     console.log(`Inserting ${rows.length} businesses for search ${search_id}`);
     const insertedBusinesses = await insertBusinesses(rows);
-    // Increment the running DM discovery total with this batch
-    initDMDiscoveryProgress(search_id, insertedBusinesses.length);
-    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately as it is inserted
+    // Only increment the running DM discovery total with this batch if there are new businesses
+    if (insertedBusinesses.length > 0) {
+      initDMDiscoveryProgress(search_id, insertedBusinesses.length);
+    }
+    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately as it is inserted (fire-and-forget)
     const triggeredBusinessIds = new Set<string>();
-    await Promise.all(
+    void Promise.all(
       insertedBusinesses.map(async (business) => {
-        await processBusinessForDM(search_id, user_id, {
+        const success = await processBusinessForDM(search_id, user_id, {
           ...business,
           country,
           industry
         });
-        triggeredBusinessIds.add(business.id);
+        if (success) {
+          triggeredBusinessIds.add(business.id);
+        }
       })
     );
 
-    // Fallback: trigger batch discovery only for businesses not processed individually
+    // Fallback: trigger batch discovery only for businesses not processed individually (fire-and-forget)
     const pendingBusinesses = insertedBusinesses.filter(b => !triggeredBusinessIds.has(b.id));
     if (pendingBusinesses.length > 0) {
-      setTimeout(async () => {
-        try {
-          console.log(`🎯 (Fallback) Triggering instant DM discovery for ${pendingBusinesses.length} businesses`);
-          await triggerInstantDMDiscovery(
-            search_id,
-            user_id,
-            pendingBusinesses.map(b => ({ ...b, country, industry }))
-          );
-        } catch (error) {
-          console.error('Failed to trigger instant DM discovery:', error);
-        }
+      setTimeout(() => {
+        void (async () => {
+          try {
+            console.log(`🎯 (Fallback) Triggering instant DM discovery for ${pendingBusinesses.length} businesses`);
+            await triggerInstantDMDiscovery(
+              search_id,
+              user_id,
+              pendingBusinesses.map(b => ({ ...b, country, industry }))
+            );
+          } catch (error) {
+            console.error('Failed to trigger instant DM discovery:', error);
+          }
+        })();
       }, 1000); // Small delay to ensure businesses are stored
     }
     return insertedBusinesses;
@@ -294,13 +379,18 @@ export async function runBusinessDiscovery(search: {
     const countrySearches = search.countries.map(country => {
       const gl = countryToGL(country);
       
-      // Create multiple search patterns for better coverage
-      const queries = [
+      // Create rich semantic search patterns with synonyms and industry jargon
+      const baseQueries = [
         `${search.product_service} companies ${industries} ${country}`,
         `${search.product_service} suppliers ${industries}`,
         `${industries} companies ${search.product_service}`,
         `${search.product_service} manufacturers ${country}`
       ];
+
+      // Add semantic variations based on product/service type
+      const semanticQueries = generateSemanticQueries(search.product_service, industries, country);
+      
+      const queries = [...baseQueries, ...semanticQueries];
       
       return queries.map(query => 
         `  * serperPlaces(q="${query}", gl="${gl}", limit=10, search_id="${search.id}", user_id="${search.user_id}")`

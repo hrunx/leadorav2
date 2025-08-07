@@ -30,7 +30,7 @@ export const loadBusinessPersonas = async (search_id: string) => {
 
 export const loadDMPersonas = async (search_id: string) => {
   const supa = getSupabaseClient();
-  const { data, error } = await supa.from('decision_maker_personas').select('id,title,rank').eq('search_id', search_id).order('rank',{ascending:true});
+  const { data, error } = await supa.from('decision_maker_personas').select('id,title,rank,match_score,demographics,characteristics,behaviors,market_potential,search_id,user_id').eq('search_id', search_id).order('rank',{ascending:true});
   if (error) throw error; 
   return data||[];
 };
