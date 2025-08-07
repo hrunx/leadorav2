@@ -1,10 +1,9 @@
-import { Agent, tool, run } from '@openai/agents';
+import { Agent, tool } from '@openai/agents';
 import { serperSearch } from '../tools/serper';
 import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
-import { buildDMData, mapDMToPersona } from '../tools/util';
+import { mapDMToPersona } from '../tools/util';
 import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
-import { fetchContactEnrichment } from '../tools/contact-enrichment';
 
 interface Employee {
   name: string;

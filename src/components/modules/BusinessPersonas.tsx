@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Target, Users, Building, ArrowRight, CheckCircle, Star, TrendingUp, DollarSign, ChevronDown, ChevronUp, Eye, Search, Plus } from 'lucide-react';
+import { Target, Users, Building, ArrowRight, Star, TrendingUp, DollarSign, ChevronDown, ChevronUp, Eye, Search, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
-import { useDemoMode } from '../../hooks/useDemoMode';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
-
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
 
 interface PersonaData {
   id: string;
@@ -127,103 +124,7 @@ export default function BusinessPersonas() {
     }
   }, [realTimeData, currentSearch, isDemo]);
 
-  const loadPersonas = async () => {
-    setIsLoading(true);
-    try {
-      const currentSearch = getCurrentSearch();
-      const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
-      
-      // For demo users, use static data
-      if (isDemo) {
-        setPersonas(getStaticPersonas());
-        setHasSearch(true);
-      } else if (!currentSearch) {
-        // Real user with no search - show empty state
-        setPersonas([]);
-        setHasSearch(false);
-      } else {
-        // Real user with search - load from database
-        const dbPersonas = await SearchService.getBusinessPersonas(currentSearch.id);
-        
-        if (dbPersonas.length === 0) {
-          // For existing searches, just show no data available
-          // Don't generate new personas when viewing historical searches
-          console.log(`No business personas found for search ${currentSearch.id}`);
-        }
-        
-        // Convert database format to component format
-        const formattedPersonas = dbPersonas.map((persona) => ({
-          id: persona.id,
-          title: persona.title,
-          rank: persona.rank,
-          matchScore: persona.match_score,
-          demographics: {
-            industry: persona.demographics?.industry || 'Technology',
-            companySize: persona.demographics?.companySize || '100-1000 employees',
-            geography: persona.demographics?.geography || 'Global',
-            revenue: persona.demographics?.revenue || '$10M-100M'
-          },
-          characteristics: {
-            painPoints: persona.characteristics?.painPoints || [],
-            motivations: persona.characteristics?.motivations || [],
-            challenges: persona.characteristics?.challenges || [],
-            decisionFactors: persona.characteristics?.decisionFactors || []
-          },
-          behaviors: {
-            buyingProcess: persona.behaviors?.buyingProcess || 'Standard evaluation process',
-            decisionTimeline: persona.behaviors?.decisionTimeline || '3-6 months',
-            budgetRange: persona.behaviors?.budgetRange || '$50K-500K',
-            preferredChannels: persona.behaviors?.preferredChannels || []
-          },
-          marketPotential: {
-            totalCompanies: persona.market_potential?.totalCompanies || 1000,
-            avgDealSize: persona.market_potential?.avgDealSize || '$100K',
-            conversionRate: persona.market_potential?.conversionRate || '10%'
-          },
-          locations: persona.locations || [],
-          businesses: [] // Will be loaded separately
-        }));
-        
-        // Load businesses for each persona
-        const personasWithBusinesses = await Promise.all(
-          formattedPersonas.map(async (persona) => {
-            try {
-              // Get businesses for this persona
-              const businesses = await SearchService.getBusinesses(currentSearch.id);
-              // For now, assign all businesses to each persona (can be refined later)
-              const personaBusinesses = businesses.slice(0, 5).map(business => ({
-                id: business.id,
-                name: business.name,
-                country: business.country || 'Unknown',
-                city: business.city || 'Unknown',
-                matchScore: business.match_score || 75
-              }));
-              
-              return {
-                ...persona,
-                businesses: personaBusinesses
-              };
-            } catch (error) {
-              console.error(`Error loading businesses for persona ${persona.id}:`, error);
-              return {
-                ...persona,
-                businesses: []
-              };
-            }
-          })
-        );
-
-        setPersonas(personasWithBusinesses);
-        setHasSearch(true);
-      }
-    } catch (error) {
-      console.error('Error loading personas:', error);
-      setPersonas([]);
-      setHasSearch(false);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Legacy function removed - now using real-time data only
 
   const getStaticPersonas = (): PersonaData[] => [
     {
@@ -837,7 +738,7 @@ export default function BusinessPersonas() {
                 {expandedPersonas.includes(persona.id) && (
                   <div className="px-6 pb-4 bg-gray-50">
                     <div className="space-y-3">
-                      {persona.businesses.map((business, index) => (
+                      {persona.businesses.map((business) => (
                         <div key={business.id} className="bg-white rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">

@@ -293,7 +293,7 @@ export function mapDMToPersona(employee: { title?: string; }, dmPersonas: { titl
     let score = 0;
     
     // Match by persona keywords
-    for (const [, keywords] of Object.entries(roleKeywords)) {
+    for (const [_category, keywords] of Object.entries(roleKeywords)) {
       const titleMatches = keywords.some(keyword => title.includes(keyword));
       const personaMatches = keywords.some(keyword => personaTitle.includes(keyword));
       

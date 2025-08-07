@@ -29,7 +29,7 @@ function calculatePersonaMatchScore(business: any, persona: any): number {
   const businessRevenue = (business.revenue || '').toLowerCase();
   
   const personaTitle = (persona.title || '').toLowerCase();
-  const personaChars = persona.characteristics || {};
+  // const personaChars = persona.characteristics || {}; // Unused for now
   const personaDemos = persona.demographics || {};
   
   // Size-based matching
