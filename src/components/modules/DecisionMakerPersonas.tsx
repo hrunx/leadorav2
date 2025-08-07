@@ -698,7 +698,7 @@ export default function DecisionMakerPersonas() {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900 text-lg">{persona.title}</h3>
-                      <p className="text-gray-600 mt-1">{persona.demographics.level} • {persona.demographics.department}</p>
+                      <p className="text-gray-600 mt-1">{persona.demographics?.level ?? 'N/A'} • {persona.demographics?.department ?? 'General'}</p>
                       <p className="text-sm text-gray-500">{persona.demographics.experience} • {persona.demographics.geography}</p>
                     </div>
                   </div>
@@ -724,7 +724,7 @@ export default function DecisionMakerPersonas() {
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
                     {getLevelIcon(persona.demographics.level)}
-                    <span>{persona.demographics.level}</span>
+                    <span>{persona.demographics?.level ?? 'N/A'}</span>
                   </div>
                 </div>
 
@@ -863,7 +863,7 @@ export default function DecisionMakerPersonas() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-green-700">Level:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.demographics.level}</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.demographics?.level ?? 'N/A'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-green-700">Department:</span>
