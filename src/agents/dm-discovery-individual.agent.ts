@@ -1,6 +1,6 @@
 import { Agent, tool, run } from '@openai/agents';
 import { serperSearch } from '../tools/serper';
-import { insertDecisionMakersBasic, logApiUsage, updateSearchProgress } from '../tools/db.write';
+import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
 import { buildDMData, mapDMToPersona } from '../tools/util';
 import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
@@ -224,6 +224,7 @@ const storeDMsTool = tool({
     } else if (typeof window !== 'undefined' && window.location) {
       enrichUrl = `${window.location.origin}/.netlify/functions/enrich-decision-makers`;
     }
+
     await fetch(enrichUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -237,6 +238,20 @@ const storeDMsTool = tool({
           .then(() => mapDecisionMakersToPersonas(search_id))
           .catch(err => console.error('Deferred DM persona mapping failed:', err));
       }, 10000);
+    }
+
+
+    try {
+      // Fire-and-forget enrichment; log any failures
+      fetch(enrichUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id })
+      }).catch((err) => {
+        console.error('Enrichment request failed:', err);
+      });
+    } catch (err) {
+      console.error('Failed to trigger enrichment:', err);
     }
 
     return inserted;
@@ -284,7 +299,6 @@ export async function runDMDiscoveryForBusiness(params: {
   business_name: string;
   company_country: string;
   industry: string;
-  skipProgressUpdate?: boolean;
 }) {
   // Ensure DM personas are available before running discovery
   await waitForPersonas(params.search_id);
@@ -301,9 +315,6 @@ User ID: ${params.user_id}
 Search LinkedIn for executives and decision makers, then store them with smart persona mapping.`;
 
   const result = await run(DMDiscoveryIndividualAgent, message);
-  if (!params.skipProgressUpdate) {
-    await updateSearchProgress(params.search_id, 100, 'decision_makers');
-  }
   return result;
 }
 
