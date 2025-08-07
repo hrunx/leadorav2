@@ -268,7 +268,7 @@ function inferDepartment(title: string): string {
  * Smart persona mapping for decision makers
  * Maps DM to most relevant persona based on title, department, and seniority
  */
-export function mapDMToPersona(employee: any, dmPersonas: any[]): any | null {
+export function mapDMToPersona(employee: { title?: string; }, dmPersonas: { title?: string; }[]): { title?: string; } | null {
   if (!dmPersonas || dmPersonas.length === 0) return null;
   
   const title = employee.title?.toLowerCase() || '';

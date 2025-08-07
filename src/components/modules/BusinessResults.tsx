@@ -58,10 +58,10 @@ export default function BusinessResults() {
     size: b.size || 'Unknown',
     revenue: b.revenue || 'Unknown',
     description: b.description || `${b.name} operates in the ${b.industry} industry.`,
-    matchScore: b.match_score || 85,
-    relevantDepartments: b.relevant_departments || ['Sales', 'Marketing'],
-    keyProducts: b.key_products || [],
-    recentActivity: b.recent_activity || [],
+    matchScore: b.match_score ?? 0,
+    relevantDepartments: b.relevant_departments ?? [],
+    keyProducts: b.key_products ?? [],
+    recentActivity: b.recent_activity ?? [],
     personaType: b.persona_type || 'General',
     address: b.address,
     phone: b.phone,
@@ -217,7 +217,7 @@ export default function BusinessResults() {
         // Real user with search - always mark hasSearch as true since a search exists
         setHasSearch(true);
         
-        let dbBusinesses = await SearchService.getBusinesses(currentSearch.id);
+        const dbBusinesses = await SearchService.getBusinesses(currentSearch.id);
         
         if (dbBusinesses.length === 0) {
           // Check if search is recent (less than 5 minutes old) - might still be processing

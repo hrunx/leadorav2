@@ -57,11 +57,34 @@ export function useProfile() {
           return;
         }
 
-        const { data, error } = await supabase
-          .from('app_users')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+        let data, error;
+        try {
+          const result = await supabase
+            .from('app_users')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+          data = result.data;
+          error = result.error;
+        } catch (err: any) {
+          if (err.message?.includes('Load failed') || err.message?.includes('access control')) {
+            try {
+              const response = await fetch(`/.netlify/functions/user-data-proxy?table=app_users&id=${user.id}`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+              const arr = await response.json();
+              data = arr && arr.length > 0 ? arr[0] : null;
+              error = null;
+            } catch (proxyError) {
+              data = null;
+              error = proxyError;
+            }
+          } else {
+            throw err;
+          }
+        }
 
         if (error) {
           // If user doesn't exist in app_users, this might be a new signup

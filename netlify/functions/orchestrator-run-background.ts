@@ -1,4 +1,4 @@
-import type { Handler } from '@netlify/functions';
+import { Handler } from '@netlify/functions';
 
 // small utilities here instead of deep import chains to avoid cold-start bloat
 import { createClient } from '@supabase/supabase-js';
@@ -89,12 +89,11 @@ export const handler: Handler = async (event) => {
     await updateProgress(search_id, 'starting', 0);
 
     // Load orchestrator parts dynamically to reduce cold-start/bundle issues
-    const [{ execBusinessPersonas }, { execDMPersonas }, { execBusinessDiscovery }, { execDMDiscovery }, { execMarketResearchParallel }] =
+    const [{ execBusinessPersonas }, { execDMPersonas }, { execBusinessDiscovery }, { execMarketResearchParallel }] =
       await Promise.all([
         import('../../src/orchestration/exec-business-personas'),
         import('../../src/orchestration/exec-dm-personas'),
         import('../../src/orchestration/exec-business-discovery'),
-        import('../../src/orchestration/exec-dm-discovery'),
         import('../../src/orchestration/exec-market-research-parallel'),
       ]);
 
@@ -132,7 +131,6 @@ export const handler: Handler = async (event) => {
     const businessResult = await businessDiscoveryPromise;
     if (businessResult) {
       console.log('Business discovery completed successfully');
-      
       // Map businesses to personas now that both are available
       console.log('Mapping businesses to personas...');
       try {
@@ -144,18 +142,6 @@ export const handler: Handler = async (event) => {
       }
     } else {
       console.log('Business discovery failed - proceeding with available data');
-    }
-
-    // Now start decision makers (needs both personas and businesses)
-    await updateProgress(search_id, 'decision_makers', 65);
-    console.log('Starting DM discovery...');
-    
-    // Only start DM discovery if we have businesses
-    if (businessResult) {
-      await retry(() => withTimeout(execDMDiscovery({ search_id, user_id }), 180_000, 'decision_makers'));
-      console.log('DM discovery completed successfully');
-    } else {
-      console.log('Skipping DM discovery - no businesses found');
     }
 
     // PHASE 4: Wait for market research to complete (should be done by now)

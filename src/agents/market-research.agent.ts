@@ -87,6 +87,9 @@ Requirements:
 - Include real competitor analysis based on the businesses discovered
 - Provide actionable insights, not generic advice
 - Use proper formatting: $2.4B, $850M, +15%, etc.
+- If you must infer, state your assumptions in a comment field for each section.
+- Cite all sources for numbers, trends, and competitor data.
+- No generic, placeholder, or default values. All data must be contextually relevant and as real as possible.
 `;
 
   const startTime = Date.now();
@@ -110,20 +113,27 @@ Requirements:
 
       // Try to extract JSON using utility
       const json = extractJson(text);
+      let data: any = {};
       if (!json) {
-        console.error('Failed to parse market research response', {
-          responseSnippet: text.slice(0, 200)
-        });
+        console.error(`[MarketResearch] Gemini returned empty or unparseable output for search ${search.id}. Inserting placeholder insights.`);
+        const placeholder = {
+          search_id: search.id,
+          user_id: search.user_id,
+          tam_data: { value: 'N/A', growth: 'N/A', description: 'No data', calculation: 'No data' },
+          sam_data: { value: 'N/A', growth: 'N/A', description: 'No data', calculation: 'No data' },
+          som_data: { value: 'N/A', growth: 'N/A', description: 'No data', calculation: 'No data' },
+          competitor_data: [],
+          trends: [],
+          opportunities: {},
+          sources: [],
+          analysis_summary: 'Market research failed: no data',
+          research_methodology: 'Gemini returned empty or unparseable output.'
+        };
+        await insertMarketInsights(placeholder);
+        await markSearchCompleted(search.id);
+        return;
       }
-
-      const data = json || {
-        tam_data: {},
-        sam_data: {},
-        som_data: {},
-        competitor_data: [],
-        trends: [],
-        opportunities: {}
-      };
+      data = json;
 
       const row = {
         search_id: search.id,

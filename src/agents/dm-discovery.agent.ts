@@ -2,7 +2,45 @@ import { Agent, tool, run } from '@openai/agents';
 import { serperSearch } from '../tools/serper';
 import { loadBusinesses, loadDMPersonas } from '../tools/db.read';
 import { insertDecisionMakersBasic, updateSearchProgress, logApiUsage } from '../tools/db.write';
-import { countryToGL } from '../tools/util';
+import { countryToGL, mapDMToPersona } from '../tools/util';
+
+interface DMProfile {
+  name: string;
+  title: string;
+  company: string;
+  linkedin: string;
+  location: string;
+  department: string;
+}
+
+interface DecisionMaker {
+  search_id: string;
+  user_id: string;
+  business_id: string;
+  persona_id: string | null;
+  name: string;
+  title: string;
+  level: string;
+  department: string;
+  influence: number;
+  company: string;
+  location: string;
+  match_score: number;
+  email: string;
+  phone: string;
+  linkedin: string;
+  experience: string;
+  communication_preference: string;
+  pain_points: string[];
+  motivations: string[];
+  decision_factors: string[];
+  persona_type: string;
+  company_context: Record<string, any>;
+  personalized_approach: {
+    location: string;
+    department: string;
+  };
+}
 
 const readCompaniesTool = tool({
   name: 'readCompanies',
@@ -13,8 +51,8 @@ const readCompaniesTool = tool({
     required:['search_id'],
     additionalProperties: false
   } as const,
-  execute: async (input: unknown) => {
-    const { search_id } = input as { search_id: string };
+  execute: async (input: { search_id: string }) => {
+    const { search_id } = input;
     return await loadBusinesses(search_id);
   }
 });
@@ -28,8 +66,8 @@ const readDMPersonasTool = tool({
     required:['search_id'],
     additionalProperties: false
   } as const,
-  execute: async (input: unknown) => {
-    const { search_id } = input as { search_id: string };
+  execute: async (input: { search_id: string }) => {
+    const { search_id } = input;
     return await loadDMPersonas(search_id);
   }
 });
@@ -51,19 +89,19 @@ const linkedinSearchTool = tool({
     required: ['company_name', 'company_city', 'company_country', 'target_roles', 'gl', 'search_id', 'user_id'],
     additionalProperties: false
   } as const,
-  execute: async (input: unknown) => {
-    const { company_name, company_city, company_country, target_roles, gl, search_id, user_id } = input as {
-      company_name: string;
-      company_city?: string;
-      company_country: string;
-      target_roles: string[];
-      gl: string;
-      search_id: string;
-      user_id: string;
-    };
+  execute: async (input: {
+    company_name: string;
+    company_city?: string;
+    company_country: string;
+    target_roles: string[];
+    gl: string;
+    search_id: string;
+    user_id: string;
+  }) => {
+    const { company_name, company_city, company_country, target_roles, gl, search_id, user_id } = input;
 
     const startTime = Date.now();
-    const allProfiles: any[] = [];
+    const allProfiles: DMProfile[] = [];
 
     try {
       // Strategy 1: Company + Target Roles + Seniority
@@ -223,33 +261,32 @@ const storeDecisionMakersBasicTool = tool({
     required: ['company_profiles', 'search_id', 'user_id'],
     additionalProperties: false
   } as const,
-  execute: async (input: unknown) => {
-    const { company_profiles, search_id, user_id } = input as { 
-      company_profiles: Array<{
-        business_id: string;
+  execute: async (input: {
+    company_profiles: Array<{
+      business_id: string;
+      company: string;
+      profiles: Array<{
+        name: string;
+        title: string;
         company: string;
-        profiles: Array<{
-          name: string;
-          title: string;
-          company: string;
-          linkedin?: string;
-          location?: string;
-          department?: string;
-        }>;
+        linkedin?: string;
+        location?: string;
+        department?: string;
       }>;
-      search_id: string;
-      user_id: string;
-    };
-    
+    }>;
+    search_id: string;
+    user_id: string;
+  }) => {
+    const { company_profiles, search_id, user_id } = input;
+    // Load DM personas for this search
+    const dmPersonas = await loadDMPersonas(search_id);
     console.log(`Storing basic DM profiles for search ${search_id}: ${company_profiles.length} companies`);
-    
     const allProfiles = company_profiles.flatMap(cp => 
       cp.profiles.map(profile => ({ ...profile, business_id: cp.business_id }))
     );
     console.log(`Total basic profiles to store: ${allProfiles.length}`);
-    
     const rows = allProfiles
-      .slice(0, 50) // Cap at 50 total DMs
+      .slice(0, 50)
       .map(profile => {
         // Generate email from name and company
         const nameParts = profile.name.toLowerCase().split(' ');
@@ -259,12 +296,13 @@ const storeDecisionMakersBasicTool = tool({
           .replace(/[^a-z0-9]/g, '')
           .replace(/(inc|corp|llc|ltd|company|co)$/, '') + '.com';
         const email = `${firstName}.${lastName}@${companyDomain}`;
-        
+        // Map to persona
+        const persona = mapDMToPersona(profile, dmPersonas);
         return {
           search_id,
           user_id,
-          business_id: profile.business_id, // Link to the business record
-          persona_id: null, // Will be mapped later
+          business_id: profile.business_id,
+          persona_id: persona?.id || (dmPersonas[0]?.id ?? null),
           name: profile.name,
           title: profile.title,
           level: inferLevel(profile.title),
@@ -272,7 +310,7 @@ const storeDecisionMakersBasicTool = tool({
           influence: inferInfluence(profile.title),
           company: profile.company,
           location: profile.location || '',
-          match_score: 75, // Basic score, will be enhanced later
+          match_score: 75,
           email: email,
           phone: '',
           linkedin: profile.linkedin || '',
@@ -289,8 +327,7 @@ const storeDecisionMakersBasicTool = tool({
           }
         };
       })
-      .filter(dm => dm.name && dm.title); // Only include with valid name and title
-    
+      .filter(dm => dm.name && dm.title && dm.persona_id); // Only include with valid name, title, and persona_id
     console.log(`Inserting ${rows.length} basic decision makers for search ${search_id}`);
     return await insertDecisionMakersBasic(rows);
   }

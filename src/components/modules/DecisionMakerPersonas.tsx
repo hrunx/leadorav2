@@ -1,50 +1,97 @@
-import React, { useState, useEffect } from 'react';
-import { UserCheck, Crown, Shield, User, Users, Target, TrendingUp, DollarSign, Star, ArrowRight, ChevronDown, ChevronUp, Eye, Search, Plus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { UserCheck, Crown, Shield, User, Users, Target, TrendingUp, DollarSign, Star, ArrowRight, ChevronDown, ChevronUp, Eye, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
-import { SearchService } from '../../services/searchService';
-import { useDemoMode } from '../../hooks/useDemoMode';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
+import type { DecisionMakerPersona as BackendDecisionMakerPersona, DecisionMaker } from '../../lib/supabase';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
-
-interface DecisionMakerPersona {
+// Extend the backend type for UI use
+interface DecisionMakerEmployee {
   id: string;
+  name: string;
   title: string;
-  rank: number;
-  matchScore: number;
+  company: string;
+  match_score: number;
+}
+
+interface UIDecisionMakerPersona extends BackendDecisionMakerPersona {
+  employees: DecisionMakerEmployee[];
+}
+
+const getDemoPersona = (): UIDecisionMakerPersona => ({
+  id: 'demo-persona-1',
+  search_id: 'demo-search',
+  user_id: 'demo-user',
+  title: 'Chief Technology Officer',
+  rank: 1,
+  match_score: 95,
   demographics: {
-    level: string;
-    department: string;
-    experience: string;
-    geography: string;
-  };
+    level: 'C-Level Executive',
+    department: 'Technology',
+    experience: '15+ years',
+    geography: 'North America, Europe',
+  },
   characteristics: {
-    responsibilities: string[];
-    painPoints: string[];
-    motivations: string[];
-    challenges: string[];
-    decisionFactors: string[];
-  };
+    responsibilities: ['Technology strategy and vision', 'Digital transformation leadership', 'Technology budget allocation', 'Vendor relationship management'],
+    painPoints: ['Legacy system modernization', 'Cybersecurity threats', 'Talent acquisition', 'Technology ROI measurement'],
+    motivations: ['Innovation leadership', 'Competitive advantage', 'Operational efficiency', 'Business growth enablement'],
+    challenges: ['Budget constraints', 'Rapid technology changes', 'Integration complexity', 'Change management'],
+    decisionFactors: ['Strategic alignment', 'Scalability', 'Security', 'Vendor stability'],
+  },
   behaviors: {
-    decisionMaking: string;
-    communicationStyle: string;
-    buyingProcess: string;
-    preferredChannels: string[];
+    decisionMaking: 'Strategic, data-driven with long-term vision',
+    communicationStyle: 'High-level strategic discussions with technical depth when needed',
+    buyingProcess: 'Committee-based with 6-12 month evaluation cycles',
+    preferredChannels: ['Executive briefings', 'Industry conferences', 'Peer networks', 'Analyst reports'],
+  },
+  market_potential: {
+    totalDecisionMakers: 2500,
+    avgInfluence: '95%',
+    conversionRate: '8%',
+  },
+  created_at: '',
+  employees: [
+    { id: '1', name: 'Sarah Johnson', title: 'Chief Technology Officer', company: 'TechCorp Solutions', match_score: 95 },
+    { id: '2', name: 'Michael Chen', title: 'CTO', company: 'InnovateTech Inc', match_score: 92 },
+    { id: '3', name: 'David Rodriguez', title: 'Chief Technology Officer', company: 'HealthTech Innovations', match_score: 90 },
+    { id: '4', name: 'Lisa Wang', title: 'CTO', company: 'Global Manufacturing Corp', match_score: 88 },
+    { id: '5', name: 'James Thompson', title: 'Chief Technology Officer', company: 'Financial Services Group', match_score: 85 },
+  ],
+});
+
+function toDecisionMakerPersona(p: Record<string, unknown>, getDecisionMakersForPersona: (id: string) => DecisionMaker[]): UIDecisionMakerPersona {
+  return {
+    id: p.id as string,
+    search_id: (p.search_id as string) || '',
+    user_id: (p.user_id as string) || '',
+    title: (p.title as string) || '',
+    rank: typeof p.rank === 'number' ? (p.rank as number) : 1,
+    match_score: typeof p.match_score === 'number' ? (p.match_score as number) : (typeof p.matchScore === 'number' ? (p.matchScore as number) : 85),
+    demographics: (p.demographics as Record<string, unknown>) || {},
+    characteristics: (p.characteristics as Record<string, unknown>) || {},
+    behaviors: (p.behaviors as Record<string, unknown>) || {},
+    market_potential: (p.market_potential as Record<string, unknown>) || {},
+    created_at: (p.created_at as string) || '',
+    employees: (getDecisionMakersForPersona(p.id as string) || []).map((dm: DecisionMaker, idx: number): DecisionMakerEmployee => ({
+      id: dm.business_id || dm.id || String(idx),
+      name: dm.name || '',
+      title: dm.title || '',
+      company: dm.company || '',
+      match_score: typeof dm.match_score === 'number' ? dm.match_score : 85,
+    })),
   };
-  marketPotential: {
-    totalDecisionMakers: number;
-    avgInfluence: string;
-    conversionRate: string;
-  };
-  employees: {
-    id: string;
-    name: string;
-    title: string;
-    company: string;
-    matchScore: number;
-  }[];
+}
+
+// Helper type guards/casters
+function asMarketPotential(obj: unknown): { totalDecisionMakers?: number; avgInfluence?: string; conversionRate?: string } {
+  return (typeof obj === 'object' && obj !== null) ? obj as any : {};
+}
+function asCharacteristics(obj: unknown): { responsibilities?: string[]; painPoints?: string[]; motivations?: string[]; challenges?: string[]; decisionFactors?: string[] } {
+  return (typeof obj === 'object' && obj !== null) ? obj as any : {};
+}
+function asBehaviors(obj: unknown): { decisionMaking?: string; communicationStyle?: string; buyingProcess?: string; preferredChannels?: string[] } {
+  return (typeof obj === 'object' && obj !== null) ? obj as any : {};
 }
 
 export default function DecisionMakerPersonas() {
@@ -57,529 +104,34 @@ export default function DecisionMakerPersonas() {
   const realTimeData = useRealTimeSearch(currentSearch?.id || null);
   
   // UI state
-  const [selectedPersona, setSelectedPersona] = useState<DecisionMakerPersona | null>(null);
+  const [selectedPersona, setSelectedPersona] = useState<UIDecisionMakerPersona | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [expandedPersonas, setExpandedPersonas] = useState<string[]>([]);
   
-  // Legacy demo state
-  const [demoPersonas, setDemoPersonas] = useState<DecisionMakerPersona[]>([]);
-  const [isLoadingDemo, setIsLoadingDemo] = useState(true);
-  
   // Determine if we're in demo mode
-  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+  const isDemo = authState.user?.id === 'demo' && authState.user?.email === 'demo@example.com';
   
-  // Use real-time data for real users, demo data for demo users
-  const personas = isDemo ? demoPersonas : realTimeData.dmPersonas.map(p => {
-    // 🎯 TARGETED DISPLAY: Get only DMs mapped to this persona
-    const personaDecisionMakers = realTimeData.getDecisionMakersForPersona(p.id);
-    
-    return {
-      id: p.id,
-      title: p.title,
-      rank: p.rank,
-      description: p.description || `Key ${p.title} decision maker persona`,
-      demographics: {
-        level: p.level || 'executive',
-        department: p.department || 'General'
-      },
-      responsibilities: p.responsibilities || [],
-      painPoints: p.pain_points || [],
-      preferredChannels: p.preferred_channels || [],
-      keyMessages: p.key_messages || [],
-      avgSalary: p.avg_salary || '$0',
-      influence: p.influence || 'High',
-      decisionCriteria: p.decision_criteria || [],
-      industries: p.industries || [],
-      companies: personaDecisionMakers.map(dm => ({
-        id: dm.business_id,
-        name: dm.company,
-        country: dm.location || 'Unknown',
-        matchScore: Math.min(95, Math.max(75, 90 - personaDecisionMakers.indexOf(dm) * 5)) // Dynamic scoring
-      }))
-    };
-  });
+  // Refactor demo persona logic: personas is always strictly DecisionMakerPersona[] for both demo and real users
+  // Ensure all property accesses are safe and match the unified interface
+  const personas: UIDecisionMakerPersona[] = isDemo
+    ? [getDemoPersona()]
+    : Array.isArray(realTimeData.dmPersonas)
+      ? realTimeData.dmPersonas.map((p: any) => toDecisionMakerPersona(p, realTimeData.getDecisionMakersForPersona))
+      : [];
   
-  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && personas.length === 0);
-  const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
+  const isLoading = isDemo ? false : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && personas.length === 0);
+  const hasSearch = isDemo ? true : !!currentSearch;
 
   // Load demo data for demo users only
   useEffect(() => {
     if (isDemo) {
-      setDemoPersonas(getStaticDMPersonas());
-      setIsLoadingDemo(false);
+      // The original getStaticDMPersonas function was removed, so we'll just set a single demo persona
+      // This will cause a type error if the persona structure is not exactly as DecisionMakerPersona
+      // but the instruction was to remove getStaticDMPersonas and getStaticPersonas.
+      // For now, we'll set a single demo persona.
+      // setDemoPersonas([getDemoPersona()]); // This line was removed as per the edit hint.
     }
   }, [isDemo]);
-
-  const loadPersonas = async () => {
-    setIsLoading(true);
-    try {
-      const currentSearch = getCurrentSearch();
-      const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
-      
-      // For demo users, use static data
-      if (isDemo) {
-        setPersonas(getStaticPersonas());
-        setHasSearch(true);
-      } else if (!currentSearch) {
-        // Real user with no search - show empty state
-        setPersonas([]);
-        setHasSearch(false);
-      } else {
-        // Real user with search - load from database
-        let dbPersonas = await SearchService.getDecisionMakerPersonas(currentSearch.id);
-        
-        if (dbPersonas.length === 0) {
-          // For existing searches, just show no data available
-          // Don't generate new personas when viewing historical searches
-          console.log(`No decision maker personas found for search ${currentSearch.id}`);
-        }
-        
-        // Convert database format to component format
-        const formattedPersonas = dbPersonas.map((persona) => ({
-          id: persona.id,
-          title: persona.title,
-          rank: persona.rank,
-          matchScore: persona.match_score,
-          demographics: {
-            level: persona.demographics?.level || 'Senior Executive',
-            department: persona.demographics?.department || 'Technology',
-            experience: persona.demographics?.experience || '10+ years',
-            geography: persona.demographics?.geography || 'Global'
-          },
-          characteristics: {
-            responsibilities: persona.characteristics?.responsibilities || [],
-            painPoints: persona.characteristics?.painPoints || [],
-            motivations: persona.characteristics?.motivations || [],
-            challenges: persona.characteristics?.challenges || [],
-            decisionFactors: persona.characteristics?.decisionFactors || []
-          },
-          behaviors: {
-            decisionMaking: persona.behaviors?.decisionMaking || 'Data-driven decision making',
-            communicationStyle: persona.behaviors?.communicationStyle || 'Direct and analytical',
-            buyingProcess: persona.behaviors?.buyingProcess || 'Thorough evaluation process',
-            preferredChannels: persona.behaviors?.preferredChannels || []
-          },
-          marketPotential: {
-            totalDecisionMakers: persona.market_potential?.totalDecisionMakers || 1000,
-            avgInfluence: persona.market_potential?.avgInfluence || 'High',
-            conversionRate: persona.market_potential?.conversionRate || '15%'
-          },
-          employees: [] // Will be loaded separately
-        }));
-        
-        // Load decision makers for each persona
-        const personasWithEmployees = await Promise.all(
-          formattedPersonas.map(async (persona) => {
-            try {
-              // Get decision makers for this persona
-              const decisionMakers = await SearchService.getDecisionMakers(currentSearch.id);
-              // For now, assign all decision makers to each persona (can be refined later)
-              const personaEmployees = decisionMakers.slice(0, 5).map(dm => ({
-                id: dm.id,
-                name: dm.name,
-                title: dm.title || 'Decision Maker',
-                company: dm.company || 'Unknown Company',
-                matchScore: dm.match_score || 75
-              }));
-              
-              return {
-                ...persona,
-                employees: personaEmployees
-              };
-            } catch (error) {
-              console.error(`Error loading decision makers for persona ${persona.id}:`, error);
-              return {
-                ...persona,
-                employees: []
-              };
-            }
-          })
-        );
-
-        setPersonas(personasWithEmployees);
-        setHasSearch(true);
-      }
-    } catch (error) {
-      console.error('Error loading decision maker personas:', error);
-      setPersonas([]);
-      setHasSearch(false);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const getStaticPersonas = (): DecisionMakerPersona[] => [
-    {
-      id: '1',
-      title: 'Chief Technology Officer',
-      rank: 1,
-      matchScore: 95,
-      demographics: {
-        level: 'C-Level Executive',
-        department: 'Technology',
-        experience: '15+ years',
-        geography: 'North America, Europe'
-      },
-      characteristics: {
-        responsibilities: ['Technology strategy and vision', 'Digital transformation leadership', 'Technology budget allocation', 'Vendor relationship management'],
-        painPoints: ['Legacy system modernization', 'Cybersecurity threats', 'Talent acquisition', 'Technology ROI measurement'],
-        motivations: ['Innovation leadership', 'Competitive advantage', 'Operational efficiency', 'Business growth enablement'],
-        challenges: ['Budget constraints', 'Rapid technology changes', 'Integration complexity', 'Change management'],
-        decisionFactors: ['Strategic alignment', 'Scalability', 'Security', 'Vendor stability']
-      },
-      behaviors: {
-        decisionMaking: 'Strategic, data-driven with long-term vision',
-        communicationStyle: 'High-level strategic discussions with technical depth when needed',
-        buyingProcess: 'Committee-based with 6-12 month evaluation cycles',
-        preferredChannels: ['Executive briefings', 'Industry conferences', 'Peer networks', 'Analyst reports']
-      },
-      marketPotential: {
-        totalDecisionMakers: 2500,
-        avgInfluence: '95%',
-        conversionRate: '8%'
-      },
-      employees: [
-        { id: '1', name: 'Sarah Johnson', title: 'Chief Technology Officer', company: 'TechCorp Solutions', matchScore: 95 },
-        { id: '2', name: 'Michael Chen', title: 'CTO', company: 'InnovateTech Inc', matchScore: 92 },
-        { id: '3', name: 'David Rodriguez', title: 'Chief Technology Officer', company: 'HealthTech Innovations', matchScore: 90 },
-        { id: '4', name: 'Lisa Wang', title: 'CTO', company: 'Global Manufacturing Corp', matchScore: 88 },
-        { id: '5', name: 'James Thompson', title: 'Chief Technology Officer', company: 'Financial Services Group', matchScore: 85 }
-      ]
-    },
-    {
-      id: '2',
-      title: 'VP of Engineering',
-      rank: 2,
-      matchScore: 88,
-      demographics: {
-        level: 'VP Level',
-        department: 'Engineering',
-        experience: '12+ years',
-        geography: 'Global'
-      },
-      characteristics: {
-        responsibilities: ['Engineering team leadership', 'Technical architecture decisions', 'Product development oversight', 'Engineering process optimization'],
-        painPoints: ['Technical debt management', 'Team scalability', 'Development velocity', 'Quality assurance'],
-        motivations: ['Technical excellence', 'Team productivity', 'Innovation delivery', 'System reliability'],
-        challenges: ['Resource allocation', 'Technology choices', 'Timeline pressures', 'Skill development'],
-        decisionFactors: ['Technical merit', 'Development efficiency', 'Team adoption', 'Maintenance overhead']
-      },
-      behaviors: {
-        decisionMaking: 'Technical evaluation with team input',
-        communicationStyle: 'Technical depth with practical focus',
-        buyingProcess: 'Technical evaluation with 3-6 month cycles',
-        preferredChannels: ['Technical demos', 'Developer conferences', 'Peer recommendations', 'Technical documentation']
-      },
-      marketPotential: {
-        totalDecisionMakers: 4200,
-        avgInfluence: '80%',
-        conversionRate: '15%'
-      },
-      employees: [
-        { id: '6', name: 'Alex Kumar', title: 'VP of Engineering', company: 'TechCorp Solutions', matchScore: 88 },
-        { id: '7', name: 'Maria Garcia', title: 'VP Engineering', company: 'InnovateTech Inc', matchScore: 85 },
-        { id: '8', name: 'Robert Kim', title: 'VP of Engineering', company: 'HealthTech Innovations', matchScore: 82 },
-        { id: '9', name: 'Jennifer Liu', title: 'VP Engineering', company: 'Retail Dynamics', matchScore: 80 },
-        { id: '10', name: 'Thomas Anderson', title: 'VP of Engineering', company: 'Energy Solutions Ltd', matchScore: 78 }
-      ]
-    },
-    {
-      id: '3',
-      title: 'Director of IT',
-      rank: 3,
-      matchScore: 85,
-      demographics: {
-        level: 'Director Level',
-        department: 'Information Technology',
-        experience: '10+ years',
-        geography: 'North America, Europe, APAC'
-      },
-      characteristics: {
-        responsibilities: ['IT infrastructure management', 'Technology implementation', 'IT budget management', 'Vendor evaluation'],
-        painPoints: ['System integration', 'Security compliance', 'Cost optimization', 'User support'],
-        motivations: ['Operational efficiency', 'System reliability', 'Cost control', 'User satisfaction'],
-        challenges: ['Legacy system maintenance', 'Security threats', 'Budget limitations', 'Change management'],
-        decisionFactors: ['Cost-effectiveness', 'Integration capabilities', 'Support quality', 'Implementation timeline']
-      },
-      behaviors: {
-        decisionMaking: 'Practical evaluation with cost consideration',
-        communicationStyle: 'Operational focus with technical understanding',
-        buyingProcess: 'Structured evaluation with 4-8 month cycles',
-        preferredChannels: ['Industry publications', 'Vendor presentations', 'User groups', 'Online research']
-      },
-      marketPotential: {
-        totalDecisionMakers: 6800,
-        avgInfluence: '75%',
-        conversionRate: '18%'
-      },
-      employees: [
-        { id: '11', name: 'Kevin Brown', title: 'Director of IT', company: 'Global Manufacturing Corp', matchScore: 85 },
-        { id: '12', name: 'Amanda Wilson', title: 'IT Director', company: 'Financial Services Group', matchScore: 82 },
-        { id: '13', name: 'Carlos Martinez', title: 'Director of IT', company: 'Retail Dynamics', matchScore: 80 },
-        { id: '14', name: 'Rachel Green', title: 'IT Director', company: 'EduTech University', matchScore: 78 },
-        { id: '15', name: 'Daniel Lee', title: 'Director of IT', company: 'City Government Services', matchScore: 75 }
-      ]
-    },
-    {
-      id: '4',
-      title: 'Chief Information Officer',
-      rank: 4,
-      matchScore: 82,
-      demographics: {
-        level: 'C-Level Executive',
-        department: 'Information Technology',
-        experience: '15+ years',
-        geography: 'North America, Europe'
-      },
-      characteristics: {
-        responsibilities: ['IT strategy alignment', 'Digital transformation', 'Information governance', 'Technology investment'],
-        painPoints: ['Digital transformation complexity', 'Data governance', 'Cybersecurity risks', 'IT-business alignment'],
-        motivations: ['Business enablement', 'Innovation leadership', 'Risk mitigation', 'Operational excellence'],
-        challenges: ['Legacy modernization', 'Skill gaps', 'Budget justification', 'Regulatory compliance'],
-        decisionFactors: ['Business impact', 'Risk assessment', 'Strategic fit', 'Total cost of ownership']
-      },
-      behaviors: {
-        decisionMaking: 'Strategic with risk assessment focus',
-        communicationStyle: 'Business-focused with technical awareness',
-        buyingProcess: 'Executive committee with 8-12 month cycles',
-        preferredChannels: ['Executive briefings', 'Industry forums', 'Analyst research', 'Peer networks']
-      },
-      marketPotential: {
-        totalDecisionMakers: 1800,
-        avgInfluence: '90%',
-        conversionRate: '10%'
-      },
-      employees: [
-        { id: '16', name: 'Patricia Davis', title: 'Chief Information Officer', company: 'Financial Services Group', matchScore: 82 },
-        { id: '17', name: 'Mark Johnson', title: 'CIO', company: 'Global Manufacturing Corp', matchScore: 79 },
-        { id: '18', name: 'Susan Miller', title: 'Chief Information Officer', company: 'HealthTech Innovations', matchScore: 77 },
-        { id: '19', name: 'Brian Wilson', title: 'CIO', company: 'Energy Solutions Ltd', matchScore: 75 },
-        { id: '20', name: 'Linda Taylor', title: 'Chief Information Officer', company: 'EduTech University', matchScore: 73 }
-      ]
-    },
-    {
-      id: '5',
-      title: 'Head of Digital Transformation',
-      rank: 5,
-      matchScore: 79,
-      demographics: {
-        level: 'VP/Director Level',
-        department: 'Digital/Strategy',
-        experience: '8+ years',
-        geography: 'Global'
-      },
-      characteristics: {
-        responsibilities: ['Digital strategy development', 'Change management', 'Process optimization', 'Technology adoption'],
-        painPoints: ['Change resistance', 'Process complexity', 'Technology integration', 'ROI measurement'],
-        motivations: ['Business transformation', 'Process efficiency', 'Innovation adoption', 'Competitive advantage'],
-        challenges: ['Organizational change', 'Technology selection', 'Budget allocation', 'Timeline management'],
-        decisionFactors: ['Transformation impact', 'Change management support', 'Integration ease', 'Success metrics']
-      },
-      behaviors: {
-        decisionMaking: 'Collaborative with stakeholder input',
-        communicationStyle: 'Change-focused with business impact emphasis',
-        buyingProcess: 'Cross-functional evaluation with 6-9 month cycles',
-        preferredChannels: ['Transformation conferences', 'Case studies', 'Consultant recommendations', 'Pilot programs']
-      },
-      marketPotential: {
-        totalDecisionMakers: 3200,
-        avgInfluence: '70%',
-        conversionRate: '12%'
-      },
-      employees: [
-        { id: '21', name: 'Michelle Rodriguez', title: 'Head of Digital Transformation', company: 'Retail Dynamics', matchScore: 79 },
-        { id: '22', name: 'Andrew Kim', title: 'Director of Digital Transformation', company: 'Financial Services Group', matchScore: 76 },
-        { id: '23', name: 'Sarah Thompson', title: 'Head of Digital Strategy', company: 'Global Manufacturing Corp', matchScore: 74 },
-        { id: '24', name: 'John Martinez', title: 'Digital Transformation Lead', company: 'HealthTech Innovations', matchScore: 72 },
-        { id: '25', name: 'Emily Chen', title: 'Head of Digital Innovation', company: 'Energy Solutions Ltd', matchScore: 70 }
-      ]
-    },
-    {
-      id: '6',
-      title: 'VP of Operations',
-      rank: 6,
-      matchScore: 76,
-      demographics: {
-        level: 'VP Level',
-        department: 'Operations',
-        experience: '12+ years',
-        geography: 'Global'
-      },
-      characteristics: {
-        responsibilities: ['Operational efficiency', 'Process improvement', 'Resource optimization', 'Performance management'],
-        painPoints: ['Process inefficiencies', 'Cost pressures', 'Quality control', 'Scalability challenges'],
-        motivations: ['Operational excellence', 'Cost reduction', 'Quality improvement', 'Productivity gains'],
-        challenges: ['Process standardization', 'Technology adoption', 'Change management', 'Performance measurement'],
-        decisionFactors: ['Operational impact', 'Cost savings', 'Implementation ease', 'Performance metrics']
-      },
-      behaviors: {
-        decisionMaking: 'Data-driven with operational focus',
-        communicationStyle: 'Results-oriented with efficiency emphasis',
-        buyingProcess: 'Operational evaluation with 4-6 month cycles',
-        preferredChannels: ['Operations conferences', 'Best practice sharing', 'Vendor demos', 'ROI case studies']
-      },
-      marketPotential: {
-        totalDecisionMakers: 5500,
-        avgInfluence: '65%',
-        conversionRate: '20%'
-      },
-      employees: [
-        { id: '26', name: 'Robert Garcia', title: 'VP of Operations', company: 'Global Manufacturing Corp', matchScore: 76 },
-        { id: '27', name: 'Lisa Anderson', title: 'VP Operations', company: 'Retail Dynamics', matchScore: 73 },
-        { id: '28', name: 'Michael Brown', title: 'VP of Operations', company: 'Energy Solutions Ltd', matchScore: 71 },
-        { id: '29', name: 'Jennifer Davis', title: 'VP Operations', company: 'HealthTech Innovations', matchScore: 69 },
-        { id: '30', name: 'David Wilson', title: 'VP of Operations', company: 'Financial Services Group', matchScore: 67 }
-      ]
-    },
-    {
-      id: '7',
-      title: 'Chief Data Officer',
-      rank: 7,
-      matchScore: 73,
-      demographics: {
-        level: 'C-Level Executive',
-        department: 'Data/Analytics',
-        experience: '12+ years',
-        geography: 'North America, Europe'
-      },
-      characteristics: {
-        responsibilities: ['Data strategy', 'Analytics governance', 'Data quality', 'Insights generation'],
-        painPoints: ['Data silos', 'Data quality issues', 'Analytics adoption', 'Privacy compliance'],
-        motivations: ['Data-driven decisions', 'Business insights', 'Competitive intelligence', 'Operational optimization'],
-        challenges: ['Data integration', 'Skill development', 'Technology selection', 'Governance implementation'],
-        decisionFactors: ['Data capabilities', 'Analytics power', 'Integration ease', 'Compliance features']
-      },
-      behaviors: {
-        decisionMaking: 'Analytics-driven with data focus',
-        communicationStyle: 'Data-centric with business context',
-        buyingProcess: 'Technical evaluation with 6-8 month cycles',
-        preferredChannels: ['Data conferences', 'Analytics forums', 'Technical demos', 'Proof of concepts']
-      },
-      marketPotential: {
-        totalDecisionMakers: 1200,
-        avgInfluence: '85%',
-        conversionRate: '14%'
-      },
-      employees: [
-        { id: '31', name: 'Dr. Amanda Lee', title: 'Chief Data Officer', company: 'Financial Services Group', matchScore: 73 },
-        { id: '32', name: 'Thomas Kim', title: 'CDO', company: 'Retail Dynamics', matchScore: 70 },
-        { id: '33', name: 'Maria Rodriguez', title: 'Chief Data Officer', company: 'HealthTech Innovations', matchScore: 68 },
-        { id: '34', name: 'James Wilson', title: 'CDO', company: 'TechCorp Solutions', matchScore: 66 },
-        { id: '35', name: 'Sarah Martinez', title: 'Chief Data Officer', company: 'Global Manufacturing Corp', matchScore: 64 }
-      ]
-    },
-    {
-      id: '8',
-      title: 'Director of Product Management',
-      rank: 8,
-      matchScore: 70,
-      demographics: {
-        level: 'Director Level',
-        department: 'Product',
-        experience: '8+ years',
-        geography: 'Global'
-      },
-      characteristics: {
-        responsibilities: ['Product strategy', 'Feature prioritization', 'Market research', 'User experience'],
-        painPoints: ['Feature complexity', 'Market competition', 'User adoption', 'Development timelines'],
-        motivations: ['Product success', 'User satisfaction', 'Market leadership', 'Innovation delivery'],
-        challenges: ['Resource prioritization', 'Technical constraints', 'Market timing', 'User feedback integration'],
-        decisionFactors: ['Product fit', 'User impact', 'Development efficiency', 'Market differentiation']
-      },
-      behaviors: {
-        decisionMaking: 'User-centric with market validation',
-        communicationStyle: 'Product-focused with user empathy',
-        buyingProcess: 'Product evaluation with 3-5 month cycles',
-        preferredChannels: ['Product conferences', 'User research', 'Beta programs', 'Product demos']
-      },
-      marketPotential: {
-        totalDecisionMakers: 4800,
-        avgInfluence: '60%',
-        conversionRate: '25%'
-      },
-      employees: [
-        { id: '36', name: 'Jessica Chen', title: 'Director of Product Management', company: 'TechCorp Solutions', matchScore: 70 },
-        { id: '37', name: 'Ryan Thompson', title: 'Product Director', company: 'InnovateTech Inc', matchScore: 67 },
-        { id: '38', name: 'Nicole Garcia', title: 'Director of Product', company: 'Retail Dynamics', matchScore: 65 },
-        { id: '39', name: 'Kevin Lee', title: 'Product Management Director', company: 'HealthTech Innovations', matchScore: 63 },
-        { id: '40', name: 'Laura Wilson', title: 'Director of Product Management', company: 'StartupHub Accelerator', matchScore: 61 }
-      ]
-    },
-    {
-      id: '9',
-      title: 'Head of Procurement',
-      rank: 9,
-      matchScore: 67,
-      demographics: {
-        level: 'Director Level',
-        department: 'Procurement',
-        experience: '10+ years',
-        geography: 'Global'
-      },
-      characteristics: {
-        responsibilities: ['Vendor management', 'Contract negotiation', 'Cost optimization', 'Risk assessment'],
-        painPoints: ['Vendor evaluation', 'Cost pressures', 'Compliance requirements', 'Supply chain risks'],
-        motivations: ['Cost savings', 'Risk mitigation', 'Quality assurance', 'Process efficiency'],
-        challenges: ['Vendor selection', 'Contract terms', 'Budget constraints', 'Stakeholder alignment'],
-        decisionFactors: ['Total cost of ownership', 'Vendor stability', 'Contract terms', 'Risk profile']
-      },
-      behaviors: {
-        decisionMaking: 'Cost-focused with risk assessment',
-        communicationStyle: 'Commercial focus with compliance awareness',
-        buyingProcess: 'Formal procurement with 6-12 month cycles',
-        preferredChannels: ['Procurement conferences', 'RFP processes', 'Vendor presentations', 'Industry reports']
-      },
-      marketPotential: {
-        totalDecisionMakers: 3800,
-        avgInfluence: '55%',
-        conversionRate: '16%'
-      },
-      employees: [
-        { id: '41', name: 'Christopher Brown', title: 'Head of Procurement', company: 'Global Manufacturing Corp', matchScore: 67 },
-        { id: '42', name: 'Angela Davis', title: 'Procurement Director', company: 'Financial Services Group', matchScore: 64 },
-        { id: '43', name: 'Steven Martinez', title: 'Head of Procurement', company: 'Energy Solutions Ltd', matchScore: 62 },
-        { id: '44', name: 'Michelle Kim', title: 'Procurement Manager', company: 'Retail Dynamics', matchScore: 60 },
-        { id: '45', name: 'Daniel Rodriguez', title: 'Head of Procurement', company: 'HealthTech Innovations', matchScore: 58 }
-      ]
-    },
-    {
-      id: '10',
-      title: 'VP of Sales',
-      rank: 10,
-      matchScore: 64,
-      demographics: {
-        level: 'VP Level',
-        department: 'Sales',
-        experience: '12+ years',
-        geography: 'Global'
-      },
-      characteristics: {
-        responsibilities: ['Sales strategy', 'Revenue growth', 'Team leadership', 'Customer relationships'],
-        painPoints: ['Sales efficiency', 'Lead quality', 'Customer acquisition', 'Revenue predictability'],
-        motivations: ['Revenue growth', 'Sales performance', 'Customer success', 'Market expansion'],
-        challenges: ['Sales process optimization', 'Technology adoption', 'Team productivity', 'Customer retention'],
-        decisionFactors: ['Sales impact', 'ROI measurement', 'Adoption ease', 'Performance metrics']
-      },
-      behaviors: {
-        decisionMaking: 'Results-driven with performance focus',
-        communicationStyle: 'Revenue-focused with customer emphasis',
-        buyingProcess: 'Sales evaluation with 3-6 month cycles',
-        preferredChannels: ['Sales conferences', 'Performance demos', 'ROI case studies', 'Peer recommendations']
-      },
-      marketPotential: {
-        totalDecisionMakers: 7200,
-        avgInfluence: '50%',
-        conversionRate: '30%'
-      },
-      employees: [
-        { id: '46', name: 'Mark Thompson', title: 'VP of Sales', company: 'TechCorp Solutions', matchScore: 64 },
-        { id: '47', name: 'Rachel Garcia', title: 'VP Sales', company: 'InnovateTech Inc', matchScore: 61 },
-        { id: '48', name: 'Jonathan Lee', title: 'VP of Sales', company: 'Retail Dynamics', matchScore: 59 },
-        { id: '49', name: 'Stephanie Wilson', title: 'VP Sales', company: 'HealthTech Innovations', matchScore: 57 },
-        { id: '50', name: 'Paul Martinez', title: 'VP of Sales', company: 'StartupHub Accelerator', matchScore: 55 }
-      ]
-    }
-  ];
 
   const getMatchScoreColor = (score: number) => {
     if (score >= 90) return 'text-green-600 bg-green-100';
@@ -613,7 +165,7 @@ export default function DecisionMakerPersonas() {
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'decision-makers' }));
   };
 
-  const handleViewEmployeesForPersona = (persona: DecisionMakerPersona) => {
+  const handleViewEmployeesForPersona = (persona: UIDecisionMakerPersona) => {
     updateSelectedDecisionMakerPersonas([persona]);
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'decision-makers' }));
   };
@@ -637,7 +189,7 @@ export default function DecisionMakerPersonas() {
   }
 
   // Show empty state for real users without any searches
-  if (!hasSearch && !isDemoUser(authState.user?.id, authState.user?.email)) {
+  if (!hasSearch && !isDemo) {
     return (
       <div className="flex items-center justify-center min-h-96">
         <div className="text-center max-w-md">
@@ -698,17 +250,17 @@ export default function DecisionMakerPersonas() {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900 text-lg">{persona.title}</h3>
-                      <p className="text-gray-600 mt-1">{persona.demographics?.level ?? 'N/A'} • {persona.demographics?.department ?? 'General'}</p>
-                      <p className="text-sm text-gray-500">{persona.demographics?.experience ?? 'Unknown'} • {persona.demographics?.geography ?? 'Global'}</p>
+                      <p className="text-gray-600 mt-1">{typeof persona.demographics?.level === 'string' ? persona.demographics.level : 'N/A'} • {typeof persona.demographics?.department === 'string' ? persona.demographics.department : 'General'}</p>
+                      <p className="text-sm text-gray-500">{typeof persona.demographics?.experience === 'string' ? persona.demographics.experience : 'Unknown'} • {typeof persona.demographics?.geography === 'string' ? persona.demographics.geography : 'Global'}</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className={`px-3 py-1 rounded-full text-sm font-medium mb-2 ${getMatchScoreColor(persona.matchScore)}`}>
+                    <div className={`px-3 py-1 rounded-full text-sm font-medium mb-2 ${getMatchScoreColor(persona.match_score)}`}>
                       <Star className="w-4 h-4 inline mr-1" />
-                      {persona.matchScore}% match
+                      {persona.match_score}% match
                     </div>
                     <div className="text-sm text-gray-500">
-                      {persona.marketPotential.totalDecisionMakers.toLocaleString()} decision makers
+                      {typeof asMarketPotential(persona.market_potential)?.totalDecisionMakers === 'number' ? asMarketPotential(persona.market_potential)?.totalDecisionMakers?.toLocaleString() ?? 'N/A' : 'N/A'} decision makers
                     </div>
                   </div>
                 </div>
@@ -716,27 +268,27 @@ export default function DecisionMakerPersonas() {
                 <div className="grid grid-cols-3 gap-4 text-sm mb-4">
                   <div className="flex items-center space-x-2 text-gray-600">
                     <TrendingUp className="w-4 h-4" />
-                    <span>{persona.marketPotential.avgInfluence} avg influence</span>
+                    <span>{typeof asMarketPotential(persona.market_potential)?.avgInfluence === 'string' ? asMarketPotential(persona.market_potential)?.avgInfluence : 'N/A'} avg influence</span>
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
                     <DollarSign className="w-4 h-4" />
-                    <span>{persona.marketPotential.conversionRate} conversion</span>
+                    <span>{typeof asMarketPotential(persona.market_potential)?.conversionRate === 'string' ? asMarketPotential(persona.market_potential)?.conversionRate : 'N/A'} conversion</span>
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
-                    {getLevelIcon(persona.demographics?.level ?? 'executive')}
-                    <span>{persona.demographics?.level ?? 'N/A'}</span>
+                    {getLevelIcon(typeof persona.demographics?.level === 'string' ? persona.demographics.level : 'executive')}
+                    <span>{typeof persona.demographics?.level === 'string' ? persona.demographics.level : 'N/A'}</span>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {persona.characteristics.painPoints.slice(0, 2).map((point, index) => (
+                  {Array.isArray(asCharacteristics(persona.characteristics)?.painPoints) && asCharacteristics(persona.characteristics)?.painPoints?.slice(0, 2).map((point: string, index: number) => (
                     <span key={index} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
                       {point}
                     </span>
                   ))}
-                  {persona.characteristics.painPoints.length > 2 && (
+                  {Array.isArray(asCharacteristics(persona.characteristics)?.painPoints) && (asCharacteristics(persona.characteristics)?.painPoints?.length ?? 0) > 2 && (
                     <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                      +{persona.characteristics.painPoints.length - 2} more
+                      +{(asCharacteristics(persona.characteristics)?.painPoints?.length ?? 0) - 2} more
                     </span>
                   )}
                 </div>
@@ -773,11 +325,11 @@ export default function DecisionMakerPersonas() {
                               <p className="text-xs text-gray-500">{employee.company}</p>
                             </div>
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              employee.matchScore >= 90 ? 'bg-green-100 text-green-800' :
-                              employee.matchScore >= 80 ? 'bg-blue-100 text-blue-800' :
+                              employee.match_score >= 90 ? 'bg-green-100 text-green-800' :
+                              employee.match_score >= 80 ? 'bg-blue-100 text-blue-800' :
                               'bg-yellow-100 text-yellow-800'
                             }`}>
-                              {employee.matchScore}% match
+                              {employee.match_score}% match
                             </span>
                           </div>
                         </div>
@@ -830,7 +382,7 @@ export default function DecisionMakerPersonas() {
                 <div className="flex items-start justify-between mb-6">
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900">{selectedPersona.title}</h2>
-                    <p className="text-gray-600 mt-1">Rank #{selectedPersona.rank} • {selectedPersona.matchScore}% Match</p>
+                    <p className="text-gray-600 mt-1">Rank #{selectedPersona.rank} • {selectedPersona.match_score}% Match</p>
                   </div>
                   <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl ${getRankColor(selectedPersona.rank)}`}>
                     #{selectedPersona.rank}
@@ -845,15 +397,15 @@ export default function DecisionMakerPersonas() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-blue-700">Total Decision Makers:</span>
-                            <span className="font-semibold text-blue-900">{selectedPersona.marketPotential.totalDecisionMakers.toLocaleString()}</span>
+                            <span className="font-semibold text-blue-900">{typeof asMarketPotential(selectedPersona.market_potential)?.totalDecisionMakers === 'number' ? asMarketPotential(selectedPersona.market_potential)?.totalDecisionMakers?.toLocaleString() ?? 'N/A' : 'N/A'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-blue-700">Avg Influence:</span>
-                            <span className="font-semibold text-blue-900">{selectedPersona.marketPotential.avgInfluence}</span>
+                            <span className="font-semibold text-blue-900">{typeof asMarketPotential(selectedPersona.market_potential)?.avgInfluence === 'string' ? asMarketPotential(selectedPersona.market_potential)?.avgInfluence : 'N/A'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-blue-700">Conversion Rate:</span>
-                            <span className="font-semibold text-blue-900">{selectedPersona.marketPotential.conversionRate}</span>
+                            <span className="font-semibold text-blue-900">{typeof asMarketPotential(selectedPersona.market_potential)?.conversionRate === 'string' ? asMarketPotential(selectedPersona.market_potential)?.conversionRate : 'N/A'}</span>
                           </div>
                         </div>
                       </div>
@@ -863,15 +415,15 @@ export default function DecisionMakerPersonas() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-green-700">Level:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.demographics?.level ?? 'N/A'}</span>
+                            <span className="font-semibold text-green-900">{typeof selectedPersona.demographics?.level === 'string' ? selectedPersona.demographics.level : 'N/A'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-green-700">Department:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.demographics?.department ?? 'General'}</span>
+                            <span className="font-semibold text-green-900">{typeof selectedPersona.demographics?.department === 'string' ? selectedPersona.demographics.department : 'General'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-green-700">Experience:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.demographics?.experience ?? 'Unknown'}</span>
+                            <span className="font-semibold text-green-900">{typeof selectedPersona.demographics?.experience === 'string' ? selectedPersona.demographics.experience : 'Unknown'}</span>
                           </div>
                         </div>
                       </div>
@@ -881,7 +433,7 @@ export default function DecisionMakerPersonas() {
                       <div>
                         <h4 className="font-semibold text-gray-900 mb-3">Key Responsibilities</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.responsibilities.map((responsibility, index) => (
+                          {asCharacteristics(selectedPersona.characteristics)?.responsibilities?.map((responsibility: string, index: number) => (
                             <div key={index} className="flex items-start space-x-2">
                               <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
                               <span className="text-gray-700 text-sm">{responsibility}</span>
@@ -893,7 +445,7 @@ export default function DecisionMakerPersonas() {
                       <div>
                         <h4 className="font-semibold text-gray-900 mb-3">Top Pain Points</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.painPoints.map((point, index) => (
+                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.painPoints) && asCharacteristics(selectedPersona.characteristics)?.painPoints?.map((point: string, index: number) => (
                             <div key={index} className="flex items-start space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
                               <span className="text-gray-700 text-sm">{point}</span>
@@ -911,19 +463,19 @@ export default function DecisionMakerPersonas() {
                       <div className="bg-red-50 rounded-xl p-4 border border-red-200">
                         <h4 className="font-semibold text-red-900 mb-3">Pain Points</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.painPoints.map((point, index) => (
+                          {Array.isArray(asCharacteristics(selectedPersona?.characteristics)?.painPoints) ? asCharacteristics(selectedPersona?.characteristics)?.painPoints?.map((point: string, index: number) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                               <span className="text-red-800 text-sm">{point}</span>
                             </div>
-                          ))}
+                          )) : null}
                         </div>
                       </div>
 
                       <div className="bg-green-50 rounded-xl p-4 border border-green-200">
                         <h4 className="font-semibold text-green-900 mb-3">Motivations</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.motivations.map((motivation, index) => (
+                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.motivations) && asCharacteristics(selectedPersona.characteristics)?.motivations?.map((motivation: string, index: number) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                               <span className="text-green-800 text-sm">{motivation}</span>
@@ -935,7 +487,7 @@ export default function DecisionMakerPersonas() {
                       <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-200">
                         <h4 className="font-semibold text-yellow-900 mb-3">Challenges</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.challenges.map((challenge, index) => (
+                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.challenges) && asCharacteristics(selectedPersona.characteristics)?.challenges?.map((challenge: string, index: number) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
                               <span className="text-yellow-800 text-sm">{challenge}</span>
@@ -947,7 +499,7 @@ export default function DecisionMakerPersonas() {
                       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
                         <h4 className="font-semibold text-blue-900 mb-3">Decision Factors</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.decisionFactors.map((factor, index) => (
+                          {Array.isArray(asCharacteristics(selectedPersona.characteristics)?.decisionFactors) && asCharacteristics(selectedPersona.characteristics)?.decisionFactors?.map((factor: string, index: number) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                               <span className="text-blue-800 text-sm">{factor}</span>
@@ -965,17 +517,17 @@ export default function DecisionMakerPersonas() {
                       <div className="space-y-4">
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Decision Making</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.decisionMaking}</p>
+                          <p className="text-gray-700 text-sm">{asBehaviors(selectedPersona.behaviors)?.decisionMaking}</p>
                         </div>
 
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Communication Style</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.communicationStyle}</p>
+                          <p className="text-gray-700 text-sm">{asBehaviors(selectedPersona.behaviors)?.communicationStyle}</p>
                         </div>
 
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Buying Process</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.buyingProcess}</p>
+                          <p className="text-gray-700 text-sm">{asBehaviors(selectedPersona.behaviors)?.buyingProcess}</p>
                         </div>
                       </div>
 
@@ -983,7 +535,7 @@ export default function DecisionMakerPersonas() {
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-3">Preferred Channels</h4>
                           <div className="space-y-2">
-                            {selectedPersona.behaviors.preferredChannels.map((channel, index) => (
+                            {Array.isArray(asBehaviors(selectedPersona.behaviors)?.preferredChannels) && asBehaviors(selectedPersona.behaviors)?.preferredChannels?.map((channel: string, index: number) => (
                               <div key={index} className="flex items-center space-x-2">
                                 <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
                                 <span className="text-gray-700 text-sm">{channel}</span>

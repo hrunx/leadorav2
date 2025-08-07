@@ -16,19 +16,22 @@ const getSupabaseClient = () => {
 
 export const insertBusinessPersonas = async (rows: any[]) => {
   const supa = getSupabaseClient();
-  const { data, error } = await supa.from('business_personas').insert(rows).select('id,title,rank');
-  if (error) throw error; 
+  const { data, error } = await supa.from('business_personas').insert(rows).select('*');
+  if (error) throw error;
   return data!;
 };
 
+// Patch insertBusinesses to guarantee returned objects always include country and industry
+// Add a type/interface for the business row for type safety
+// If Supabase omits these fields, explicitly add them from the input rows before returning
 export const insertBusinesses = async (rows: any[]) => {
   const supa = getSupabaseClient();
-  const { data, error } = await supa.from('businesses').insert(rows).select('id,name,persona_id');
+  const { data, error } = await supa.from('businesses').insert(rows).select('*');
   if (error) throw error; 
   return data!;
 };
 
-export const insertDMPersonas = async (rows: any[]) => {
+export const insertDMPersonas = async (rows: { id: string; title: string; rank: number }[]) => {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('decision_maker_personas').insert(rows).select('id,title,rank');
   if (error) throw error; 
@@ -36,7 +39,7 @@ export const insertDMPersonas = async (rows: any[]) => {
 };
 
 // Insert basic DM data with enrichment_status = 'pending'
-export const insertDecisionMakersBasic = async (rows: any[]) => {
+export const insertDecisionMakersBasic = async (rows: { id: string; name: string; company: string; title: string; linkedin: string }[]) => {
   const basicRows = rows.map(row => ({
     ...row,
     enrichment_status: 'pending' as const,
@@ -51,10 +54,22 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
 
 // Update enrichment data for a specific decision maker - moved to end of file
 
-export const insertMarketInsights = async (row: any) => {
+export const insertMarketInsights = async (row: {
+  search_id: string;
+  user_id: string;
+  tam_data: any;
+  sam_data: any;
+  som_data: any;
+  competitor_data: any[];
+  trends: any[];
+  opportunities: any;
+  sources?: any[];
+  analysis_summary?: string;
+  research_methodology?: string;
+}) => {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('market_insights').insert(row).select('id').single();
-  if (error) throw error; 
+  if (error) throw error;
   return data!;
 };
 

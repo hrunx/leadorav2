@@ -93,13 +93,36 @@ export function useSubscription() {
           return;
         }
 
-        const { data, error } = await supabase
-          .from('subscriptions')
-          .select('*')
-          .eq('user_id', user.id)
-          .in('status', ['active', 'trialing', 'past_due'])
-          .order('created_at', { ascending: false })
-          .limit(1);
+        let data, error;
+        try {
+          const result = await supabase
+            .from('subscriptions')
+            .select('*')
+            .eq('user_id', user.id)
+            .in('status', ['active', 'trialing', 'past_due'])
+            .order('created_at', { ascending: false })
+            .limit(1);
+          data = result.data;
+          error = result.error;
+        } catch (err: any) {
+          if (err.message?.includes('Load failed') || err.message?.includes('access control')) {
+            try {
+              const response = await fetch(`/.netlify/functions/user-data-proxy?table=subscriptions&user_id=${user.id}`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+              const arr = await response.json();
+              data = arr && arr.length > 0 ? arr : [];
+              error = null;
+            } catch (proxyError) {
+              data = [];
+              error = proxyError;
+            }
+          } else {
+            throw err;
+          }
+        }
 
         if (error) throw error;
 

@@ -8,7 +8,7 @@ import { runDMDiscoveryForBusiness } from '../agents/dm-discovery-individual.age
 export async function triggerInstantDMDiscovery(
   search_id: string, 
   user_id: string, 
-  businesses: any[]
+  businesses: Business[]
 ) {
   console.log(`🎯 Starting instant DM discovery for ${businesses.length} businesses`);
   
@@ -57,22 +57,37 @@ export async function triggerInstantDMDiscovery(
 export async function processBusinessForDM(
   search_id: string,
   user_id: string, 
-  business: any
+  business: Business
 ) {
   try {
     console.log(`⚡ Processing single business for instant DM discovery: ${business.name}`);
-    
-    await runDMDiscoveryForBusiness({
-      search_id,
-      user_id,
-      business_id: business.id,
-      business_name: business.name,
-      company_country: business.country,
-      industry: business.industry
-    });
-    
-    console.log(`⚡ Instant DM discovery completed for: ${business.name}`);
   } catch (error) {
-    console.error(`⚡ Instant DM discovery failed for ${business.name}:`, error);
+    console.error(`❌ DM discovery failed for ${business.name}:`, error);
   }
+}
+
+// Define the Business interface
+export interface Business {
+  id: string;
+  search_id: string;
+  user_id: string;
+  persona_id: string | null;
+  name: string;
+  industry: string;
+  country: string;
+  city?: string;
+  size?: string;
+  revenue?: string;
+  description?: string;
+  match_score: number;
+  relevant_departments?: string[];
+  key_products?: string[];
+  recent_activity?: string[];
+  persona_type: string;
+  created_at?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  address?: string;
+  rating?: number;
 }

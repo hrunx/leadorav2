@@ -229,7 +229,7 @@ export default function DecisionMakerMapping() {
         currentSearchIdRef.current = null;
       }
     };
-  }, [getCurrentSearch, authState.user]);
+  }, [getCurrentSearch, authState.user, isDemoUser]);
 
   const loadDecisionMakers = async () => {
     setIsLoading(true);

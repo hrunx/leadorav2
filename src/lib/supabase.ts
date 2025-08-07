@@ -128,10 +128,10 @@ export interface DecisionMakerPersona {
   title: string;
   rank: number;
   match_score: number;
-  demographics: any;
-  characteristics: any;
-  behaviors: any;
-  market_potential: any;
+  demographics: Record<string, unknown>;
+  characteristics: Record<string, unknown>;
+  behaviors: Record<string, unknown>;
+  market_potential: Record<string, unknown>;
   created_at: string;
 }
 
@@ -139,38 +139,42 @@ export interface DecisionMaker {
   id: string;
   search_id: string;
   user_id: string;
-  persona_id?: string;
+  persona_id: string | null;
   name: string;
   title: string;
-  level: 'executive' | 'director' | 'manager' | 'individual';
+  level: string;
   influence: number;
   department: string;
   company: string;
   location: string;
-  email: string;
-  phone: string;
-  linkedin: string;
-  experience: string;
-  communication_preference: string;
-  pain_points: string[];
-  motivations: string[];
-  decision_factors: string[];
+  email?: string;
+  phone?: string;
+  linkedin?: string;
+  experience?: string;
+  communication_preference?: string;
+  pain_points?: string[];
+  motivations?: string[];
+  decision_factors?: string[];
   persona_type: string;
-  company_context: any;
-  personalized_approach: any;
+  company_context: Record<string, unknown>;
+  personalized_approach: Record<string, unknown>;
   created_at: string;
+  match_score?: number;
+  enrichment_status?: string;
+  enrichment?: Record<string, unknown>;
+  business_id?: string;
 }
 
 export interface MarketInsight {
   id: string;
   search_id: string;
   user_id: string;
-  tam_data: any;
-  sam_data: any;
-  som_data: any;
-  competitor_data: any[];
-  trends: any[];
-  opportunities: any;
+  tam_data: Record<string, unknown>;
+  sam_data: Record<string, unknown>;
+  som_data: Record<string, unknown>;
+  competitor_data: Record<string, unknown>[];
+  trends: Record<string, unknown>[];
+  opportunities: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }

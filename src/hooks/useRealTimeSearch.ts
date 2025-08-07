@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { SearchService } from '../services/searchService';
+import type { Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
 
 interface SearchProgress {
   phase: string;
@@ -11,11 +13,11 @@ interface SearchProgress {
 }
 
 interface RealTimeSearchData {
-  businesses: any[];
-  businessPersonas: any[];
-  dmPersonas: any[];
-  decisionMakers: any[];
-  marketInsights: any[];
+  businesses: Business[];
+  businessPersonas: DecisionMakerPersona[];
+  dmPersonas: DecisionMakerPersona[];
+  decisionMakers: DecisionMaker[];
+  marketInsights: MarketInsight[];
   progress: SearchProgress;
   isLoading: boolean;
 }
@@ -43,20 +45,20 @@ export function useRealTimeSearch(searchId: string | null) {
     try {
       setData(prev => ({ ...prev, isLoading: true }));
 
-      // Load all data in parallel
+      // Load all data in parallel using SearchService (with proxy fallback)
       const [
-        { data: businesses },
-        { data: businessPersonas },
-        { data: dmPersonas },
-        { data: decisionMakers },
-        { data: marketInsights },
+        businesses,
+        businessPersonas,
+        dmPersonas,
+        decisionMakers,
+        marketInsights,
         { data: searchProgress }
       ] = await Promise.all([
-        supabase.from('businesses').select('*').eq('search_id', searchId).order('created_at'),
-        supabase.from('business_personas').select('*').eq('search_id', searchId).order('rank'),
-        supabase.from('decision_maker_personas').select('*').eq('search_id', searchId).order('rank'),
-        supabase.from('decision_makers').select('*').eq('search_id', searchId).order('created_at'),
-        supabase.from('market_insights').select('*').eq('search_id', searchId),
+        SearchService.getBusinesses(searchId),
+        SearchService.getBusinessPersonas(searchId),
+        SearchService.getDecisionMakerPersonas(searchId),
+        SearchService.getDecisionMakers(searchId),
+        SearchService.getMarketInsights(searchId),
         supabase.from('user_searches').select('phase, progress_pct').eq('id', searchId).single()
       ]);
 
@@ -65,14 +67,14 @@ export function useRealTimeSearch(searchId: string | null) {
         businessPersonas: businessPersonas || [],
         dmPersonas: dmPersonas || [],
         decisionMakers: decisionMakers || [],
-        marketInsights: marketInsights || [],
+        marketInsights: marketInsights ? [marketInsights] : [],
         progress: {
           phase: searchProgress?.phase || 'idle',
           progress_pct: searchProgress?.progress_pct || 0,
           businesses_count: (businesses || []).length,
           personas_count: (businessPersonas || []).length + (dmPersonas || []).length,
           decision_makers_count: (decisionMakers || []).length,
-          market_insights_ready: (marketInsights || []).length > 0
+          market_insights_ready: !!marketInsights
         },
         isLoading: false
       });
@@ -191,16 +193,6 @@ export function useRealTimeSearch(searchId: string | null) {
               decision_makers_count: prev.decisionMakers.length + 1
             }
           }));
-          
-          // 🔥 INSTANT CONTACT ENRICHMENT: Trigger for new DM
-          setTimeout(async () => {
-            try {
-              const { enrichDecisionMakerContact } = await import('../tools/contact-enrichment');
-              await enrichDecisionMakerContact(payload.new, searchId, payload.new.user_id);
-            } catch (error) {
-              console.error('Failed to enrich DM contact:', error);
-            }
-          }, 2000);
           
         } else if (payload.eventType === 'UPDATE') {
           setData(prev => ({

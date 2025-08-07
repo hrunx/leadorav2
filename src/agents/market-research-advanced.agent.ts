@@ -132,7 +132,7 @@ function extractMarketSizeFromSearch(searchResults: any[], args: any): any {
   const marketSizeRegex = /\$[\d,.]+[BMK]?/g;
   const percentageRegex = /\d+(?:\.\d+)?%/g;
   
-  let allText = searchResults.map(r => `${r.title} ${r.snippet}`).join(' ');
+  const allText = searchResults.map(r => `${r.title} ${r.snippet}`).join(' ');
   const marketSizes = allText.match(marketSizeRegex) || [];
   const percentages = allText.match(percentageRegex) || [];
   

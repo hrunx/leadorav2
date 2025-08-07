@@ -177,6 +177,11 @@ const storeDMsTool = tool({
     const rows = employeesWithLocation.map((emp: any) => {
       // 🎯 SMART PERSONA MAPPING: Match employee to most relevant persona
       const mappedPersona = mapDMToPersona(emp, dmPersonas);
+      // Defensive: ensure company is always set
+      let company = emp.company;
+      if (!company || typeof company !== 'string' || !company.trim()) {
+        company = emp.business_name || 'Unknown Company';
+      }
       return buildDMData({
         search_id,
         user_id,
@@ -184,7 +189,7 @@ const storeDMsTool = tool({
         persona_id: mappedPersona?.id || null, // Smart mapping instead of null
         name: emp.name,
         title: emp.title,
-        company: emp.company,
+        company,
         linkedin: emp.linkedin,
         email: emp.email,
         phone: emp.phone || null,
@@ -195,7 +200,15 @@ const storeDMsTool = tool({
     });
 
     console.log(`💼 Storing ${rows.length} decision makers with smart persona mapping for business ${business_id}`);
-    return await insertDecisionMakersBasic(rows);
+    const inserted = await insertDecisionMakersBasic(rows);
+
+    // Trigger backend enrichment via Netlify function
+    await fetch('/.netlify/functions/enrich-decision-makers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ search_id })
+    });
+    return inserted;
   }
 });
 
