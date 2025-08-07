@@ -1,4 +1,5 @@
 import { runDMDiscoveryForBusiness } from '../agents/dm-discovery-individual.agent';
+import { updateSearchProgress } from './db.write';
 
 /**
  * Triggers instant DM discovery for businesses as soon as they are found
@@ -29,7 +30,8 @@ export async function triggerInstantDMDiscovery(
           business_id: business.id,
           business_name: business.name,
           company_country: business.country,
-          industry: business.industry
+          industry: business.industry,
+          skipProgressUpdate: true
         });
         
         console.log(`✅ DM discovery completed for: ${business.name}`);
@@ -40,14 +42,20 @@ export async function triggerInstantDMDiscovery(
     
     // Wait for batch to complete before starting next batch
     await Promise.allSettled(batchPromises);
-    
+
+    // Update progress after each batch
+    const processed = Math.min(i + batchSize, businesses.length);
+    const pct = Math.round((processed / businesses.length) * 100);
+    await updateSearchProgress(search_id, pct, 'decision_makers');
+
     // Small delay between batches to avoid rate limiting
     if (i + batchSize < businesses.length) {
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
-  
+
   console.log(`🎉 Instant DM discovery completed for all ${businesses.length} businesses`);
+  await updateSearchProgress(search_id, 100, 'decision_makers');
 }
 
 /**
