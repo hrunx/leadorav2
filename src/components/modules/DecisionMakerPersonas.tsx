@@ -78,6 +78,10 @@ export default function DecisionMakerPersonas() {
       title: p.title,
       rank: p.rank,
       description: p.description || `Key ${p.title} decision maker persona`,
+      demographics: {
+        level: p.level || 'executive',
+        department: p.department || 'General'
+      },
       responsibilities: p.responsibilities || [],
       painPoints: p.pain_points || [],
       preferredChannels: p.preferred_channels || [],
