@@ -3,7 +3,6 @@ import { serperSearch } from '../tools/serper';
 import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
 import { buildDMData, mapDMToPersona } from '../tools/util';
-import { fetchContactEnrichment } from '../tools/contact-enrichment';
 
 const linkedinSearchTool = tool({
   name: 'linkedinSearch',
@@ -66,13 +65,6 @@ const linkedinSearchTool = tool({
             for (const emp of employees) {
               if (!emp.bio || emp.bio.trim() === '') emp.bio = 'Bio unavailable';
               if (!emp.location) emp.location = 'Unknown';
-              try {
-                const contact = await fetchContactEnrichment(emp.name, company_name);
-                if (contact.email) emp.email = contact.email;
-                if (contact.phone) emp.phone = contact.phone;
-              } catch (e) {
-                console.warn('Contact enrichment failed', e);
-              }
             }
 
             allEmployees.push(...employees);
