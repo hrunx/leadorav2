@@ -202,7 +202,7 @@ export function buildDMData(params: {
   title: string;
   company: string;
   linkedin: string;
-  email: string;
+  email?: string | null;
   phone?: string | null;
   bio?: string;
   location?: string;
@@ -220,7 +220,7 @@ export function buildDMData(params: {
     title: params.title,
     company: params.company,
     linkedin: params.linkedin,
-    email: params.email,
+    email: params.email || null,
     phone: params.phone || null,
     bio: params.bio || '',
     location: params.location || '',

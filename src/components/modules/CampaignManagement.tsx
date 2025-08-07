@@ -849,7 +849,7 @@ Best regards,
                             <div className="flex-1">
                               <h5 className="font-medium text-gray-900">{dm.name}</h5>
                               <p className="text-sm text-gray-600">{dm.title}</p>
-                              <p className="text-xs text-gray-500">{dm.company} • {dm.email}</p>
+                              <p className="text-xs text-gray-500">{dm.company} • {dm.email || 'Enriching...'}</p>
                             </div>
                           </div>
                         ))
