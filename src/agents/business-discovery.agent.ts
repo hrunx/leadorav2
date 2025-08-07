@@ -181,10 +181,8 @@ const storeBusinessesTool = tool({
     }));
     console.log(`Inserting ${rows.length} businesses for search ${search_id}`);
     const insertedBusinesses = await insertBusinesses(rows);
-    if (insertedBusinesses.length > 0) {
-      // Add this batch to the running DM discovery total
-      initDMDiscoveryProgress(search_id, insertedBusinesses.length);
-    }
+    // Increment the running DM discovery total with this batch
+    initDMDiscoveryProgress(search_id, insertedBusinesses.length);
     // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately as it is inserted
     const triggeredBusinessIds = new Set<string>();
     await Promise.all(
