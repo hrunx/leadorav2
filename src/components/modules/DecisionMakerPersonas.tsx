@@ -699,7 +699,7 @@ export default function DecisionMakerPersonas() {
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900 text-lg">{persona.title}</h3>
                       <p className="text-gray-600 mt-1">{persona.demographics?.level ?? 'N/A'} • {persona.demographics?.department ?? 'General'}</p>
-                      <p className="text-sm text-gray-500">{persona.demographics.experience} • {persona.demographics.geography}</p>
+                      <p className="text-sm text-gray-500">{persona.demographics?.experience ?? 'Unknown'} • {persona.demographics?.geography ?? 'Global'}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -723,7 +723,7 @@ export default function DecisionMakerPersonas() {
                     <span>{persona.marketPotential.conversionRate} conversion</span>
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
-                    {getLevelIcon(persona.demographics.level)}
+                    {getLevelIcon(persona.demographics?.level ?? 'executive')}
                     <span>{persona.demographics?.level ?? 'N/A'}</span>
                   </div>
                 </div>
@@ -867,11 +867,11 @@ export default function DecisionMakerPersonas() {
                           </div>
                           <div className="flex justify-between">
                             <span className="text-green-700">Department:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.demographics.department}</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.demographics?.department ?? 'General'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-green-700">Experience:</span>
-                            <span className="font-semibold text-green-900">{selectedPersona.demographics.experience}</span>
+                            <span className="font-semibold text-green-900">{selectedPersona.demographics?.experience ?? 'Unknown'}</span>
                           </div>
                         </div>
                       </div>
