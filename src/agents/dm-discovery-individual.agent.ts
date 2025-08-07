@@ -62,7 +62,11 @@ const linkedinSearchTool = tool({
                 location: company_country
               }));
             
-            allEmployees.push(...employees);
+            employees.forEach(emp => {
+            if (!emp.bio || emp.bio.trim() === '') emp.bio = 'Bio unavailable';
+            if (!emp.phone) emp.phone = '';
+          });
+          allEmployees.push(...employees);
           }
           
           // Small delay between searches to avoid rate limiting
