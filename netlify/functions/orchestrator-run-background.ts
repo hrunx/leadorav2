@@ -136,15 +136,8 @@ export const handler: Handler = async (event) => {
       limiter(()=>execDMPersonas({ search_id, user_id })),
     ]), 120_000, 'personas'));
 
-    // Wait for business discovery to complete (should have businesses by now)
+    // Business discovery continues in background; update progress snapshot
     await updateProgress(search_id, 'businesses', 40);
-    console.log('Waiting for business discovery...');
-    const businessResult = await businessDiscoveryPromise;
-    if (businessResult) {
-      console.log('Business discovery completed successfully');
-    } else {
-      console.log('Business discovery failed - proceeding with available data');
-    }
 
     // PHASE 4: Wait for market research to complete (should be done by now)
     await updateProgress(search_id, 'market_insights', 85);
@@ -156,6 +149,8 @@ export const handler: Handler = async (event) => {
       console.log('Market research failed - using fallback data');
     }
 
+    // Ensure business discovery has finished before marking completed
+    await businessDiscoveryPromise;
     await updateProgress(search_id, 'completed', 100);
     console.log(`Orchestration completed for search ${search_id}`);
     return { statusCode: 202, body: 'accepted' };
