@@ -79,6 +79,7 @@ async function retry<T>(fn:()=>Promise<T>, tries=3) {
 
 export const handler: Handler = async (event) => {
   // background functions return 202 immediately, Netlify runs the handler async
+  let stopPersonaListener: (() => Promise<void>) | null = null;
   try {
     const { search_id, user_id } = JSON.parse(event.body || '{}');
     if (!search_id || !user_id) return { statusCode: 400, body: 'search_id and user_id required' };
@@ -89,19 +90,26 @@ export const handler: Handler = async (event) => {
     await updateProgress(search_id, 'starting', 0);
 
     // Load orchestrator parts dynamically to reduce cold-start/bundle issues
-    const [{ execBusinessPersonas }, { execDMPersonas }, { execBusinessDiscovery }, { execMarketResearchParallel }] =
-      await Promise.all([
-        import('../../src/orchestration/exec-business-personas'),
-        import('../../src/orchestration/exec-dm-personas'),
-        import('../../src/orchestration/exec-business-discovery'),
-        import('../../src/orchestration/exec-market-research-parallel'),
-      ]);
+    const [
+      { execBusinessPersonas },
+      { execDMPersonas },
+      { execBusinessDiscovery },
+      { execMarketResearchParallel },
+      personaMapper
+    ] = await Promise.all([
+      import('../../src/orchestration/exec-business-personas'),
+      import('../../src/orchestration/exec-dm-personas'),
+      import('../../src/orchestration/exec-business-discovery'),
+      import('../../src/orchestration/exec-market-research-parallel'),
+      import('../../src/tools/persona-mapper')
+    ]);
+    const { startPersonaMappingListener, mapBusinessesToPersonas } = personaMapper;
 
     // START ALL AGENTS IN PARALLEL - everything begins immediately!
     console.log('Starting all agents in parallel for maximum speed...');
-    
+
     // Start market research in background (non-blocking)
-    const marketResearchPromise = retry(() => 
+    const marketResearchPromise = retry(() =>
       withTimeout(execMarketResearchParallel({ search_id, user_id }), 300_000, 'market_research')
     ).catch(e => {
       console.error('Market research failed (non-blocking):', e.message);
@@ -110,7 +118,10 @@ export const handler: Handler = async (event) => {
 
     // Start business discovery immediately (non-blocking)
     await updateProgress(search_id, 'starting_discovery', 5);
-    const businessDiscoveryPromise = retry(() => 
+    // Listen for new businesses and map them as they arrive
+    stopPersonaListener = startPersonaMappingListener(search_id);
+    await mapBusinessesToPersonas(search_id);
+    const businessDiscoveryPromise = retry(() =>
       withTimeout(execBusinessDiscovery({ search_id, user_id }), 240_000, 'business_discovery')
     ).catch(e => {
       console.error('Business discovery failed (non-blocking):', e.message);
@@ -131,15 +142,6 @@ export const handler: Handler = async (event) => {
     const businessResult = await businessDiscoveryPromise;
     if (businessResult) {
       console.log('Business discovery completed successfully');
-      // Map businesses to personas now that both are available
-      console.log('Mapping businesses to personas...');
-      try {
-        const { mapBusinessesToPersonas } = await import('../../src/tools/persona-mapper');
-        await mapBusinessesToPersonas(search_id);
-        console.log('Business-persona mapping completed');
-      } catch (mappingError) {
-        console.error('Persona mapping failed (non-blocking):', mappingError);
-      }
     } else {
       console.log('Business discovery failed - proceeding with available data');
     }
@@ -169,5 +171,7 @@ export const handler: Handler = async (event) => {
       });
     } catch {}
     return { statusCode: 202, body: 'accepted' }; // background function always returns 202
+  } finally {
+    if (stopPersonaListener) await stopPersonaListener();
   }
 };
