@@ -1,4 +1,4 @@
-import { Agent, tool, run } from '@openai/agents';
+import { Agent, tool } from '@openai/agents';
 import { insertDMPersonas, updateSearchProgress } from '../tools/db.write';
 import { gemini } from './clients';
 
