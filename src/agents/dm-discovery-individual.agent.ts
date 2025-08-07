@@ -144,7 +144,7 @@ const storeDMsTool = tool({
             bio: { type: 'string' },
             location: { type: 'string' }
           },
-          required: ['name', 'title', 'company', 'linkedin', 'email', 'phone'],
+          required: ['name', 'title', 'company', 'linkedin', 'email', 'phone', 'bio'],
           additionalProperties: false
         }
       }
