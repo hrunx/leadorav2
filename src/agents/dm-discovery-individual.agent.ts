@@ -224,13 +224,6 @@ const storeDMsTool = tool({
     } else if (typeof window !== 'undefined' && window.location) {
       enrichUrl = `${window.location.origin}/.netlify/functions/enrich-decision-makers`;
     }
-
-    await fetch(enrichUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ search_id })
-    });
-
     // Schedule follow-up persona assignment for any unmapped DMs
     if (rows.some(r => !r.persona_id)) {
       setTimeout(() => {
@@ -240,9 +233,8 @@ const storeDMsTool = tool({
       }, 10000);
     }
 
-
     try {
-      // Fire-and-forget enrichment; log any failures
+      // Trigger backend enrichment via Netlify function (non-blocking)
       fetch(enrichUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
