@@ -182,26 +182,34 @@ const storeBusinessesTool = tool({
     console.log(`Inserting ${rows.length} businesses for search ${search_id}`);
     const insertedBusinesses = await insertBusinesses(rows);
     // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately as it is inserted
-    for (const business of insertedBusinesses) {
-      processBusinessForDM(search_id, user_id, {
-        ...business,
-        country,
-        industry
-      });
+    const triggeredBusinessIds = new Set<string>();
+    await Promise.all(
+      insertedBusinesses.map(async (business) => {
+        await processBusinessForDM(search_id, user_id, {
+          ...business,
+          country,
+          industry
+        });
+        triggeredBusinessIds.add(business.id);
+      })
+    );
+
+    // Fallback: trigger batch discovery only for businesses not processed individually
+    const pendingBusinesses = insertedBusinesses.filter(b => !triggeredBusinessIds.has(b.id));
+    if (pendingBusinesses.length > 0) {
+      setTimeout(async () => {
+        try {
+          console.log(`🎯 (Fallback) Triggering instant DM discovery for ${pendingBusinesses.length} businesses`);
+          await triggerInstantDMDiscovery(
+            search_id,
+            user_id,
+            pendingBusinesses.map(b => ({ ...b, country, industry }))
+          );
+        } catch (error) {
+          console.error('Failed to trigger instant DM discovery:', error);
+        }
+      }, 1000); // Small delay to ensure businesses are stored
     }
-    // Optionally, keep the batch trigger as a fallback for bulk inserts
-    setTimeout(async () => {
-      try {
-        console.log(`🎯 (Fallback) Triggering instant DM discovery for ${insertedBusinesses.length} businesses`);
-        await triggerInstantDMDiscovery(
-          search_id,
-          user_id,
-          insertedBusinesses.map(b => ({ ...b, country, industry }))
-        );
-      } catch (error) {
-        console.error('Failed to trigger instant DM discovery:', error);
-      }
-    }, 1000); // Small delay to ensure businesses are stored
     return insertedBusinesses;
   }
 });
