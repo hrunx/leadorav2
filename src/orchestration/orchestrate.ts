@@ -3,10 +3,9 @@ import { updateSearchProgress } from '../tools/db.write';
 import { runBusinessPersonas } from '../agents/business-persona.agent';
 import { runDMPersonas } from '../agents/dm-persona.agent';
 import { runBusinessDiscovery } from '../agents/business-discovery.agent';
-import { runDMDiscovery } from '../agents/dm-discovery.agent';
 import { runMarketResearch } from '../agents/market-research.agent';
 
-export async function orchestrate(search_id: string, user_id: string, sendUpdate?: (type: string, data: any) => void) {
+export async function orchestrate(search_id: string, user_id: string, sendUpdate?: (type: string, data: unknown) => void) {
   console.log(`🎬 Starting optimized parallel orchestration for search ${search_id}`);
   
   // Default no-op update function if not provided
@@ -47,20 +46,7 @@ export async function orchestrate(search_id: string, user_id: string, sendUpdate
       runBusinessDiscovery(search).then(async () => {
         console.log('✅ Business discovery completed - businesses should appear in UI');
         updateFn('BUSINESSES_FOUND', { search_id });
-        
-        // 🎯 Immediately trigger DM discovery for each business found
-        console.log('🎯 Starting DM discovery for found businesses...');
-        setTimeout(async () => {
-          try {
-            await runDMDiscovery(search);
-            console.log('✅ DM discovery completed');
-            updateFn('DM_DISCOVERY_COMPLETE', { search_id });
-          } catch (dmError) {
-            console.error('❌ DM discovery failed:', dmError);
-            updateFn('DM_DISCOVERY_ERROR', { search_id, error: dmError.message });
-          }
-        }, 2000); // 2 second delay to ensure businesses are stored
-        
+
         return 'business_discovery_done';
       }).catch(err => {
         console.error('❌ Business discovery failed:', err);
