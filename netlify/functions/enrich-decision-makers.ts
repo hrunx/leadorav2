@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions';
 import { supa } from '../../src/agents/clients';
 import { gemini } from '../../src/agents/clients';
 import { updateDecisionMakerEnrichment, logApiUsage } from '../../src/tools/db.write';
+import { fetchContactEnrichment } from '../../src/tools/contact-enrichment';
 
 interface DecisionMaker {
   id: string;
@@ -11,6 +12,8 @@ interface DecisionMaker {
   linkedin: string;
   location: string;
   department: string;
+  email?: string;
+  phone?: string;
   search_id: string;
   user_id: string;
 }
@@ -18,7 +21,7 @@ interface DecisionMaker {
 async function getPendingDecisionMakers(search_id: string): Promise<DecisionMaker[]> {
   const { data, error } = await supa
     .from('decision_makers')
-    .select('id, name, title, company, linkedin, location, department, search_id, user_id')
+    .select('id, name, title, company, linkedin, location, department, email, phone, search_id, user_id')
     .eq('search_id', search_id)
     .eq('enrichment_status', 'pending')
     .limit(20); // Process in batches
@@ -159,16 +162,24 @@ export const handler: Handler = async (event) => {
       // Process batch in parallel
       const enrichmentPromises = batch.map(async (dm) => {
         try {
-          const enrichmentData = await enrichDecisionMakerProfile(dm);
-          
-          if (enrichmentData) {
-            await updateDecisionMakerEnrichment(dm.id, enrichmentData);
-            enrichedCount++;
-            console.log(`Enriched profile for ${dm.name} (${dm.title})`);
-          } else {
-            errorCount++;
-            console.log(`Failed to enrich profile for ${dm.name}`);
+          const [profile, contact] = await Promise.all([
+            enrichDecisionMakerProfile(dm),
+            fetchContactEnrichment(dm.name, dm.company)
+          ]);
+
+          const updateData: any = profile ? { ...profile } : {};
+          if (contact.email) updateData.email = contact.email;
+          if (contact.phone) updateData.phone = contact.phone;
+          if (contact.verification) {
+            updateData.email_verification = contact.verification;
+            updateData.enrichment_status = contact.verification.status || 'enriched';
+            updateData.enrichment_confidence = contact.verification.score;
+            updateData.enrichment_sources = [contact.source];
           }
+
+          await updateDecisionMakerEnrichment(dm.id, updateData);
+          enrichedCount++;
+          console.log(`Enriched profile for ${dm.name} (${dm.title})`);
         } catch (error) {
           console.error(`Error processing ${dm.name}:`, error);
           errorCount++;
