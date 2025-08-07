@@ -5,8 +5,9 @@ import { updateSearchProgress } from './db.write';
 const dmProgress: Record<string, { total: number; processed: number }> = {};
 
 export function initDMDiscoveryProgress(search_id: string, total: number) {
-  if (dmProgress[search_id]) {
-    dmProgress[search_id].total += total;
+  const progress = dmProgress[search_id];
+  if (progress) {
+    progress.total += total;
   } else {
     dmProgress[search_id] = { total, processed: 0 };
   }
@@ -34,9 +35,7 @@ export async function triggerInstantDMDiscovery(
   businesses: Business[]
 ) {
   console.log(`🎯 Starting instant DM discovery for ${businesses.length} businesses`);
-  if (!dmProgress[search_id]) {
-    initDMDiscoveryProgress(search_id, businesses.length);
-  }
+  initDMDiscoveryProgress(search_id, businesses.length);
 
   // Process businesses in small batches to avoid overwhelming the system
   const batchSize = 3;
