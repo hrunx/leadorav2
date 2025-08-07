@@ -3,10 +3,7 @@ import { User, Crown, Shield, Users, Mail, Phone, Linkedin, ArrowRight, Building
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
-import { SearchService } from '../../services/searchService';
-import { useDemoMode } from '../../hooks/useDemoMode';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
-import { supabase } from '../../lib/supabase';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
 
@@ -73,6 +70,50 @@ interface DecisionMaker {
   personaType: string;
 }
 
+const getDemoPersonas = (): DecisionMakerPersona[] => [
+  {
+    id: 'demo-1',
+    title: 'Chief Technology Officer',
+    rank: 1,
+    matchScore: 95,
+    level: 'executive',
+    department: 'Technology',
+    influence: 95,
+    demographics: {
+      experience: '15+ years in enterprise technology leadership',
+      typicalTitles: ['CTO'],
+      departments: ['Technology'],
+      companyTypes: ['Enterprise']
+    },
+    characteristics: {
+      keyResponsibilities: ['Technology strategy and vision'],
+      painPoints: ['Legacy system modernization'],
+      motivations: ['Drive digital transformation success'],
+      decisionFactors: ['Proven ROI and business impact']
+    },
+    behaviors: {
+      communicationStyle: 'Strategic, data-driven',
+      decisionTimeline: '6-12 months',
+      preferredApproach: 'Executive briefing with clear business case',
+      buyingInfluence: 'Final decision maker for technology investments over $500K'
+    },
+    marketPotential: {
+      totalDecisionMakers: 2500,
+      avgInfluence: 95,
+      conversionRate: '8%'
+    },
+    employees: [
+      {
+        id: '1',
+        name: 'Sarah Johnson',
+        title: 'Chief Technology Officer',
+        company: 'TechCorp Solutions',
+        matchScore: 95
+      }
+    ]
+  }
+];
+
 export default function DecisionMakerProfiles() {
   const { state, updateSelectedPersonas } = useAppContext();
   const { getCurrentSearch } = useUserData();
@@ -89,15 +130,11 @@ export default function DecisionMakerProfiles() {
   const [showEmployeeDetails, setShowEmployeeDetails] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<DecisionMaker | null>(null);
   
-  // Legacy demo state
-  const [demoPersonas, setDemoPersonas] = useState<DecisionMakerPersona[]>([]);
-  const [isLoadingDemo, setIsLoadingDemo] = useState(true);
-  
   // Determine if we're in demo mode
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
-  
+
   // Use real-time data for real users, demo data for demo users
-  const decisionMakerPersonas = isDemo ? demoPersonas : realTimeData.dmPersonas.map(p => {
+  const decisionMakerPersonas = isDemo ? getDemoPersonas() : realTimeData.dmPersonas.map(p => {
     // 🎯 TARGETED DISPLAY: Get only DMs mapped to this persona with enriched contact info
     const personaDecisionMakers = realTimeData.getDecisionMakersForPersona(p.id);
     
@@ -128,21 +165,13 @@ export default function DecisionMakerProfiles() {
     };
   });
   
-  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && decisionMakerPersonas.length === 0);
-  const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
-  
+  const isLoading = isDemo ? false : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && decisionMakerPersonas.length === 0);
+  const hasSearch = isDemo ? true : !!currentSearch;
+
   // Discovery status based on real-time progress
-  const discoveryStatus = isDemo ? 'completed' : 
+  const discoveryStatus = isDemo ? 'completed' :
     realTimeData.progress.phase === 'completed' ? 'completed' :
     realTimeData.progress.decision_makers_count > 0 ? 'discovering' : 'discovering';
-
-  // Load demo data for demo users only
-  useEffect(() => {
-    if (isDemo) {
-      setDemoPersonas(getStaticDMPersonas());
-      setIsLoadingDemo(false);
-    }
-  }, [isDemo]);
 
   // Real-time progress logging
   useEffect(() => {
@@ -156,829 +185,6 @@ export default function DecisionMakerProfiles() {
     }
   }, [realTimeData, currentSearch, isDemo]);
 
-  // Function to check orchestration progress for decision makers
-  const checkDiscoveryProgress = async (searchId: string) => {
-    try {
-      const response = await fetch('/.netlify/functions/check-progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ search_id: searchId })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        const progress = result.progress;
-        const dataCounts = result.data_counts;
-        
-        console.log(`DM Discovery progress: ${progress?.phase}, Decision makers found: ${dataCounts?.decision_makers || 0}`);
-        
-        // Update discovery status based on progress and data
-        if (dataCounts?.decision_makers > 0) {
-          setDiscoveryStatus('completed');
-          setIsLoading(false);
-          // Reload data if we have new decision makers
-          loadData();
-        } else if (progress?.phase === 'completed') {
-          setDiscoveryStatus('completed');
-          setIsLoading(false);
-        } else if (progress?.phase === 'decision_makers') {
-          setDiscoveryStatus('discovering');
-          // Keep checking progress
-          setTimeout(() => checkDiscoveryProgress(searchId), 2000);
-        } else if (progress?.phase === 'businesses' || progress?.phase === 'starting_discovery' || progress?.phase === 'personas') {
-          setDiscoveryStatus('discovering');
-          // DM discovery comes after businesses, so keep checking
-          setTimeout(() => checkDiscoveryProgress(searchId), 3000);
-        } else {
-          // Keep checking for a reasonable time
-          setTimeout(() => checkDiscoveryProgress(searchId), 5000);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking DM discovery progress:', error);
-      // Fallback - stop checking after a while
-      setTimeout(() => setDiscoveryStatus('completed'), 15000);
-    }
-  };
-
-  // Real-time subscription for streaming newly inserted decision makers
-  useEffect(() => {
-    const currentSearch = getCurrentSearch();
-    if (!currentSearch) return;
-    
-    const channel = supabase
-      .channel('decision-makers-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'decision_makers',
-          filter: `search_id=eq.${currentSearch.id}`
-        },
-        (payload) => {
-          console.log('New decision maker found:', payload.new);
-          
-          // Update discovery status when first decision maker appears
-          setDiscoveryStatus('completed');
-          setIsLoading(false);
-          
-          // Reload data to get the complete persona structure
-          loadData();
-        }
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [getCurrentSearch]);
-
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
-      const currentSearch = getCurrentSearch();
-      const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
-      
-      if (isDemo) {
-        setDecisionMakerPersonas(getStaticPersonas());
-        setHasSearch(true);
-      } else if (!currentSearch) {
-        setDecisionMakerPersonas([]);
-        setHasSearch(false);
-      } else {
-        // Load real data from database
-        try {
-          const [dmPersonas, decisionMakers] = await Promise.all([
-            SearchService.getDecisionMakerPersonas(currentSearch.id),
-            SearchService.getDecisionMakers(currentSearch.id)
-          ]);
-
-          if (dmPersonas.length === 0) {
-            // Check if search is recent (less than 10 minutes old) - might still be processing
-            const searchAge = Date.now() - new Date(currentSearch.created_at).getTime();
-            const isRecentSearch = searchAge < 10 * 60 * 1000; // 10 minutes
-            
-            if (isRecentSearch) {
-              console.log(`Search ${currentSearch.id} is recent and still processing decision makers...`);
-              setDiscoveryStatus('discovering');
-              // Keep loading state for recent searches
-              setIsLoading(true);
-              // Check again in a few seconds
-              setTimeout(() => loadData(), 4000);
-              return;
-            } else {
-              console.log(`No decision maker personas found for completed search ${currentSearch.id}`);
-              setDecisionMakerPersonas([]);
-              setHasSearch(true);
-              return;
-            }
-          }
-
-          // Convert database personas to component format with actual employees
-          const formattedPersonas = dmPersonas.map((persona) => {
-            // Find decision makers for this persona (basic matching by title similarity)
-            const personaEmployees = decisionMakers
-              .filter(dm => {
-                // Simple matching - can be improved with better persona mapping
-                const personaTitle = persona.title.toLowerCase();
-                const dmTitle = dm.title.toLowerCase();
-                return dmTitle.includes(personaTitle.split(' ')[0]) || 
-                       dmTitle.includes(personaTitle.split(' ')[1]) ||
-                       dm.department.toLowerCase().includes(persona.demographics?.department?.toLowerCase() || '');
-              })
-              .slice(0, 5) // Max 5 per persona
-              .map(dm => ({
-                id: dm.id,
-                name: dm.name,
-                title: dm.title,
-                company: dm.company,
-                matchScore: dm.match_score || 75
-              }));
-
-            return {
-              id: persona.id,
-              title: persona.title,
-              rank: persona.rank,
-              matchScore: persona.match_score,
-              level: persona.demographics?.level || 'executive',
-              department: persona.demographics?.department || 'Technology',
-              influence: 85, // Default influence
-              demographics: {
-                experience: persona.demographics?.experience || '10+ years',
-                typicalTitles: persona.characteristics?.responsibilities || [],
-                departments: [persona.demographics?.department || 'Technology'],
-                companyTypes: ['Technology', 'Enterprise']
-              },
-              characteristics: {
-                keyResponsibilities: persona.characteristics?.responsibilities || [],
-                painPoints: persona.characteristics?.painPoints || [],
-                motivations: persona.characteristics?.motivations || [],
-                decisionFactors: persona.characteristics?.decisionFactors || []
-              },
-              behaviors: {
-                communicationStyle: persona.behaviors?.communicationStyle || 'Direct and analytical',
-                decisionTimeline: persona.behaviors?.decisionTimeline || '3-6 months',
-                preferredApproach: persona.behaviors?.buyingProcess || 'Thorough evaluation',
-                buyingInfluence: 'High'
-              },
-              marketPotential: {
-                totalDecisionMakers: persona.market_potential?.totalDecisionMakers || 1000,
-                avgInfluence: persona.market_potential?.avgInfluence || 85,
-                conversionRate: persona.market_potential?.conversionRate || '15%'
-              },
-              employees: personaEmployees
-            };
-          });
-
-          setDecisionMakerPersonas(formattedPersonas);
-          setHasSearch(true);
-        } catch (dbError) {
-          console.error('Error loading data from database:', dbError);
-          setDecisionMakerPersonas([]);
-          setHasSearch(true);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading decision maker profiles:', error);
-      setDecisionMakerPersonas([]);
-      setHasSearch(false);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const getStaticPersonas = (): DecisionMakerPersona[] => [
-    {
-      id: '1',
-      title: 'Chief Technology Officer',
-      rank: 1,
-      matchScore: 95,
-      level: 'executive',
-      department: 'Technology',
-      influence: 95,
-      demographics: {
-        experience: '15+ years in enterprise technology leadership',
-        typicalTitles: ['CTO', 'Chief Technology Officer', 'VP of Technology', 'Head of Technology'],
-        departments: ['Technology', 'IT', 'Engineering', 'Digital Transformation'],
-        companyTypes: ['Enterprise', 'Technology Companies', 'Fortune 500']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'Technology strategy and vision',
-          'Digital transformation initiatives',
-          'Technology budget allocation',
-          'Vendor relationship management',
-          'Innovation and R&D oversight'
-        ],
-        painPoints: [
-          'Legacy system modernization',
-          'Balancing innovation with operational stability',
-          'Managing technical debt',
-          'Cybersecurity and compliance',
-          'Scaling technology infrastructure'
-        ],
-        motivations: [
-          'Drive digital transformation success',
-          'Maintain competitive technological advantage',
-          'Optimize technology investments',
-          'Build high-performing technology teams',
-          'Ensure operational excellence'
-        ],
-        decisionFactors: [
-          'Proven ROI and business impact',
-          'Strategic alignment with company goals',
-          'Vendor stability and long-term support',
-          'Integration capabilities',
-          'Implementation timeline and complexity'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'Strategic, data-driven, prefers executive summaries with clear business impact',
-        decisionTimeline: '6-12 months for major technology decisions',
-        preferredApproach: 'Executive briefing with clear business case, ROI projections, and strategic roadmap',
-        buyingInfluence: 'Final decision maker for technology investments over $500K'
-      },
-      marketPotential: {
-        totalDecisionMakers: 2500,
-        avgInfluence: 95,
-        conversionRate: '8%'
-      },
-      employees: [
-        { id: '1', name: 'Sarah Johnson', title: 'Chief Technology Officer', company: 'TechCorp Solutions', matchScore: 95 },
-        { id: '2', name: 'David Chen', title: 'CTO', company: 'InnovateTech Inc', matchScore: 92 },
-        { id: '3', name: 'Maria Rodriguez', title: 'VP of Technology', company: 'Global Manufacturing Corp', matchScore: 89 },
-        { id: '4', name: 'James Wilson', title: 'Head of Technology', company: 'Financial Services Group', matchScore: 87 },
-        { id: '5', name: 'Lisa Park', title: 'Chief Technology Officer', company: 'HealthTech Innovations', matchScore: 85 }
-      ]
-    },
-    {
-      id: '2',
-      title: 'VP of Engineering',
-      rank: 2,
-      matchScore: 88,
-      level: 'director',
-      department: 'Engineering',
-      influence: 80,
-      demographics: {
-        experience: '10-15 years in software engineering and team management',
-        typicalTitles: ['VP of Engineering', 'Director of Engineering', 'Head of Engineering', 'Engineering Manager'],
-        departments: ['Engineering', 'Product Development', 'Technology', 'R&D'],
-        companyTypes: ['Technology Companies', 'Software Companies', 'Startups', 'Scale-ups']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'Engineering team leadership and development',
-          'Technical architecture decisions',
-          'Product development oversight',
-          'Engineering process optimization',
-          'Technical talent acquisition and retention'
-        ],
-        painPoints: [
-          'Managing technical debt effectively',
-          'Balancing feature delivery with quality',
-          'Scaling engineering processes',
-          'Tool fragmentation and integration',
-          'Resource allocation and prioritization'
-        ],
-        motivations: [
-          'Build scalable, maintainable systems',
-          'Improve team productivity and satisfaction',
-          'Deliver high-quality products',
-          'Foster innovation and technical excellence',
-          'Optimize development workflows'
-        ],
-        decisionFactors: [
-          'Technical capabilities and performance',
-          'Integration ease with existing stack',
-          'Developer experience and adoption',
-          'Support quality and documentation',
-          'Scalability and future-proofing'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'Technical, detail-oriented, prefers hands-on demonstrations and proof-of-concepts',
-        decisionTimeline: '3-6 months for engineering tool decisions',
-        preferredApproach: 'Technical deep-dive with hands-on demonstration, pilot program, and developer feedback',
-        buyingInfluence: 'Strong influence on technical tool selection, budget approval needed from CTO/CEO'
-      },
-      marketPotential: {
-        totalDecisionMakers: 4200,
-        avgInfluence: 80,
-        conversionRate: '15%'
-      },
-      employees: [
-        { id: '6', name: 'Michael Chen', title: 'VP of Engineering', company: 'TechCorp Solutions', matchScore: 88 },
-        { id: '7', name: 'Jennifer Kim', title: 'Director of Engineering', company: 'InnovateTech Inc', matchScore: 85 },
-        { id: '8', name: 'Robert Taylor', title: 'Head of Engineering', company: 'StartupHub Accelerator', matchScore: 82 },
-        { id: '9', name: 'Amanda Foster', title: 'VP of Engineering', company: 'Retail Dynamics', matchScore: 80 },
-        { id: '10', name: 'Carlos Martinez', title: 'Engineering Manager', company: 'HealthTech Innovations', matchScore: 78 }
-      ]
-    },
-    {
-      id: '3',
-      title: 'Director of Operations',
-      rank: 3,
-      matchScore: 85,
-      level: 'director',
-      department: 'Operations',
-      influence: 75,
-      demographics: {
-        experience: '8-12 years in operations and process optimization',
-        typicalTitles: ['Director of Operations', 'VP of Operations', 'Operations Manager', 'COO'],
-        departments: ['Operations', 'Business Operations', 'Process Improvement', 'Supply Chain'],
-        companyTypes: ['Manufacturing', 'Healthcare', 'Retail', 'Services']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'Operational process design and optimization',
-          'Cross-functional project coordination',
-          'Performance metrics and KPI management',
-          'Compliance and quality assurance',
-          'Vendor and supplier management'
-        ],
-        painPoints: [
-          'Manual processes slowing operations',
-          'Data silos preventing visibility',
-          'Compliance and regulatory challenges',
-          'Resource constraints and budget pressure',
-          'Change management resistance'
-        ],
-        motivations: [
-          'Streamline operational processes',
-          'Improve data visibility and reporting',
-          'Ensure compliance and quality standards',
-          'Reduce operational costs',
-          'Enable scalable growth'
-        ],
-        decisionFactors: [
-          'Process impact and efficiency gains',
-          'Cost-benefit analysis and ROI',
-          'Implementation complexity and timeline',
-          'Training requirements and adoption',
-          'Compliance and audit readiness'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'Process-focused, metrics-driven, prefers structured presentations with clear outcomes',
-        decisionTimeline: '4-8 months for operational system decisions',
-        preferredApproach: 'Process mapping session with efficiency metrics, implementation roadmap, and success stories',
-        buyingInfluence: 'Strong influence on operational tools, works with CFO for budget approval'
-      },
-      marketPotential: {
-        totalDecisionMakers: 3800,
-        avgInfluence: 75,
-        conversionRate: '12%'
-      },
-      employees: [
-        { id: '11', name: 'Lisa Rodriguez', title: 'Director of Operations', company: 'TechCorp Solutions', matchScore: 85 },
-        { id: '12', name: 'Thomas Anderson', title: 'VP of Operations', company: 'Global Manufacturing Corp', matchScore: 82 },
-        { id: '13', name: 'Rachel Green', title: 'Operations Manager', company: 'Retail Dynamics', matchScore: 79 },
-        { id: '14', name: 'Kevin Brown', title: 'COO', company: 'HealthTech Innovations', matchScore: 77 },
-        { id: '15', name: 'Sophie Turner', title: 'Director of Operations', company: 'Energy Solutions Ltd', matchScore: 75 }
-      ]
-    },
-    {
-      id: '4',
-      title: 'IT Director',
-      rank: 4,
-      matchScore: 82,
-      level: 'director',
-      department: 'IT',
-      influence: 78,
-      demographics: {
-        experience: '10-15 years in IT management and infrastructure',
-        typicalTitles: ['IT Director', 'Director of IT', 'IT Manager', 'Head of IT'],
-        departments: ['IT', 'Information Technology', 'Infrastructure', 'Systems'],
-        companyTypes: ['All Industries', 'Enterprise', 'Mid-Market']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'IT infrastructure management',
-          'Technology vendor relationships',
-          'IT budget planning and allocation',
-          'Security and compliance oversight',
-          'IT team leadership'
-        ],
-        painPoints: [
-          'Legacy system maintenance',
-          'Cybersecurity threats',
-          'Budget constraints',
-          'System integration challenges',
-          'User support and training'
-        ],
-        motivations: [
-          'Modernize IT infrastructure',
-          'Improve system reliability',
-          'Enhance security posture',
-          'Reduce operational costs',
-          'Support business growth'
-        ],
-        decisionFactors: [
-          'Security and compliance features',
-          'Integration capabilities',
-          'Total cost of ownership',
-          'Vendor support and reliability',
-          'Implementation complexity'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'Technical but business-focused, prefers detailed specifications and security assessments',
-        decisionTimeline: '3-9 months for infrastructure decisions',
-        preferredApproach: 'Technical evaluation with security review, pilot testing, and vendor references',
-        buyingInfluence: 'Decision maker for IT tools under $100K, influences larger decisions'
-      },
-      marketPotential: {
-        totalDecisionMakers: 5200,
-        avgInfluence: 78,
-        conversionRate: '18%'
-      },
-      employees: [
-        { id: '16', name: 'Mark Thompson', title: 'IT Director', company: 'Financial Services Group', matchScore: 82 },
-        { id: '17', name: 'Sarah Williams', title: 'Director of IT', company: 'EduTech University', matchScore: 79 },
-        { id: '18', name: 'John Davis', title: 'Head of IT', company: 'City Government Services', matchScore: 76 },
-        { id: '19', name: 'Emily Johnson', title: 'IT Manager', company: 'Global Manufacturing Corp', matchScore: 74 },
-        { id: '20', name: 'Alex Chen', title: 'IT Director', company: 'Retail Dynamics', matchScore: 72 }
-      ]
-    },
-    {
-      id: '5',
-      title: 'Chief Information Officer',
-      rank: 5,
-      matchScore: 79,
-      level: 'executive',
-      department: 'IT',
-      influence: 90,
-      demographics: {
-        experience: '15+ years in information technology and business strategy',
-        typicalTitles: ['CIO', 'Chief Information Officer', 'VP of Information Technology'],
-        departments: ['IT', 'Information Technology', 'Digital Strategy'],
-        companyTypes: ['Large Enterprise', 'Fortune 500', 'Government']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'Information technology strategy',
-          'Digital transformation leadership',
-          'IT governance and compliance',
-          'Technology investment decisions',
-          'Data and analytics strategy'
-        ],
-        painPoints: [
-          'Aligning IT with business strategy',
-          'Managing IT complexity',
-          'Cybersecurity and risk management',
-          'Legacy system modernization',
-          'IT talent acquisition'
-        ],
-        motivations: [
-          'Enable business transformation',
-          'Optimize IT investments',
-          'Ensure data security and compliance',
-          'Drive innovation through technology',
-          'Build strategic IT capabilities'
-        ],
-        decisionFactors: [
-          'Strategic business alignment',
-          'Enterprise scalability',
-          'Security and compliance',
-          'Vendor partnership potential',
-          'Long-term technology roadmap fit'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'Strategic and business-focused, prefers executive briefings with clear business outcomes',
-        decisionTimeline: '6-18 months for strategic IT decisions',
-        preferredApproach: 'Executive presentation with business case, strategic alignment, and transformation roadmap',
-        buyingInfluence: 'Final decision maker for enterprise IT investments'
-      },
-      marketPotential: {
-        totalDecisionMakers: 1800,
-        avgInfluence: 90,
-        conversionRate: '6%'
-      },
-      employees: [
-        { id: '21', name: 'Patricia Davis', title: 'CIO', company: 'Financial Services Group', matchScore: 79 },
-        { id: '22', name: 'Richard Miller', title: 'Chief Information Officer', company: 'Global Manufacturing Corp', matchScore: 76 },
-        { id: '23', name: 'Jennifer Wilson', title: 'VP of Information Technology', company: 'HealthTech Innovations', matchScore: 73 },
-        { id: '24', name: 'Michael Brown', title: 'CIO', company: 'Energy Solutions Ltd', matchScore: 71 },
-        { id: '25', name: 'Laura Garcia', title: 'Chief Information Officer', company: 'EduTech University', matchScore: 69 }
-      ]
-    },
-    {
-      id: '6',
-      title: 'Product Manager',
-      rank: 6,
-      matchScore: 76,
-      level: 'manager',
-      department: 'Product',
-      influence: 70,
-      demographics: {
-        experience: '5-10 years in product management and development',
-        typicalTitles: ['Product Manager', 'Senior Product Manager', 'Director of Product', 'VP of Product'],
-        departments: ['Product', 'Product Management', 'Product Development'],
-        companyTypes: ['Technology Companies', 'SaaS Companies', 'Startups']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'Product strategy and roadmap',
-          'Feature prioritization and planning',
-          'Cross-functional team coordination',
-          'Market research and analysis',
-          'User experience optimization'
-        ],
-        painPoints: [
-          'Balancing competing priorities',
-          'Resource constraints',
-          'Market competition',
-          'User feedback integration',
-          'Technical debt management'
-        ],
-        motivations: [
-          'Build successful products',
-          'Improve user experience',
-          'Drive product growth',
-          'Stay ahead of competition',
-          'Optimize product metrics'
-        ],
-        decisionFactors: [
-          'User impact and experience',
-          'Product-market fit',
-          'Implementation feasibility',
-          'Competitive advantage',
-          'ROI and business metrics'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'User-focused, data-driven, prefers product demos and user research insights',
-        decisionTimeline: '2-6 months for product tool decisions',
-        preferredApproach: 'Product demonstration with user research data, competitive analysis, and success metrics',
-        buyingInfluence: 'Strong influence on product tools, budget approval from VP/Director level'
-      },
-      marketPotential: {
-        totalDecisionMakers: 6500,
-        avgInfluence: 70,
-        conversionRate: '22%'
-      },
-      employees: [
-        { id: '26', name: 'Jessica Taylor', title: 'Product Manager', company: 'InnovateTech Inc', matchScore: 76 },
-        { id: '27', name: 'Daniel Kim', title: 'Senior Product Manager', company: 'StartupHub Accelerator', matchScore: 73 },
-        { id: '28', name: 'Michelle Wong', title: 'Director of Product', company: 'Retail Dynamics', matchScore: 70 },
-        { id: '29', name: 'Ryan O\'Connor', title: 'VP of Product', company: 'HealthTech Innovations', matchScore: 68 },
-        { id: '30', name: 'Samantha Lee', title: 'Product Manager', company: 'TechCorp Solutions', matchScore: 66 }
-      ]
-    },
-    {
-      id: '7',
-      title: 'Procurement Manager',
-      rank: 7,
-      matchScore: 73,
-      level: 'manager',
-      department: 'Procurement',
-      influence: 60,
-      demographics: {
-        experience: '6-12 years in procurement and vendor management',
-        typicalTitles: ['Procurement Manager', 'Director of Procurement', 'Purchasing Manager', 'Vendor Manager'],
-        departments: ['Procurement', 'Purchasing', 'Supply Chain', 'Operations'],
-        companyTypes: ['All Industries', 'Manufacturing', 'Healthcare', 'Government']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'Vendor evaluation and selection',
-          'Contract negotiation and management',
-          'Cost optimization and budget management',
-          'Risk assessment and mitigation',
-          'Supplier relationship management'
-        ],
-        painPoints: [
-          'Budget pressures and cost constraints',
-          'Complex vendor evaluation processes',
-          'Contract complexity and legal requirements',
-          'Risk assessment and mitigation',
-          'Stakeholder alignment on requirements'
-        ],
-        motivations: [
-          'Optimize total cost of ownership',
-          'Build strong vendor relationships',
-          'Mitigate procurement risks',
-          'Streamline procurement processes',
-          'Ensure contract compliance'
-        ],
-        decisionFactors: [
-          'Total cost of ownership analysis',
-          'Vendor reliability and track record',
-          'Contract terms and flexibility',
-          'Support levels and SLAs',
-          'Risk mitigation and guarantees'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'Detail-oriented, cost-focused, prefers comprehensive proposals with clear terms',
-        decisionTimeline: '3-12 months depending on procurement complexity',
-        preferredApproach: 'Detailed proposal with cost breakdown, vendor references, and comprehensive risk mitigation plan',
-        buyingInfluence: 'Gatekeeper for vendor selection, influences final decision'
-      },
-      marketPotential: {
-        totalDecisionMakers: 4800,
-        avgInfluence: 60,
-        conversionRate: '16%'
-      },
-      employees: [
-        { id: '31', name: 'David Kim', title: 'Procurement Manager', company: 'TechCorp Solutions', matchScore: 73 },
-        { id: '32', name: 'Maria Santos', title: 'Director of Procurement', company: 'Global Manufacturing Corp', matchScore: 70 },
-        { id: '33', name: 'James Wilson', title: 'Purchasing Manager', company: 'HealthTech Innovations', matchScore: 67 },
-        { id: '34', name: 'Lisa Chen', title: 'Vendor Manager', company: 'Financial Services Group', matchScore: 65 },
-        { id: '35', name: 'Robert Johnson', title: 'Procurement Manager', company: 'Energy Solutions Ltd', matchScore: 63 }
-      ]
-    },
-    {
-      id: '8',
-      title: 'Chief Financial Officer',
-      rank: 8,
-      matchScore: 70,
-      level: 'executive',
-      department: 'Finance',
-      influence: 85,
-      demographics: {
-        experience: '15+ years in finance and business leadership',
-        typicalTitles: ['CFO', 'Chief Financial Officer', 'VP of Finance', 'Finance Director'],
-        departments: ['Finance', 'Accounting', 'Financial Planning'],
-        companyTypes: ['All Industries', 'Public Companies', 'Large Private Companies']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'Financial strategy and planning',
-          'Budget allocation and oversight',
-          'Investment decision approval',
-          'Risk management and compliance',
-          'Financial reporting and analysis'
-        ],
-        painPoints: [
-          'Budget constraints and cost pressure',
-          'ROI justification requirements',
-          'Financial risk management',
-          'Regulatory compliance',
-          'Cash flow optimization'
-        ],
-        motivations: [
-          'Optimize financial performance',
-          'Ensure regulatory compliance',
-          'Manage financial risks',
-          'Support business growth',
-          'Maximize shareholder value'
-        ],
-        decisionFactors: [
-          'Clear ROI and payback period',
-          'Total cost of ownership',
-          'Financial risk assessment',
-          'Budget impact and timing',
-          'Compliance requirements'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'Numbers-focused, risk-aware, prefers detailed financial analysis and projections',
-        decisionTimeline: '6-12 months for significant financial commitments',
-        preferredApproach: 'Financial business case with ROI analysis, risk assessment, and budget impact',
-        buyingInfluence: 'Final approval for major expenditures, budget gatekeeper'
-      },
-      marketPotential: {
-        totalDecisionMakers: 2200,
-        avgInfluence: 85,
-        conversionRate: '8%'
-      },
-      employees: [
-        { id: '36', name: 'William Davis', title: 'CFO', company: 'Financial Services Group', matchScore: 70 },
-        { id: '37', name: 'Catherine Miller', title: 'Chief Financial Officer', company: 'Global Manufacturing Corp', matchScore: 67 },
-        { id: '38', name: 'Steven Brown', title: 'VP of Finance', company: 'HealthTech Innovations', matchScore: 64 },
-        { id: '39', name: 'Nancy Wilson', title: 'Finance Director', company: 'Retail Dynamics', matchScore: 62 },
-        { id: '40', name: 'Andrew Garcia', title: 'CFO', company: 'Energy Solutions Ltd', matchScore: 60 }
-      ]
-    },
-    {
-      id: '9',
-      title: 'Head of Digital Transformation',
-      rank: 9,
-      matchScore: 67,
-      level: 'director',
-      department: 'Digital Transformation',
-      influence: 82,
-      demographics: {
-        experience: '10-15 years in digital strategy and transformation',
-        typicalTitles: ['Head of Digital Transformation', 'Director of Digital Strategy', 'VP of Digital Innovation'],
-        departments: ['Digital Transformation', 'Strategy', 'Innovation', 'Technology'],
-        companyTypes: ['Traditional Industries', 'Large Enterprise', 'Government']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'Digital transformation strategy',
-          'Change management leadership',
-          'Technology adoption oversight',
-          'Process digitization initiatives',
-          'Cultural transformation'
-        ],
-        painPoints: [
-          'Organizational resistance to change',
-          'Legacy system integration',
-          'Skills gap and training needs',
-          'Measuring transformation ROI',
-          'Coordinating cross-functional initiatives'
-        ],
-        motivations: [
-          'Drive successful digital transformation',
-          'Modernize business processes',
-          'Improve operational efficiency',
-          'Enable data-driven decision making',
-          'Create competitive advantage'
-        ],
-        decisionFactors: [
-          'Transformation impact potential',
-          'Change management support',
-          'Integration capabilities',
-          'User adoption likelihood',
-          'Long-term strategic value'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'Strategic and change-focused, prefers transformation roadmaps and success stories',
-        decisionTimeline: '6-18 months for transformation initiatives',
-        preferredApproach: 'Transformation strategy session with change management plan and success metrics',
-        buyingInfluence: 'Strong influence on digital initiatives, works with C-suite for approval'
-      },
-      marketPotential: {
-        totalDecisionMakers: 1500,
-        avgInfluence: 82,
-        conversionRate: '10%'
-      },
-      employees: [
-        { id: '41', name: 'Alexandra Thompson', title: 'Head of Digital Transformation', company: 'Global Manufacturing Corp', matchScore: 67 },
-        { id: '42', name: 'Marcus Johnson', title: 'Director of Digital Strategy', company: 'Financial Services Group', matchScore: 64 },
-        { id: '43', name: 'Elena Rodriguez', title: 'VP of Digital Innovation', company: 'HealthTech Innovations', matchScore: 61 },
-        { id: '44', name: 'Peter Kim', title: 'Head of Digital Transformation', company: 'Energy Solutions Ltd', matchScore: 59 },
-        { id: '45', name: 'Rachel Adams', title: 'Director of Digital Strategy', company: 'City Government Services', matchScore: 57 }
-      ]
-    },
-    {
-      id: '10',
-      title: 'Business Development Manager',
-      rank: 10,
-      matchScore: 64,
-      level: 'manager',
-      department: 'Business Development',
-      influence: 65,
-      demographics: {
-        experience: '5-10 years in business development and partnerships',
-        typicalTitles: ['Business Development Manager', 'BD Manager', 'Director of Business Development', 'VP of Business Development'],
-        departments: ['Business Development', 'Sales', 'Partnerships', 'Strategy'],
-        companyTypes: ['Technology Companies', 'Startups', 'Scale-ups', 'Services']
-      },
-      characteristics: {
-        keyResponsibilities: [
-          'Partnership development and management',
-          'New business opportunity identification',
-          'Strategic alliance negotiations',
-          'Market expansion initiatives',
-          'Revenue growth strategies'
-        ],
-        painPoints: [
-          'Finding qualified partners',
-          'Long partnership development cycles',
-          'Measuring partnership ROI',
-          'Competitive market dynamics',
-          'Resource allocation for initiatives'
-        ],
-        motivations: [
-          'Drive business growth',
-          'Build strategic partnerships',
-          'Expand market reach',
-          'Create competitive advantages',
-          'Generate new revenue streams'
-        ],
-        decisionFactors: [
-          'Partnership potential and fit',
-          'Market opportunity size',
-          'Implementation complexity',
-          'Resource requirements',
-          'Competitive positioning'
-        ]
-      },
-      behaviors: {
-        communicationStyle: 'Relationship-focused, opportunity-driven, prefers partnership proposals and market analysis',
-        decisionTimeline: '3-9 months for partnership decisions',
-        preferredApproach: 'Partnership proposal with market opportunity analysis and mutual benefit framework',
-        buyingInfluence: 'Influences partnership and tool selection, budget approval from VP/Director level'
-      },
-      marketPotential: {
-        totalDecisionMakers: 3200,
-        avgInfluence: 65,
-        conversionRate: '20%'
-      },
-      employees: [
-        { id: '46', name: 'Christopher Lee', title: 'Business Development Manager', company: 'StartupHub Accelerator', matchScore: 64 },
-        { id: '47', name: 'Stephanie Wong', title: 'BD Manager', company: 'InnovateTech Inc', matchScore: 61 },
-        { id: '48', name: 'Jonathan Smith', title: 'Director of Business Development', company: 'Retail Dynamics', matchScore: 58 },
-        { id: '49', name: 'Amanda Foster', title: 'VP of Business Development', company: 'HealthTech Innovations', matchScore: 56 },
-        { id: '50', name: 'Kevin Martinez', title: 'Business Development Manager', company: 'TechCorp Solutions', matchScore: 54 }
-      ]
-    }
-  ]);
-
-  // Detailed employee data
   const [detailedEmployees] = useState<DecisionMaker[]>([
     {
       id: '1',
@@ -1229,10 +435,7 @@ export default function DecisionMakerProfiles() {
   }
 
   // Show discovery progress UI for real users (always show loading for real searches)
-  const currentSearch = getCurrentSearch();
-  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
-  
-  if (isLoading || (discoveryStatus === 'discovering' && decisionMakerPersonas.length === 0) || 
+  if (isLoading || (discoveryStatus === 'discovering' && decisionMakerPersonas.length === 0) ||
       (!isDemo && currentSearch && decisionMakerPersonas.length === 0)) {
     return (
       <div className="flex items-center justify-center min-h-96">
