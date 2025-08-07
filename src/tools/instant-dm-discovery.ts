@@ -5,7 +5,11 @@ import { updateSearchProgress } from './db.write';
 const dmProgress: Record<string, { total: number; processed: number }> = {};
 
 export function initDMDiscoveryProgress(search_id: string, total: number) {
-  dmProgress[search_id] = { total, processed: 0 };
+  if (dmProgress[search_id]) {
+    dmProgress[search_id].total += total;
+  } else {
+    dmProgress[search_id] = { total, processed: 0 };
+  }
 }
 
 async function recordProgress(search_id: string) {
