@@ -209,11 +209,18 @@ const storeDMsTool = tool({
     } else if (typeof window !== 'undefined' && window.location) {
       enrichUrl = `${window.location.origin}/.netlify/functions/enrich-decision-makers`;
     }
-    await fetch(enrichUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ search_id })
-    });
+    try {
+      // Fire-and-forget enrichment; log any failures
+      fetch(enrichUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id })
+      }).catch((err) => {
+        console.error('Enrichment request failed:', err);
+      });
+    } catch (err) {
+      console.error('Failed to trigger enrichment:', err);
+    }
     return inserted;
   }
 });
