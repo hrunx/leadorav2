@@ -77,38 +77,32 @@ export default function BusinessPersonas() {
     id: p.id,
     title: p.title,
     rank: p.rank,
-    description: p.description || `Key ${p.title} business persona`,
-    targetDemographics: {
-      companySize: p.company_size || 'Mid-market',
-      industry: p.industry || 'Technology',
-      revenue: p.revenue_range || '$10M-100M',
-      geography: p.geography || 'Global',
-      decisionMakers: p.decision_makers || []
+    matchScore: p.match_score,
+    demographics: {
+      industry: p.demographics?.industry || 'Technology',
+      companySize: p.demographics?.companySize || '100-1000 employees',
+      geography: p.demographics?.geography || 'Global',
+      revenue: p.demographics?.revenue || '$10M-100M'
     },
-    painPoints: p.pain_points || [],
-    solutions: p.solutions || [],
-    buyingJourney: {
-      awareness: p.awareness_stage || 'Problem aware',
-      consideration: p.consideration_stage || 'Solution research',
-      decision: p.decision_stage || 'Vendor evaluation',
-      buyingProcess: p.buying_process || 'Committee decision',
-      decisionTimeline: p.decision_timeline || '3-6 months',
-      budgetRange: p.budget_range || '$50K-500K',
-      preferredChannels: p.preferred_channels || []
+    characteristics: {
+      painPoints: p.characteristics?.painPoints || [],
+      motivations: p.characteristics?.motivations || [],
+      challenges: p.characteristics?.challenges || [],
+      decisionFactors: p.characteristics?.decisionFactors || []
+    },
+    behaviors: {
+      buyingProcess: p.behaviors?.buyingProcess || 'Standard evaluation process',
+      decisionTimeline: p.behaviors?.decisionTimeline || '3-6 months',
+      budgetRange: p.behaviors?.budgetRange || '$50K-500K',
+      preferredChannels: p.behaviors?.preferredChannels || []
     },
     marketPotential: {
-      totalCompanies: p.total_companies || 0,
-      avgDealSize: p.avg_deal_size || '$0',
-      conversionRate: p.conversion_rate || '0%'
+      totalCompanies: p.market_potential?.totalCompanies || 1000,
+      avgDealSize: p.market_potential?.avgDealSize || '$100K',
+      conversionRate: p.market_potential?.conversionRate || '10%'
     },
     locations: p.locations || [],
-    businesses: [],
-    characteristics: {
-      painPoints: p.pain_points || [],
-      motivations: p.solutions || [], // Use solutions as motivations
-      challenges: p.pain_points || [],
-      decisionFactors: p.decision_makers || []
-    }
+    businesses: []
   }));
   
   const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && personas.length === 0);

@@ -3,8 +3,8 @@ import { serperPlaces } from '../tools/serper';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
-import { triggerInstantDMDiscovery, processBusinessForDM } from '../tools/instant-dm-discovery.ts';
-import type { Business } from '../tools/instant-dm-discovery.ts';
+import { triggerInstantDMDiscovery, processBusinessForDM } from '../tools/instant-dm-discovery';
+import type { Business } from '../tools/instant-dm-discovery';
 
 const serperPlacesTool = tool({
   name: 'serperPlaces',

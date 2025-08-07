@@ -203,7 +203,13 @@ const storeDMsTool = tool({
     const inserted = await insertDecisionMakersBasic(rows);
 
     // Trigger backend enrichment via Netlify function
-    await fetch('/.netlify/functions/enrich-decision-makers', {
+    let enrichUrl = '/.netlify/functions/enrich-decision-makers';
+    if (typeof process !== 'undefined' && process.env && (process.env.URL || process.env.DEPLOY_URL)) {
+      enrichUrl = `${process.env.URL || process.env.DEPLOY_URL}/.netlify/functions/enrich-decision-makers`;
+    } else if (typeof window !== 'undefined' && window.location) {
+      enrichUrl = `${window.location.origin}/.netlify/functions/enrich-decision-makers`;
+    }
+    await fetch(enrichUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ search_id })
