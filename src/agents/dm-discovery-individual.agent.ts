@@ -1,6 +1,6 @@
 import { Agent, tool, run } from '@openai/agents';
 import { serperSearch } from '../tools/serper';
-import { insertDecisionMakersBasic, logApiUsage, updateSearchProgress } from '../tools/db.write';
+import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
 import { buildDMData, mapDMToPersona } from '../tools/util';
 
@@ -259,7 +259,6 @@ export async function runDMDiscoveryForBusiness(params: {
   business_name: string;
   company_country: string;
   industry: string;
-  skipProgressUpdate?: boolean;
 }) {
   // Ensure DM personas are available before running discovery
   await waitForPersonas(params.search_id);
@@ -276,9 +275,6 @@ User ID: ${params.user_id}
 Search LinkedIn for executives and decision makers, then store them with smart persona mapping.`;
 
   const result = await run(DMDiscoveryIndividualAgent, message);
-  if (!params.skipProgressUpdate) {
-    await updateSearchProgress(params.search_id, 100, 'decision_makers');
-  }
   return result;
 }
 
