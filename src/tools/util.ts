@@ -206,6 +206,9 @@ export function buildDMData(params: {
   phone?: string | null;
   bio?: string;
   location?: string;
+  level?: string;
+  department?: string;
+  influence?: number;
   enrichment_status?: string;
 }) {
   return {
@@ -221,10 +224,44 @@ export function buildDMData(params: {
     phone: params.phone || null,
     bio: params.bio || '',
     location: params.location || '',
+    level: params.level || inferLevel(params.title),
+    department: params.department || inferDepartment(params.title),
+    influence: params.influence ?? inferInfluence(params.title),
     enrichment_status: params.enrichment_status || 'pending',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
+}
+
+// Helper functions for inferring DM attributes
+function inferLevel(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes('ceo') || t.includes('president') || t.includes('founder')) return 'executive';
+  if (t.includes('cto') || t.includes('cfo') || t.includes('cmo')) return 'executive';
+  if (t.includes('vp') || t.includes('vice president')) return 'executive';
+  if (t.includes('director') || t.includes('head of')) return 'director';
+  if (t.includes('manager') || t.includes('lead')) return 'manager';
+  return 'individual';
+}
+
+function inferInfluence(title: string): number {
+  const level = inferLevel(title);
+  switch (level) {
+    case 'executive': return 95;
+    case 'director': return 80;
+    case 'manager': return 65;
+    default: return 45;
+  }
+}
+
+function inferDepartment(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes('tech') || t.includes('engineer') || t.includes('dev')) return 'Technology';
+  if (t.includes('market') || t.includes('sales')) return 'Sales & Marketing';
+  if (t.includes('finance') || t.includes('accounting')) return 'Finance';
+  if (t.includes('operation') || t.includes('ops')) return 'Operations';
+  if (t.includes('hr') || t.includes('people')) return 'Human Resources';
+  return 'General Management';
 }
 
 /**
