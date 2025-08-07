@@ -4,17 +4,19 @@ import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
 import { buildDMData, mapDMToPersona } from '../tools/util';
 import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
+import { fetchContactEnrichment } from '../tools/contact-enrichment';
 
 interface Employee {
   name: string;
   title: string;
   company: string;
   linkedin: string;
-  email: string;
-  phone: string;
+  email: string | null;
+  phone: string | null;
   bio: string;
   location: string;
   business_name?: string;
+  enrichment_status?: string;
 }
 
 type SerperItem = { link?: string; title?: string; snippet?: string };
@@ -71,10 +73,11 @@ const linkedinSearchTool = tool({
                 title: extractTitleFromLinkedInTitle(item.title),
                 company: company_name,
                 linkedin: item.link,
-                email: '',
-                phone: '',
+                email: null,
+                phone: null,
                 bio: item.snippet || '',
-                location: company_country || 'Unknown'
+                location: company_country || 'Unknown',
+                enrichment_status: 'pending'
               }));
 
             for (const emp of employees) {
@@ -82,7 +85,25 @@ const linkedinSearchTool = tool({
               if (!emp.location) emp.location = 'Unknown';
             }
 
-            allEmployees.push(...employees);
+            // Attempt contact enrichment before storing
+            const enrichedEmployees = await Promise.all(
+              employees.map(async (emp) => {
+                try {
+                  const contact = await fetchContactEnrichment(emp.name, company_name);
+                  return {
+                    ...emp,
+                    email: contact.email || null,
+                    phone: contact.phone || null,
+                    enrichment_status: contact.email || contact.phone ? 'completed' : 'pending'
+                  };
+                } catch (err) {
+                  console.warn('Contact enrichment failed for', emp.name, err);
+                  return { ...emp, email: null, phone: null, enrichment_status: 'pending' };
+                }
+              })
+            );
+
+            allEmployees.push(...enrichedEmployees);
           }
           
           // Small delay between searches to avoid rate limiting
@@ -159,8 +180,8 @@ const storeDMsTool = tool({
             title: { type: 'string' },
             company: { type: 'string' },
             linkedin: { type: 'string' },
-            email: { type: 'string' },
-            phone: { type: 'string' },
+            email: { type: ['string', 'null'] },
+            phone: { type: ['string', 'null'] },
             bio: { type: 'string' },
             location: { type: 'string' }
           },
@@ -206,11 +227,11 @@ const storeDMsTool = tool({
         title: emp.title,
         company,
         linkedin: emp.linkedin,
-        email: emp.email,
+        email: emp.email || null,
         phone: emp.phone || null,
         bio: emp.bio || '',
         location: emp.location || '',
-        enrichment_status: 'pending' // Will be enriched with real contact info
+        enrichment_status: emp.enrichment_status || 'pending' // Will be enriched with real contact info
       });
     });
 
