@@ -6,7 +6,8 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // Orchestration (OpenAI Mini for planning)
 ensureEnv(['OPENAI_API_KEY','VITE_SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','GEMINI_API_KEY','VITE_SUPABASE_ANON_KEY']);
 export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-setDefaultOpenAIClient(openai);
+// Bridge type mismatch between openai and agents-openai by casting
+setDefaultOpenAIClient(openai as unknown as any);
 
 // Content generation (unchanged)
 export const deepseek = new OpenAI({
