@@ -86,7 +86,7 @@ export default function DecisionMakerProfiles() {
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
 
   // Use real-time data for real users, demo data for demo users
-  const decisionMakerPersonas = realTimeData.dmPersonas.map((p: any) => {
+  const decisionMakerPersonas = (realTimeData.dmPersonas || []).map((p: any) => {
     // 🎯 TARGETED DISPLAY: Get only DMs mapped to this persona with enriched contact info
     const personaDecisionMakers = realTimeData.getDecisionMakersForPersona(p.id);
     
@@ -118,14 +118,14 @@ export default function DecisionMakerProfiles() {
         avg_influence: p.market_potential?.avg_influence,
         conversion_rate: p.market_potential?.conversion_rate,
       },
-      employees: personaDecisionMakers.map((dm: any, index: number) => ({
+      employees: (personaDecisionMakers || []).map((dm: any, index: number) => ({
         id: dm.id,
         name: dm.name,
         title: dm.title,
         company: dm.company,
         linkedin: dm.linkedin,
-        email: dm.email || 'Enriching...',
-        phone: dm.phone || 'Enriching...',
+        email: dm.email || 'Enriching…',
+        phone: dm.phone || 'Enriching…',
         location: dm.location || '',
         match_score: Math.min(95, Math.max(75, 90 - index * 3)), // Dynamic scoring
         verified: dm.enrichment_status === 'completed',
@@ -404,8 +404,15 @@ export default function DecisionMakerProfiles() {
             </div>
           </div>
           
-          <div className="mt-6 text-xs text-gray-400">
-            Decision maker profiles will appear as soon as they're found
+          <div className="mt-6 text-xs text-gray-400">Decision maker profiles will appear as soon as they're found</div>
+          {/* Minimal skeleton list to avoid blank feel */}
+          <div className="mt-6 space-y-3">
+            {[0,1,2].map(i => (
+              <div key={i} className="animate-pulse bg-white rounded-lg p-4 border border-gray-200">
+                <div className="h-4 bg-gray-200 rounded w-1/3 mb-2"></div>
+                <div className="h-3 bg-gray-100 rounded w-1/2"></div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -678,12 +685,16 @@ export default function DecisionMakerProfiles() {
                       <div>
                         <h4 className="font-semibold text-gray-900 mb-3">Top Pain Points</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.pain_points.map((point, index) => (
+                          {Array.isArray(selectedPersona.characteristics.pain_points)
+                            ? (selectedPersona.characteristics.pain_points as string[]).map((point: string, index: number) => (
                             <div key={index} className="flex items-start space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
                               <span className="text-gray-700 text-sm">{point}</span>
                             </div>
-                          ))}
+                            ))
+                            : (
+                              <p className="text-gray-500 text-sm italic">Pain points data being processed...</p>
+                            )}
                         </div>
                       </div>
                     </div>
@@ -696,48 +707,64 @@ export default function DecisionMakerProfiles() {
                       <div className="bg-red-50 rounded-xl p-4 border border-red-200">
                         <h4 className="font-semibold text-red-900 mb-3">Pain Points</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.pain_points.map((point, index) => (
+                          {Array.isArray(selectedPersona.characteristics.pain_points)
+                            ? (selectedPersona.characteristics.pain_points as string[]).map((point: string, index: number) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                               <span className="text-red-800 text-sm">{point}</span>
                             </div>
-                          ))}
+                            ))
+                            : (
+                              <p className="text-gray-500 text-sm italic">Pain points data being processed...</p>
+                            )}
                         </div>
                       </div>
 
                       <div className="bg-green-50 rounded-xl p-4 border border-green-200">
                         <h4 className="font-semibold text-green-900 mb-3">Motivations</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.motivations.map((motivation, index) => (
+                          {Array.isArray(selectedPersona.characteristics.motivations)
+                            ? (selectedPersona.characteristics.motivations as string[]).map((motivation: string, index: number) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                               <span className="text-green-800 text-sm">{motivation}</span>
                             </div>
-                          ))}
+                            ))
+                            : (
+                              <p className="text-gray-500 text-sm italic">Motivations data being processed...</p>
+                            )}
                         </div>
                       </div>
 
                       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
                         <h4 className="font-semibold text-blue-900 mb-3">Decision Factors</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.decision_factors.map((factor, index) => (
+                          {Array.isArray(selectedPersona.characteristics.decision_factors)
+                            ? (selectedPersona.characteristics.decision_factors as string[]).map((factor: string, index: number) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                               <span className="text-blue-800 text-sm">{factor}</span>
                             </div>
-                          ))}
+                            ))
+                            : (
+                              <p className="text-gray-500 text-sm italic">Decision factors data being processed...</p>
+                            )}
                         </div>
                       </div>
 
                       <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
                         <h4 className="font-semibold text-purple-900 mb-3">Key Responsibilities</h4>
                         <div className="space-y-2">
-                          {selectedPersona.characteristics.key_responsibilities.slice(0, 4).map((responsibility, index) => (
+                          {Array.isArray(selectedPersona.characteristics.key_responsibilities)
+                            ? (selectedPersona.characteristics.key_responsibilities as string[]).slice(0, 4).map((responsibility: string, index: number) => (
                             <div key={index} className="flex items-center space-x-2">
                               <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
                               <span className="text-purple-800 text-sm">{responsibility}</span>
                             </div>
-                          ))}
+                            ))
+                            : (
+                              <p className="text-gray-500 text-sm italic">Responsibilities data being processed...</p>
+                            )}
                         </div>
                       </div>
                     </div>
@@ -750,24 +777,24 @@ export default function DecisionMakerProfiles() {
                       <div className="space-y-4">
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Communication Style</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.communication_style}</p>
+                          <p className="text-gray-700 text-sm">{String(selectedPersona.behaviors.communication_style || 'N/A')}</p>
                         </div>
 
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Decision Timeline</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.decision_timeline}</p>
+                          <p className="text-gray-700 text-sm">{String(selectedPersona.behaviors.decision_timeline || 'N/A')}</p>
                         </div>
                       </div>
 
                       <div className="space-y-4">
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Preferred Approach</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.preferred_approach}</p>
+                          <p className="text-gray-700 text-sm">{String(selectedPersona.behaviors.preferred_approach || 'N/A')}</p>
                         </div>
 
                         <div className="bg-white border border-gray-200 rounded-xl p-4">
                           <h4 className="font-semibold text-gray-900 mb-2">Buying Influence</h4>
-                          <p className="text-gray-700 text-sm">{selectedPersona.behaviors.buying_influence}</p>
+                          <p className="text-gray-700 text-sm">{String(selectedPersona.behaviors.buying_influence || 'N/A')}</p>
                         </div>
                       </div>
                     </div>

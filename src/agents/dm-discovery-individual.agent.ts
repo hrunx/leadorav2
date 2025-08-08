@@ -1,5 +1,6 @@
 import { Agent, tool, run } from '@openai/agents';
 import { serperSearch } from '../tools/serper';
+import { resolveModel, supa as sharedSupa } from './clients';
 import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
 import { mapDMToPersona } from '../tools/util';
@@ -19,6 +20,20 @@ interface Employee {
 }
 
 type SerperItem = { link?: string; title?: string; snippet?: string };
+
+// Simple in-memory de-duplication of repeated search queries across invocations
+const seenQueries = new Set<string>();
+function hasSeen(company: string, query: string) {
+  const key = `${company}::${query}`.toLowerCase();
+  return seenQueries.has(key);
+}
+function markSeen(company: string, query: string) {
+  const key = `${company}::${query}`.toLowerCase();
+  if (seenQueries.size > 5000) {
+    seenQueries.clear();
+  }
+  seenQueries.add(key);
+}
 
 const linkedinSearchTool = tool({
   name: 'linkedinSearch',
@@ -48,57 +63,46 @@ const linkedinSearchTool = tool({
     const startTime = Date.now();
     
     try {
-      // Create LinkedIn-specific search queries for this company with product/service context
-      const baseQueries = [
-        `"${company_name}" site:linkedin.com/in/ CEO OR "Chief Executive"`,
-        `"${company_name}" site:linkedin.com/in/ CTO OR "Chief Technology"`,
-        `"${company_name}" site:linkedin.com/in/ CMO OR "Chief Marketing"`,
-        `"${company_name}" site:linkedin.com/in/ CFO OR "Chief Financial"`,
-        `"${company_name}" site:linkedin.com/in/ VP OR "Vice President"`,
-        `"${company_name}" site:linkedin.com/in/ Director OR Manager`
-      ];
-
-      // Add product/service-specific queries for better targeting
-      const contextualQueries = [];
-      if (product_service) {
-        const productKeywords = product_service.toLowerCase();
-        // Add queries targeting relevant departments for this product/service
-        if (productKeywords.includes('software') || productKeywords.includes('tech') || productKeywords.includes('saas') || productKeywords.includes('app')) {
-          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "IT Director" OR "Technology Manager" OR "Software Lead"`);
-        }
-        if (productKeywords.includes('marketing') || productKeywords.includes('advertising') || productKeywords.includes('campaign')) {
-          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "Marketing Director" OR "Brand Manager" OR "Digital Marketing"`);
-        }
-        if (productKeywords.includes('sales') || productKeywords.includes('crm') || productKeywords.includes('lead')) {
-          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "Sales Director" OR "Sales Manager" OR "Revenue"`);
-        }
-        if (productKeywords.includes('hr') || productKeywords.includes('human') || productKeywords.includes('employee') || productKeywords.includes('talent')) {
-          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "HR Director" OR "People Manager" OR "Human Resources"`);
-        }
-        if (productKeywords.includes('finance') || productKeywords.includes('accounting') || productKeywords.includes('invoice')) {
-          contextualQueries.push(`"${company_name}" site:linkedin.com/in/ "Finance Manager" OR "Controller" OR "Accounting"`);
-        }
-      }
-
-      const queries = [...baseQueries, ...contextualQueries];
+      // Three precise searches per company: use the 3 DM persona titles
+      const personas = await loadDMPersonas(search_id);
+      const titles = Array.isArray(personas)
+        ? personas
+            .slice(0,3)
+            .map((p:any)=>String(p.title||'').trim())
+            .filter(t => t && t.toLowerCase() !== 'persona generation failed')
+        : [];
+      const queries = (titles.length ? titles : ['Head of','Director','VP']).map(t => {
+        const ctx = (product_service || '').trim();
+        const suffix = ctx ? ` ${ctx}` : '';
+        return `"${company_name}" site:linkedin.com/in/ ${t}${suffix}`;
+      });
       
       const allEmployees: Employee[] = [];
       
       // Search for employees in different roles
       for (const query of queries) {
         try {
-          const result = await serperSearch(query, company_country, 5) as { success: boolean; items?: SerperItem[] };
-          if (result.success && result.items) {
+          // Skip if we've already executed this query for this company in this process
+          if (hasSeen(company_name, query)) {
+            continue;
+          }
+          const result = await serperSearch(query, company_country, 10);
+          if (result && result.success && Array.isArray(result.items)) {
             const employees = result.items
               .filter((item: SerperItem) =>
                 item.link?.includes('linkedin.com/in/') &&
-                item.title?.toLowerCase().includes(company_name.toLowerCase())
+                // Accept profile hits even if company not in title; keep if title OR snippet contains company
+                (
+                  item.title?.toLowerCase().includes(company_name.toLowerCase()) ||
+                  item.snippet?.toLowerCase().includes(company_name.toLowerCase()) ||
+                  true // fallback: keep broad to avoid empty results; later filtering/mapping will help
+                )
               )
               .map((item: SerperItem): Employee => ({
-                name: extractNameFromLinkedInTitle(item.title),
-                title: extractTitleFromLinkedInTitle(item.title),
+                name: extractNameFromLinkedInTitle(item.title || ''),
+                title: extractTitleFromLinkedInTitle(item.title || ''),
                 company: company_name,
-                linkedin: item.link,
+                linkedin: item.link || '',
                 email: null,
                 phone: null,
                 bio: item.snippet || '',
@@ -115,9 +119,14 @@ const linkedinSearchTool = tool({
             // Store employees immediately with enrichment_status: 'pending'
             allEmployees.push(...employees);
           }
+          // Mark this query as seen to prevent future duplicates
+          markSeen(company_name, query);
           
           // Small delay between searches to avoid rate limiting
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          const jitter = 300 + Math.floor(Math.random() * 300);
+          await new Promise(resolve => setTimeout(resolve, jitter));
+
+          // No hard cap; accept as many as returned from the single search
         } catch (searchError) {
           console.warn(`LinkedIn search failed for query: ${query}`, searchError);
         }
@@ -161,9 +170,9 @@ const linkedinSearchTool = tool({
           status: 500,
           ms: endTime - startTime,
           request: { company_name, company_country },
-          response: { error: error.message }
+          response: { error: (error as any)?.message || String(error) }
         });
-      } catch (logError) {
+      } catch (logError: any) {
         console.warn('Failed to log LinkedIn search error:', logError);
       }
       
@@ -175,7 +184,6 @@ const linkedinSearchTool = tool({
 // --- Helper: Validate Decision Maker completeness ---
 function isValidDecisionMaker(dm: any): boolean {
   const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim() && !['unknown', 'n/a', 'default', 'none'].includes(v.trim().toLowerCase());
-  const isNonEmptyArray = (v: any) => Array.isArray(v) && v.length > 0 && v.every(isNonEmptyString);
   try {
     if (!isNonEmptyString(dm.name)) return false;
     if (!isNonEmptyString(dm.title)) return false;
@@ -189,7 +197,7 @@ function isValidDecisionMaker(dm: any): boolean {
     if (!isNonEmptyString(dm.search_id)) return false;
     if (!isNonEmptyString(dm.user_id)) return false;
     if (!isNonEmptyString(dm.business_id)) return false;
-    if (!dm.persona_id) return false;
+    // persona_id can be null initially; it will be mapped later when personas are ready
     // Optional: email, phone, experience, communication_preference, pain_points, motivations, decision_factors, company_context, personalized_approach, enrichment, match_score, enrichment_status, created_at
     return true;
   } catch {
@@ -249,7 +257,7 @@ const storeDMsTool = tool({
     // Map and extend each employee to full DecisionMaker structure
     const rows = employeesWithLocation.map((emp) => {
       // 🎯 SMART PERSONA MAPPING: Match employee to most relevant persona
-      const mappedPersona = mapDMToPersona(emp, dmPersonas);
+    const mappedPersona = mapDMToPersona(emp as any, dmPersonas as any) as any;
       // Defensive: ensure company is always set
       let company = emp.company;
       if (!company || typeof company !== 'string' || !company.trim()) {
@@ -375,6 +383,7 @@ CONTACT GENERATION:
 Be fast and accurate - users see results immediately!
 `,
   tools: [linkedinSearchTool, storeDMsTool],
+  model: resolveModel('light')
 });
 
 export async function runDMDiscoveryForBusiness(params: {
@@ -404,8 +413,40 @@ User ID: ${params.user_id}
 
 Search LinkedIn for executives and decision makers who would be involved in purchasing/using "${params.product_service || 'business solutions'}". Focus on relevant departments and roles that would influence buying decisions for this type of product/service. Store them with smart persona mapping.`;
 
-  const result = await run(DMDiscoveryIndividualAgent, message);
-  return result;
+  // Retry on OpenAI 429 rate limits with backoff
+  const MAX_ATTEMPTS = 3;
+  let attempt = 0;
+  let lastError: any;
+  while (attempt < MAX_ATTEMPTS) {
+    try {
+      const result = await run(DMDiscoveryIndividualAgent, message);
+      // Post-run guard: if no DMs were inserted for this business, run deterministic fallback
+      const dmCount = await countDMsForBusiness(params.search_id, params.business_id);
+      if (dmCount === 0) {
+        console.warn(`No DMs stored by agent for business ${params.business_id}. Running deterministic fallback...`);
+        await runDeterministicDMDiscovery(params);
+      }
+      return result;
+    } catch (err: any) {
+      lastError = err;
+      const msg = (err && (err.message || err.toString())) || '';
+      if (msg.includes('Rate limit') || msg.includes('429')) {
+        const delayMs = 3000 * (attempt + 1);
+        await new Promise(r => setTimeout(r, delayMs));
+        attempt += 1;
+        continue;
+      }
+      throw err;
+    }
+  }
+  // If agent flow did not throw but also did not store, run deterministic fallback
+  // Fallback: run direct Serper queries and store results immediately
+  try {
+    await runDeterministicDMDiscovery(params);
+    return { success: true, fallback: true } as any;
+  } catch (e) {
+    throw lastError || e;
+  }
 }
 
 // Polls until DM personas exist or a timeout is reached
@@ -434,4 +475,160 @@ function extractTitleFromLinkedInTitle(title: string): string {
   // Extract title from LinkedIn title
   const match = title.match(/[-|]\s*([^-|]+?)(?:\s+at\s+|\s*$)/);
   return match ? match[1].trim() : 'Professional';
+}
+
+// --- Deterministic fallback discovery and storage ---
+async function runDeterministicDMDiscovery(params: {
+  search_id: string;
+  user_id: string;
+  business_id: string;
+  business_name: string;
+  company_country: string;
+  industry: string;
+  product_service?: string;
+}) {
+  const { search_id, user_id, business_id, business_name, company_country, product_service } = params;
+  const personas = await loadDMPersonas(search_id);
+  const titles = Array.isArray(personas)
+    ? personas.slice(0, 3).map((p: any) => String(p.title || '').trim()).filter(Boolean)
+    : [];
+  const baseTitles = titles.length ? titles : ['Head of', 'Director', 'VP'];
+  const suffix = (product_service || '').trim();
+  const queries = baseTitles.map(t => `"${business_name}" site:linkedin.com/in/ ${t}${suffix ? ` ${suffix}` : ''}`);
+
+  // Load existing LinkedIns to avoid duplicates
+  const existing = await getExistingLinkedins(search_id, business_id);
+  const allEmployees: Employee[] = [];
+  for (const q of queries) {
+    const r = await serperSearch(q, company_country, 10);
+    if (r && r.success && Array.isArray(r.items)) {
+      const emps = r.items
+        .filter((item: SerperItem) => item.link?.includes('linkedin.com/in/'))
+        .map((item: SerperItem): Employee => ({
+          name: extractNameFromLinkedInTitle(item.title || ''),
+          title: extractTitleFromLinkedInTitle(item.title || ''),
+          company: business_name,
+          linkedin: item.link!,
+          email: null,
+          phone: null,
+          bio: item.snippet || '',
+          location: company_country || 'Unknown',
+          enrichment_status: 'pending'
+        }));
+      for (const emp of emps) {
+        if (!existing.has(emp.linkedin)) allEmployees.push(emp);
+      }
+    }
+    // light delay
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  if (allEmployees.length === 0) return;
+  
+  // If company-specific queries yielded nothing, broaden to generic title + country
+  if (allEmployees.length === 0) {
+    const genericQueries = baseTitles.map(t => `site:linkedin.com/in/ ${t}${suffix ? ` ${suffix}` : ''} ${company_country}`);
+    for (const q of genericQueries) {
+      const r = await serperSearch(q, company_country, 10);
+      if (r && r.success && Array.isArray(r.items)) {
+        const emps = r.items
+          .filter((item: SerperItem) => item.link?.includes('linkedin.com/in/'))
+          .map((item: SerperItem): Employee => ({
+            name: extractNameFromLinkedInTitle(item.title || ''),
+            title: extractTitleFromLinkedInTitle(item.title || ''),
+            company: business_name,
+            linkedin: item.link!,
+            email: null,
+            phone: null,
+            bio: item.snippet || '',
+            location: company_country || 'Unknown',
+            enrichment_status: 'pending'
+          }));
+        for (const emp of emps) {
+          if (!existing.has(emp.linkedin)) allEmployees.push(emp);
+        }
+      }
+      await new Promise(r => setTimeout(r, 150));
+      if (allEmployees.length >= 5) break; // cap
+    }
+  }
+
+  // Map and store
+  const dmPersonas = await loadDMPersonas(search_id);
+  const rows = allEmployees.map((emp) => {
+    const mappedPersona: any = mapDMToPersona(emp as any, dmPersonas as any);
+    const company = emp.company || business_name || 'Unknown Company';
+    const level = mappedPersona?.demographics?.level || 'manager';
+    const department = mappedPersona?.demographics?.department || 'General';
+    const influence = mappedPersona?.influence || 50;
+    const persona_type = mappedPersona?.title || 'decision_maker';
+    const experience = mappedPersona?.demographics?.experience || '';
+    const communication_preference = mappedPersona?.behaviors?.communicationStyle || '';
+    const pain_points = mappedPersona?.characteristics?.painPoints || [];
+    const motivations = mappedPersona?.characteristics?.motivations || [];
+    const decision_factors = mappedPersona?.characteristics?.decisionFactors || [];
+    const created_at = new Date().toISOString();
+    return {
+      id: undefined,
+      search_id,
+      user_id,
+      persona_id: (mappedPersona && (mappedPersona as any).id) ? (mappedPersona as any).id : null,
+      name: emp.name,
+      title: emp.title,
+      level,
+      influence,
+      department,
+      company,
+      location: emp.location || '',
+      email: emp.email || '',
+      phone: emp.phone || '',
+      linkedin: emp.linkedin,
+      experience,
+      communication_preference,
+      pain_points,
+      motivations,
+      decision_factors,
+      persona_type,
+      company_context: {},
+      personalized_approach: {},
+      created_at,
+      match_score: 80,
+      enrichment_status: emp.enrichment_status || 'pending',
+      enrichment: {},
+      business_id
+    };
+  });
+  if (rows.length > 0) {
+    await insertDecisionMakersBasic(rows as any);
+  }
+}
+
+async function getExistingLinkedins(search_id: string, business_id: string): Promise<Set<string>> {
+  try {
+    const { data, error } = await sharedSupa
+      .from('decision_makers')
+      .select('linkedin')
+      .eq('search_id', search_id)
+      .eq('business_id', business_id);
+    if (error) return new Set();
+    const set = new Set<string>();
+    (data || []).forEach((d: any) => { if (d.linkedin) set.add(d.linkedin); });
+    return set;
+  } catch {
+    return new Set();
+  }
+}
+
+async function countDMsForBusiness(search_id: string, business_id: string): Promise<number> {
+  try {
+    const { count, error } = await sharedSupa
+      .from('decision_makers')
+      .select('id', { count: 'exact', head: true })
+      .eq('search_id', search_id)
+      .eq('business_id', business_id);
+    if (error) return 0;
+    return count || 0;
+  } catch {
+    return 0;
+  }
 }

@@ -1,5 +1,6 @@
 import { Agent, tool, run } from '@openai/agents';
 import { serperPlaces } from '../tools/serper';
+import { resolveModel, gemini } from './clients';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
@@ -7,87 +8,11 @@ import { triggerInstantDMDiscovery, processBusinessForDM, initDMDiscoveryProgres
 import type { Business } from '../tools/instant-dm-discovery';
 
 // Generate semantic variations of search queries using synonyms and industry jargon
-function generateSemanticQueries(productService: string, industries: string, country: string): string[] {
-  const queries: string[] = [];
-  const productLower = productService.toLowerCase();
-  
-  // Technology/Software variations
-  if (productLower.includes('software') || productLower.includes('app') || productLower.includes('saas') || productLower.includes('tech')) {
-    queries.push(`technology solutions ${industries} ${country}`);
-    queries.push(`software vendors ${industries}`);
-    queries.push(`digital solutions companies ${country}`);
-    queries.push(`IT services ${industries} ${country}`);
-    if (productLower.includes('saas')) {
-      queries.push(`cloud software companies ${industries}`);
-      queries.push(`subscription software ${country}`);
-    }
-  }
-  
-  // Marketing/Advertising variations
-  if (productLower.includes('marketing') || productLower.includes('advertising') || productLower.includes('campaign') || productLower.includes('digital')) {
-    queries.push(`marketing agencies ${industries} ${country}`);
-    queries.push(`advertising firms ${country}`);
-    queries.push(`digital marketing companies ${industries}`);
-    queries.push(`creative agencies ${country}`);
-  }
-  
-  // Sales/CRM variations
-  if (productLower.includes('sales') || productLower.includes('crm') || productLower.includes('lead') || productLower.includes('customer')) {
-    queries.push(`sales automation companies ${industries}`);
-    queries.push(`customer management solutions ${country}`);
-    queries.push(`lead generation services ${industries}`);
-  }
-  
-  // HR/Human Resources variations
-  if (productLower.includes('hr') || productLower.includes('human') || productLower.includes('employee') || productLower.includes('talent')) {
-    queries.push(`human resources software ${industries}`);
-    queries.push(`workforce management ${country}`);
-    queries.push(`talent acquisition companies ${industries}`);
-    queries.push(`employee management solutions ${country}`);
-  }
-  
-  // Finance/Accounting variations
-  if (productLower.includes('finance') || productLower.includes('accounting') || productLower.includes('invoice') || productLower.includes('payment')) {
-    queries.push(`financial software companies ${industries}`);
-    queries.push(`accounting services ${country}`);
-    queries.push(`payment processing ${industries}`);
-    queries.push(`fintech companies ${country}`);
-  }
-  
-  // Healthcare variations
-  if (productLower.includes('health') || productLower.includes('medical') || productLower.includes('clinic') || productLower.includes('hospital')) {
-    queries.push(`healthcare providers ${country}`);
-    queries.push(`medical services ${industries}`);
-    queries.push(`health technology ${country}`);
-  }
-  
-  // Manufacturing/Industrial variations
-  if (productLower.includes('manufacturing') || productLower.includes('industrial') || productLower.includes('equipment') || productLower.includes('machinery')) {
-    queries.push(`manufacturing companies ${industries} ${country}`);
-    queries.push(`industrial suppliers ${country}`);
-    queries.push(`equipment manufacturers ${industries}`);
-    queries.push(`machinery vendors ${country}`);
-  }
-  
-  // E-commerce/Retail variations
-  if (productLower.includes('ecommerce') || productLower.includes('retail') || productLower.includes('online') || productLower.includes('store')) {
-    queries.push(`retail companies ${industries} ${country}`);
-    queries.push(`ecommerce businesses ${country}`);
-    queries.push(`online retailers ${industries}`);
-  }
-  
-  // General business type variations
-  queries.push(`${industries} businesses ${country}`);
-  queries.push(`${industries} enterprises ${country}`);
-  queries.push(`${industries} organizations ${country}`);
-  
-  // Limit to prevent too many queries
-  return queries.slice(0, 4);
-}
+// removed multi-query generator to enforce a single precise query flow per user request
 
 const serperPlacesTool = tool({
   name: 'serperPlaces',
-  description: 'Search Serper Places, max 10.',
+  description: 'Search Serper Places, max 5.',
   parameters: { 
     type: 'object',
     properties: { 
@@ -104,7 +29,7 @@ const serperPlacesTool = tool({
     const { q, gl, limit, search_id, user_id } = input as { q: string; gl: string; limit: number; search_id: string; user_id: string };
     const startTime = Date.now();
     try {
-      const places = await serperPlaces(q, gl, limit);
+      const places = await serperPlaces(q, gl, 5);
       const endTime = Date.now();
 
       // Log API usage (with error handling)
@@ -155,42 +80,35 @@ const serperPlacesTool = tool({
   }
 });
 
-// --- Helper: Enrich business data with plausible departments, products, and activity ---
-function enrichBusiness(b: Business, industry: string, _country: string): Business {
-  // Heuristic enrichment for demo purposes; in production, use LLM or a lookup table
-  const departmentMap: Record<string, string[]> = {
-    'automotive': ['Engineering', 'Sales', 'Procurement', 'R&D'],
-    'energy': ['Operations', 'Finance', 'Sustainability', 'Engineering'],
-    'software': ['Product', 'Engineering', 'Customer Success', 'Sales'],
-    'default': ['Operations', 'Sales', 'Finance', 'HR']
-  };
-  const productMap: Record<string, string[]> = {
-    'automotive': ['EV Chargers', 'Batteries', 'Motors'],
-    'energy': ['Solar Panels', 'Wind Turbines', 'Batteries'],
-    'software': ['CRM Platform', 'Analytics Suite', 'API Gateway'],
-    'default': ['Consulting', 'Logistics', 'Support']
-  };
-  const activityMap: Record<string, string[]> = {
-    'automotive': ['Launched new EV model', 'Expanded to new market'],
-    'energy': ['Signed major supply contract', 'Opened new plant'],
-    'software': ['Released major update', 'Partnered with SaaS vendor'],
-    'default': ['Attended industry expo', 'Announced new partnership']
-  };
-  const key = (industry || '').toLowerCase();
-  const departments = departmentMap[key] || departmentMap['default'];
-  const products = productMap[key] || productMap['default'];
-  const activities = activityMap[key] || activityMap['default'];
-  return {
-    ...b,
-    relevant_departments: (b.relevant_departments && b.relevant_departments.length >= 2) ? b.relevant_departments : departments.slice(0, 2),
-    key_products: (b.key_products && b.key_products.length >= 2) ? b.key_products : products.slice(0, 2),
-    recent_activity: (b.recent_activity && b.recent_activity.length >= 1) ? b.recent_activity : [activities[0]]
-  };
+// --- Helper: Enrich business data via Gemini 2.0 Flash ---
+async function enrichBusiness(b: Business, industry: string, country: string): Promise<Business> {
+  try {
+    const model = gemini.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const prompt = `You are enriching a company profile. Output STRICT JSON only with keys: relevant_departments (string[]), key_products (string[]), recent_activity (string[]).
+Company: ${b.name}
+Industry: ${industry}
+Country: ${country}
+Website: ${b.website || ''}`;
+    const res = await model.generateContent([{ text: prompt }]);
+    const text = res.response.text().trim();
+    const json = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || '{}');
+    const departments = Array.isArray(json.relevant_departments) ? json.relevant_departments.slice(0, 3) : [];
+    const products = Array.isArray(json.key_products) ? json.key_products.slice(0, 3) : [];
+    const activity = Array.isArray(json.recent_activity) ? json.recent_activity.slice(0, 2) : [];
+    return {
+      ...b,
+      relevant_departments: departments.length ? departments : (b.relevant_departments || []),
+      key_products: products.length ? products : (b.key_products || []),
+      recent_activity: activity.length ? activity : (b.recent_activity || [])
+    };
+  } catch {
+    return b;
+  }
 }
 
 const storeBusinessesTool = tool({
   name: 'storeBusinesses',
-  description: 'Insert businesses with complete analysis from Gemini AI.',
+  description: 'Insert businesses with Gemini 2.0 Flash enrichment (departments/products/activity).',
   parameters: { 
     type: 'object',
     properties: {
@@ -235,8 +153,10 @@ const storeBusinessesTool = tool({
       country: string; 
       items: Business[] 
     };
-    // Enrich each business before DB insert
-    const enriched: Business[] = items.slice(0, 20).map((b: Business) => enrichBusiness(b, industry, country));
+    // Enrich each business before DB insert; hard cap to 5 places per call
+    const enriched: Business[] = await Promise.all(
+      items.slice(0, 5).map((b: Business) => enrichBusiness(b, industry, country))
+    );
     const rows = enriched.map((b: Business) => buildBusinessData({
       search_id,
       user_id,
@@ -314,7 +234,7 @@ STEP-BY-STEP PROCESS (execute in this exact order):
    - discovery_query (use this for serperPlaces)
 
 2. SECOND - Call serperPlaces immediately:
-   serperPlaces(q=discovery_query, gl=gl, limit=10, search_id=search_id, user_id=user_id)
+   serperPlaces(q=discovery_query, gl=gl, limit=5, search_id=search_id, user_id=user_id)
 
 3. THIRD - IMMEDIATELY store ALL places from serperPlaces:
    storeBusinesses(search_id, user_id, first_industry, first_country, all_places_as_basic_business_objects)
@@ -344,20 +264,20 @@ CRITICAL SUCCESS RULES:
 - MUST call serperPlaces first with the discovery_query from user message  
 - MUST store ALL places immediately (never skip this step!)
 - SKIP analyzeBusiness completely (causes failures)
-- Use limit=10 for maximum results
+- Use limit=5 for maximum results
 - Simple storage only - no complex analysis
 
 MANDATORY FLOW (NO DEVIATIONS):
-User: "search_id=123 user_id=456 discovery_query='ev chargers sell automotive SA' gl=sa"
-You: serperPlaces(q="ev chargers sell automotive SA", gl="sa", limit=10, search_id="123", user_id="456")
-You: storeBusinesses("123", "456", "automotive", "SA", converted_places_array)
+  User: "search_id=123 user_id=456 discovery_query='ev chargers sell automotive KSA' gl=sa"
+  You: serperPlaces(q="ev chargers sell automotive KSA", gl="sa", limit=5, search_id="123", user_id="456")
+  You: storeBusinesses("123", "456", "automotive", "KSA", converted_places_array)
 DONE - NO MORE STEPS!
 
 START NOW - NO WAITING!`,
   tools: [serperPlacesTool, storeBusinessesTool],
   handoffDescription: 'Discovers real businesses via Serper Places API and stores them immediately for fast results',
   handoffs: [],
-  model: 'gpt-4o-mini'
+  model: resolveModel('ultraLight')
 });
 
 export async function runBusinessDiscovery(search: {
@@ -373,51 +293,30 @@ export async function runBusinessDiscovery(search: {
     
     const countries = search.countries.join(', ');
     const industries = search.industries.join(', ');
-    console.log(`Processing business discovery for countries: ${search.countries.join(', ')}`);
-    
-    // Generate better business search queries for each country
-    const countrySearches = search.countries.map(country => {
-      const gl = countryToGL(country);
-      
-      // Create rich semantic search patterns with synonyms and industry jargon
-      const baseQueries = [
-        `${search.product_service} companies ${industries} ${country}`,
-        `${search.product_service} suppliers ${industries}`,
-        `${industries} companies ${search.product_service}`,
-        `${search.product_service} manufacturers ${country}`
-      ];
+    console.log(`Processing business discovery with a single precise places query (max 10 results)`);
 
-      // Add semantic variations based on product/service type
-      const semanticQueries = generateSemanticQueries(search.product_service, industries, country);
-      
-      const queries = [...baseQueries, ...semanticQueries];
-      
-      return queries.map(query => 
-        `  * serperPlaces(q="${query}", gl="${gl}", limit=10, search_id="${search.id}", user_id="${search.user_id}")`
-      ).join('\n');
-    }).join('\n');
-    
-    const msg = `search_id=${search.id} user_id=${search.user_id} 
+    // Build one precise discovery query from the first country to cap results to 10 places total
+    const firstCountry = search.countries[0] || '';
+    const gl = countryToGL(firstCountry || countries);
+    const discoveryQuery = `${search.product_service} ${industries} companies ${firstCountry || countries}`.trim();
+
+    const msg = `search_id=${search.id} user_id=${search.user_id}
 - product_service=${search.product_service}
 - industries=${industries}
 - countries=${countries}
 - search_type=${search.search_type}
 
-BUSINESS SEARCH STRATEGY - Execute multiple searches for maximum coverage:
-${countrySearches}
-
-MULTI-SEARCH APPROACH:
-- Run MULTIPLE serperPlaces searches with different query patterns
-- Try various combinations: "companies", "suppliers", "manufacturers"
-- Use proper GL codes for geographic targeting
-- Collect ALL results from ALL searches
-- Store combined results using storeBusinesses with complete contact info`;
+MANDATE:
+- Call serperPlaces ONCE with q="${discoveryQuery}", gl="${gl}", limit=5, search_id="${search.id}", user_id="${search.user_id}"
+- Immediately call storeBusinesses with ALL returned places (cap 5) for industry="${search.industries[0] || industries}", country="${firstCountry || countries}"
+- Do not perform additional place searches.
+`;
     
     console.log(`Starting business discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries}`);
     
     await run(BusinessDiscoveryAgent, [{ role: 'user', content: msg }]);
     
-    await updateSearchProgress(search.id, 50, 'business_discovery_completed');
+    await updateSearchProgress(search.id, 50, 'business_discovery');
     console.log(`Completed business discovery for search ${search.id}`);
   } catch (error) {
     console.error(`Business discovery failed for search ${search.id}:`, error);

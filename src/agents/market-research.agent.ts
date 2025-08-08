@@ -1,4 +1,4 @@
-import { gemini } from './clients';
+import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { loadBusinessPersonas, loadBusinesses, loadDMPersonas } from '../tools/db.read';
 import { insertMarketInsights, updateSearchProgress, markSearchCompleted, logApiUsage } from '../tools/db.write';
 import { extractJson } from '../tools/json';
@@ -30,10 +30,14 @@ Target Industries: ${search.industries.join(', ')}
 Target Countries: ${search.countries.join(', ')}
 Search Type: ${search.search_type === 'customer' ? 'Customer Discovery' : 'Supplier Discovery'}
 
-DISCOVERED BUSINESS INTELLIGENCE:
-- Business Personas (${bp.length}): ${bp.map((p:any) => p.title).join(', ')}
-- Real Companies (${biz.length}): ${biz.map((b:any) => b.name).slice(0,10).join(', ')}
-- Decision Makers (${dmp.length}): ${dmp.map((p:any) => p.title).join(', ')}
+ DISCOVERED BUSINESS INTELLIGENCE (DB CACHE):
+ - Business Personas (${bp.length}): ${bp.map((p:any) => p.title).join(', ')}
+ - Real Companies (${biz.length}): ${biz.map((b:any) => b.name).slice(0,10).join(', ')}
+ - Decision Maker Personas (${dmp.length}): ${dmp.map((p:any) => p.title).join(', ')}
+
+ NOTES:
+ - If DB cache lists are empty, proceed anyway: do independent web research for ${search.product_service} across ${search.industries.join(', ')} in ${search.countries.join(', ')}.
+ - Prefer fresh sources; synthesize despite missing cache data.
 
 CRITICAL REQUIREMENTS:
 1. Focus EXCLUSIVELY on ${search.product_service} market across ALL specified countries (${search.countries.join(', ')})
@@ -93,13 +97,41 @@ Requirements:
 `;
 
   const startTime = Date.now();
-  const model = gemini.getGenerativeModel({ model: 'gemini-1.5-pro' });
+  const modelMini = resolveModel('light');
   
   try {
-    const res = await model.generateContent([{ text: prompt }]);
-    const text = res.response.text().trim();
+    // 1) GPT-5 mini
+    let text: string | null = null;
+    try {
+      text = await callOpenAIChatJSON({
+        model: modelMini,
+        system: 'You are an expert market research analyst that outputs ONLY valid JSON per the user specification.',
+        user: prompt,
+        temperature: 0.5,
+        maxTokens: 3000
+      });
+    } catch (e) {
+      console.warn('[MarketResearch] gpt-5-mini failed:', (e as any).message);
+    }
+    // 2) Gemini 2.0 Flash
+    if (!text) {
+      try {
+        text = await callGeminiText('gemini-2.0-flash', prompt);
+      } catch (e) {
+        console.warn('[MarketResearch] gemini-2.0-flash failed:', (e as any).message);
+      }
+    }
+    // 3) DeepSeek
+    if (!text) {
+      try {
+        text = await callDeepseekChatJSON({ user: prompt, temperature: 0.5, maxTokens: 3000 });
+      } catch (e) {
+        console.warn('[MarketResearch] deepseek failed:', (e as any).message);
+      }
+    }
+    text = (text || '').trim();
     
-    // Log successful API usage to Gemini
+    // Log successful API usage to OpenAI
     await logApiUsage({
       user_id: search.user_id,
       search_id: search.id,
@@ -107,7 +139,7 @@ Requirements:
       endpoint: 'market_research',
       status: 200,
       ms: Date.now() - startTime,
-      request: { model: 'gemini-1.5-pro', business_count: biz.length, persona_count: bp.length },
+      request: { model: modelMini, business_count: biz.length, persona_count: bp.length },
       response: { text_length: text.length }
     });
 
@@ -145,7 +177,7 @@ Requirements:
         trends: data.trends || [],
         opportunities: data.opportunities || {},
         sources: data.sources || [],
-        analysis_summary: data.analysis_summary || 'Market research completed using Gemini AI analysis',
+        analysis_summary: data.analysis_summary || 'Market research completed using OpenAI GPT-5 analysis',
         research_methodology: data.research_methodology || 'AI-powered market analysis based on business personas, discovered companies, and decision maker profiles'
       };
 
@@ -162,7 +194,7 @@ Requirements:
       endpoint: 'market_research',
       status: 500,
       ms: Date.now() - startTime,
-      request: { model: 'gemini-1.5-pro', business_count: biz.length, persona_count: bp.length },
+      request: { model: modelMini, business_count: biz.length, persona_count: bp.length },
       response: { error: error.message }
     });
     throw error;

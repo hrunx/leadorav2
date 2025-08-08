@@ -31,7 +31,7 @@ export const insertBusinesses = async (rows: any[]) => {
   return data!;
 };
 
-export const insertDMPersonas = async (rows: { id: string; title: string; rank: number }[]) => {
+export const insertDMPersonas = async (rows: any[]) => {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('decision_maker_personas').insert(rows).select('id,title,rank');
   if (error) throw error; 
@@ -39,11 +39,13 @@ export const insertDMPersonas = async (rows: { id: string; title: string; rank: 
 };
 
 // Insert basic DM data with enrichment_status = 'pending'
-export const insertDecisionMakersBasic = async (rows: { id: string; name: string; company: string; title: string; linkedin: string }[]) => {
+export const insertDecisionMakersBasic = async (rows: any[]) => {
   const basicRows = rows.map(row => ({
     ...row,
+    id: row.id || undefined,
+    linkedin: String(row.linkedin || ''),
     enrichment_status: 'pending' as const,
-    enrichment: null
+    enrichment: row.enrichment ?? null
   }));
   
   const supa = getSupabaseClient();
@@ -73,16 +75,15 @@ export const insertMarketInsights = async (row: {
   return data!;
 };
 
-// enforce allowed phases
+// enforce allowed phases (must match DB CHECK constraint on user_searches.phase)
 const AllowedPhases = new Set([
   'starting',
-  'personas',
-  'businesses',
+  'business_discovery',
+  'business_personas',
   'dm_personas',
   'decision_makers',
-  'market_insights',
+  'market_research',
   'completed',
-  'completed_with_warnings',
   'failed',
 ] as const);
 
@@ -93,6 +94,15 @@ function normalizePhase(p: string): Phase {
   switch (p) {
     case 'created': return 'starting';
     case 'in_progress': return 'starting';
+    case 'initializing': return 'starting';
+    case 'parallel_processing': return 'business_discovery';
+    case 'starting_discovery': return 'business_discovery';
+    case 'businesses': return 'business_discovery';
+    case 'business_discovery_completed': return 'business_discovery';
+    case 'personas': return 'business_personas';
+    case 'business_personas_completed': return 'business_personas';
+    case 'dm_personas_completed': return 'dm_personas';
+    case 'market_insights': return 'market_research';
     default:
       return (AllowedPhases.has(p as Phase) ? (p as Phase) : 'starting');
   }
@@ -126,7 +136,7 @@ export const markSearchCompleted = async (search_id: string) => {
     .update({ 
       status: 'completed', 
       progress_pct: 100, 
-      current_phase: 'completed',
+      phase: 'completed',
       updated_at: new Date().toISOString() 
     })
     .eq('id', search_id);
@@ -152,7 +162,8 @@ export const logApiUsage = async (params: {
     const { error } = await supa
       .from('api_usage_logs')
       .insert({
-        user_id: params.user_id,
+        // If user_id is not a valid auth.users id (e.g., local/dev), log with null to avoid FK errors
+        user_id: params.user_id || null,
         search_id: params.search_id || null,
         provider: params.provider,
         endpoint: params.endpoint || null,
@@ -165,7 +176,27 @@ export const logApiUsage = async (params: {
       });
     
     if (error) {
-      console.error('Failed to log API usage:', error);
+      // If FK error, retry once with null user_id to avoid breaking the flow
+      if ((error as any)?.code === '23503') {
+        try {
+          await supa.from('api_usage_logs').insert({
+            user_id: null,
+            search_id: params.search_id || null,
+            provider: params.provider,
+            endpoint: params.endpoint || null,
+            status: params.status || 200,
+            ms: params.ms || 0,
+            tokens: params.tokens || 0,
+            cost_usd: params.cost_usd || 0,
+            request: params.request || {},
+            response: params.response || {}
+          });
+        } catch (e) {
+          console.error('Failed to log API usage after FK retry:', e);
+        }
+      } else {
+        console.error('Failed to log API usage:', error);
+      }
       // Don't throw - API logging shouldn't break the main flow
     }
   } catch (error) {

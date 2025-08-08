@@ -1,4 +1,5 @@
-import { executeAdvancedMarketResearch } from '../agents/market-research-advanced.agent';
+// import { executeAdvancedMarketResearch } from '../agents/market-research-advanced.agent';
+import { openai, resolveModel } from '../agents/clients';
 import { loadSearch } from '../tools/db.read';
 import { insertMarketInsights, logApiUsage } from '../tools/db.write';
 
@@ -21,32 +22,33 @@ export async function execMarketResearchParallel(payload: {
 
   const startTime = Date.now();
   try {
-    // Execute advanced market research with Gemini 2.5 Flash
-    const result = await executeAdvancedMarketResearch(searchData);
-    
-    // Log Gemini API usage
+    // Execute market research via OpenAI GPT-5
+    const modelId = resolveModel('primary');
+    const prompt = `Generate structured market insights JSON for ${searchData.product_service} targeting ${searchData.industries.join(', ')} in ${searchData.countries.join(', ')}. Include TAM/SAM/SOM, competitors, trends, opportunities, and cite sources.`;
+    const res = await openai.chat.completions.create({
+      model: modelId,
+      messages: [
+        { role: 'system', content: 'You output ONLY valid JSON for market insights per the user spec.' },
+        { role: 'user', content: prompt }
+      ],
+      // Omit temperature to use default supported by the model
+    });
+    const analysis = res.choices?.[0]?.message?.content || '{}';
+
+    // Log OpenAI API usage
     await logApiUsage({
       user_id: search.user_id,
       search_id: search.id,
       provider: 'gemini',
-      endpoint: 'generateContent',
+      endpoint: 'chat.completions',
       status: 200,
       ms: Date.now() - startTime,
-      request: { 
-        model: 'gemini-2.0-flash-exp',
-        product: searchData.product_service,
-        industries: searchData.industries,
-        countries: searchData.countries
-      },
-      response: { 
-        analysis_length: result.analysis.length,
-        function_calls: result.functionCalls.length,
-        sources_count: result.sources.length
-      }
+      request: { model: modelId, product: searchData.product_service, industries: searchData.industries, countries: searchData.countries },
+      response: { text_length: analysis.length }
     });
 
     // Parse the analysis to extract structured data
-    const insights = await parseMarketAnalysis(result.analysis, result.sources);
+    const insights = await parseMarketAnalysis(analysis, []);
     
     // Store in database with sources and methodology
     return await insertMarketInsights({
@@ -58,7 +60,7 @@ export async function execMarketResearchParallel(payload: {
       competitor_data: insights.competitor_data || [],
       trends: insights.trends || [],
       opportunities: insights.opportunities || {},
-      sources: insights.sources || result.sources || [],
+      sources: insights.sources || [],
       analysis_summary: insights.analysis_summary || 'Advanced market research completed',
       research_methodology: insights.research_methodology || 'AI-powered analysis with multi-country web search and competitive intelligence'
     });

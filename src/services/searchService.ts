@@ -65,7 +65,30 @@ export class SearchService {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data || [];
+      const searches = Array.isArray(data) ? data : [];
+      // Enrich each search with live totals via check-progress function (robust and RLS-safe)
+      const enriched = await Promise.all(searches.map(async (s: any) => {
+        try {
+          const resp = await fetch('/.netlify/functions/check-progress', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ search_id: s.id })
+          });
+          if (!resp.ok) throw new Error(`check-progress ${resp.status}`);
+          const j = await resp.json();
+          const totals = j?.data_counts || { business_personas:0, dm_personas:0, businesses:0, decision_makers:0, market_insights:0 };
+          const progress = j?.progress || {};
+          return {
+            ...s,
+            totals,
+            progress,
+            timestamp: s.created_at
+          };
+        } catch (_e) {
+          return { ...s, totals: { business_personas:0, dm_personas:0, businesses:0, decision_makers:0, market_insights:0 }, timestamp: s.created_at };
+        }
+      }));
+      return enriched as any;
     } catch (error: any) {
       // Fallback to proxy if direct Supabase call fails (CORS issues)
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
@@ -74,7 +97,8 @@ export class SearchService {
           const response = await fetch(`/.netlify/functions/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
             method: 'GET',
             headers: {
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
             }
           });
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
@@ -85,6 +109,27 @@ export class SearchService {
         }
       }
       throw error;
+    }
+  }
+
+  // Count qualified leads for a user: decision makers with at least one contact handle
+  static async countQualifiedLeads(userId: string): Promise<number> {
+    try {
+      const { data, error } = await supabase
+        .from('decision_makers')
+        .select('id, linkedin, email, phone')
+        .eq('user_id', userId);
+      if (error) throw error;
+      const arr = Array.isArray(data) ? data : [];
+      return arr.filter(dm => {
+        const hasLinkedin = typeof (dm as any).linkedin === 'string' && (dm as any).linkedin.trim() !== '';
+        const hasEmail = typeof (dm as any).email === 'string' && (dm as any).email.trim() !== '';
+        const hasPhone = typeof (dm as any).phone === 'string' && (dm as any).phone.trim() !== '';
+        return hasLinkedin || hasEmail || hasPhone;
+      }).length;
+    } catch (error) {
+      console.error('Failed counting qualified leads:', error);
+      return 0;
     }
   }
 
@@ -119,20 +164,29 @@ export class SearchService {
         .eq('search_id', searchId)
         .order('rank');
       if (error) throw error;
-      return data || [];
-    } catch (error: any) {
-      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
-        console.log('CORS issue detected, falling back to proxy for business_personas...');
+      if (!data || data.length === 0) {
+        // Fallback to proxy even on empty results (RLS can silently return [])
         try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET' });
+          const response = await fetch(`/.netlify/functions/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-          return await response.json();
-        } catch (proxyError) {
-          console.log('Proxy also failed for business_personas, returning empty array...');
+          const arr = await response.json();
+          return Array.isArray(arr) ? arr : [];
+        } catch (proxyErr) {
           return [];
         }
       }
-      throw error;
+      return data || [];
+    } catch (error: any) {
+      console.log('Primary fetch failed for business_personas, falling back to proxy...', error?.message || error);
+      try {
+        const response = await fetch(`/.netlify/functions/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET' });
+        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+        const arr = await response.json();
+        return Array.isArray(arr) ? arr : [];
+      } catch (proxyError) {
+        console.log('Proxy also failed for business_personas, returning empty array...');
+        return [];
+      }
     }
   }
 
@@ -200,18 +254,16 @@ export class SearchService {
       if (error) throw error;
       return data || [];
     } catch (error: any) {
-      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
-        console.log('CORS issue detected, falling back to proxy for businesses...');
-        try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET' });
-          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-          return await response.json();
-        } catch (proxyError) {
-          console.log('Proxy also failed for businesses, returning empty array...');
-          return [];
-        }
+      console.log('Primary fetch failed for businesses, falling back to proxy...', error?.message || error);
+      try {
+        const response = await fetch(`/.netlify/functions/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET' });
+        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+        const arr = await response.json();
+        return Array.isArray(arr) ? arr : [];
+      } catch (proxyError) {
+        console.log('Proxy also failed for businesses, returning empty array...');
+        return [];
       }
-      throw error;
     }
   }
 
@@ -260,18 +312,16 @@ export class SearchService {
       if (error) throw error;
       return data || [];
     } catch (error: any) {
-      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
-        console.log('CORS issue detected, falling back to proxy for decision_maker_personas...');
-        try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET' });
-          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-          return await response.json();
-        } catch (proxyError) {
-          console.log('Proxy also failed for decision_maker_personas, returning empty array...');
-          return [];
-        }
+      console.log('Primary fetch failed for decision_maker_personas, falling back to proxy...', error?.message || error);
+      try {
+        const response = await fetch(`/.netlify/functions/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET' });
+        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+        const arr = await response.json();
+        return Array.isArray(arr) ? arr : [];
+      } catch (proxyError) {
+        console.log('Proxy also failed for decision_maker_personas, returning empty array...');
+        return [];
       }
-      throw error;
     }
   }
 
@@ -348,18 +398,16 @@ export class SearchService {
       if (error) throw error;
       return data || [];
     } catch (error: any) {
-      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
-        console.log('CORS issue detected, falling back to proxy for decision_makers...');
-        try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET' });
-          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-          return await response.json();
-        } catch (proxyError) {
-          console.log('Proxy also failed for decision_makers, returning empty array...');
-          return [];
-        }
+      console.log('Primary fetch failed for decision_makers, falling back to proxy...', error?.message || error);
+      try {
+        const response = await fetch(`/.netlify/functions/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET' });
+        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+        const arr = await response.json();
+        return Array.isArray(arr) ? arr : [];
+      } catch (proxyError) {
+        console.log('Proxy also failed for decision_makers, returning empty array...');
+        return [];
       }
-      throw error;
     }
   }
 
@@ -402,27 +450,25 @@ export class SearchService {
   // Get market insights for a search
   static async getMarketInsights(searchId: string): Promise<MarketInsight | null> {
     try {
+      // Avoid .single() to prevent 406 when 0 or >1 rows exist
       const { data, error } = await supabase
         .from('market_insights')
         .select('*')
         .eq('search_id', searchId)
-        .single();
-      if (error && error.code !== 'PGRST116') throw error;
-      return data;
+        .limit(1);
+      if (error) throw error;
+      return (Array.isArray(data) && data.length > 0) ? data[0] : null;
     } catch (error: any) {
-      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
-        console.log('CORS issue detected, falling back to proxy for market_insights...');
-        try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET' });
-          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-          const arr = await response.json();
-          return arr && arr.length > 0 ? arr[0] : null;
-        } catch (proxyError) {
-          console.log('Proxy also failed for market_insights, returning null...');
-          return null;
-        }
+      console.log('Primary fetch failed for market_insights, falling back to proxy...', error?.message || error);
+      try {
+        const response = await fetch(`/.netlify/functions/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET' });
+        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
+        const arr = await response.json();
+        return Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
+      } catch (proxyError) {
+        console.log('Proxy also failed for market_insights, returning null...');
+        return null;
       }
-      throw error;
     }
   }
 

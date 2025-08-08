@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Users, Building, Mail, TrendingUp, Calendar, ArrowRight, Plus, Eye, Play, BarChart3, Target, Globe, Zap } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useUserData } from '../../context/UserDataContext';
+import { SearchService } from '../../services/searchService';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
 
@@ -37,31 +38,22 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
     }
   }, [userData, isDemo]);
 
-  const calculateRealStats = () => {
-    // Calculate total leads from all campaigns
-    const totalLeads = userData.activeCampaigns.reduce((sum, campaign) => {
-      const stats = campaign.stats as any;
-      return sum + (stats?.opened || 0) + (stats?.clicked || 0) + (stats?.replied || 0);
-    }, 0);
+  const calculateRealStats = async () => {
+    // Leads = decision makers with linkedin or email or phone
+    const totalLeads = await SearchService.countQualifiedLeads(authState.user?.id || '');
 
-    // Calculate response rate
+    // Response rate from campaigns stays as-is
     const totalSent = userData.activeCampaigns.reduce((sum, campaign) => {
       const stats = campaign.stats as any;
       return sum + (stats?.sent || 0);
     }, 0);
-    
     const totalResponses = userData.activeCampaigns.reduce((sum, campaign) => {
       const stats = campaign.stats as any;
       return sum + (stats?.replied || 0);
     }, 0);
-
     const responseRate = totalSent > 0 ? Math.round((totalResponses / totalSent) * 100) : 0;
 
-    setRealStats({
-      totalLeads,
-      responseRate,
-      responseRateChange: 0 // Would need historical data to calculate
-    });
+    setRealStats({ totalLeads, responseRate, responseRateChange: 0 });
   };
 
   const getDemoStats = () => [

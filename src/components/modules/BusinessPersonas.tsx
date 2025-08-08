@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Target, Users, Building, ArrowRight, Star, TrendingUp, DollarSign, ChevronDown, ChevronUp, Eye, Search, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
-import { SearchService } from '../../services/searchService';
+// import { SearchService } from '../../services/searchService';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 import { isDemoUser } from '../../constants/demo';
 
@@ -69,47 +69,85 @@ export default function BusinessPersonas() {
   
   // Determine if we're in demo mode
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+  // Subtle toast for new items
+  const [, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isDemo && realTimeData.businesses.length > 0) {
+      setToast('New businesses found');
+      const t = setTimeout(() => setToast(null), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [realTimeData.businesses.length, isDemo]);
+  useEffect(() => {
+    if (!isDemo && realTimeData.decisionMakers.length > 0) {
+      setToast('New decision makers found');
+      const t = setTimeout(() => setToast(null), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [realTimeData.decisionMakers.length, isDemo]);
   
-  // Use real-time data for real users, demo data for demo users
-  const personas = isDemo ? demoPersonas : realTimeData.businessPersonas.map(p => ({
-    id: p.id,
-    title: p.title,
-    rank: p.rank,
-    matchScore: p.match_score,
-    demographics: {
-      industry: p.demographics?.industry || 'Technology',
-      companySize: p.demographics?.companySize || '100-1000 employees',
-      geography: p.demographics?.geography || 'Global',
-      revenue: p.demographics?.revenue || '$10M-100M'
-    },
-    characteristics: {
-      painPoints: p.characteristics?.painPoints || [],
-      motivations: p.characteristics?.motivations || [],
-      challenges: p.characteristics?.challenges || [],
-      decisionFactors: p.characteristics?.decisionFactors || []
-    },
-    behaviors: {
-      buyingProcess: p.behaviors?.buyingProcess || 'Standard evaluation process',
-      decisionTimeline: p.behaviors?.decisionTimeline || '3-6 months',
-      budgetRange: p.behaviors?.budgetRange || '$50K-500K',
-      preferredChannels: p.behaviors?.preferredChannels || []
-    },
-    marketPotential: {
-      totalCompanies: p.market_potential?.totalCompanies || 1000,
-      avgDealSize: p.market_potential?.avgDealSize || '$100K',
-      conversionRate: p.market_potential?.conversionRate || '10%'
-    },
-    locations: p.locations || [],
-    businesses: []
-  }));
+  // Use real-time data for real users, demo data for demo users (stable, no flicker)
+  const personas: PersonaData[] = useMemo(() => {
+    if (isDemo) return demoPersonas;
+    const list = (realTimeData.businessPersonas || [])
+      .filter((p:any) => String(p.title||'').trim().toLowerCase() !== 'persona generation failed')
+      .sort((a:any,b:any)=> (a.rank||999) - (b.rank||999))
+      .slice(0,3)
+      .map(p => {
+    // Attach live-mapped businesses under each persona (progressive as they stream in)
+      const personaBusinesses = ((realTimeData.businesses || []) as any[])
+        .filter((b: any) => b.persona_id === (p as any).id)
+        .map((b: any) => ({
+          id: b.id,
+          name: b.name,
+          country: b.country,
+          city: b.city || '',
+          matchScore: typeof b.match_score === 'number' ? b.match_score : 75
+        }))
+        .sort((a: any, b: any) => (b.matchScore || 0) - (a.matchScore || 0));
+
+      return {
+        id: (p as any).id,
+        title: (p as any).title,
+        rank: (p as any).rank,
+        matchScore: (p as any).match_score,
+        demographics: {
+          industry: (p as any).demographics?.industry || 'Technology',
+          companySize: (p as any).demographics?.companySize || '100-1000 employees',
+          geography: (p as any).demographics?.geography || 'Global',
+          revenue: (p as any).demographics?.revenue || '$10M-100M'
+        },
+        characteristics: {
+          painPoints: (p as any).characteristics?.painPoints || [],
+          motivations: (p as any).characteristics?.motivations || [],
+          challenges: (p as any).characteristics?.challenges || [],
+          decisionFactors: (p as any).characteristics?.decisionFactors || []
+        },
+        behaviors: {
+          buyingProcess: (p as any).behaviors?.buyingProcess || 'Standard evaluation process',
+          decisionTimeline: (p as any).behaviors?.decisionTimeline || '3-6 months',
+          budgetRange: (p as any).behaviors?.budgetRange || '$50K-500K',
+          preferredChannels: (p as any).behaviors?.preferredChannels || []
+        },
+        marketPotential: {
+          totalCompanies: (p as any).market_potential?.totalCompanies || 1000,
+          avgDealSize: (p as any).market_potential?.avgDealSize || '$100K',
+          conversionRate: (p as any).market_potential?.conversionRate || '10%'
+        },
+        locations: (p as any).locations || [],
+        businesses: personaBusinesses
+      } as PersonaData;
+    });
+    return list as PersonaData[];
+  }, [isDemo, demoPersonas, realTimeData.businessPersonas, realTimeData.businesses]);
   
-  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && personas.length === 0);
+  const isLoading = isDemo ? isLoadingDemo : (personas.length === 0);
   const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
 
   // Load demo data for demo users only
   useEffect(() => {
     if (isDemo) {
-      setDemoPersonas(getStaticBusinessPersonas());
+      setDemoPersonas(getStaticPersonas());
       setIsLoadingDemo(false);
     }
   }, [isDemo]);
@@ -618,13 +656,13 @@ export default function BusinessPersonas() {
 
   const handleProceedToBusinessResults = () => {
     // Pass selected personas to context for filtering in business results
-    updateSelectedPersonas(personas);
+    updateSelectedPersonas(personas as unknown as any[]);
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'results' }));
   };
 
   const handleViewBusinessesForPersona = (persona: PersonaData) => {
     // Set the selected persona for filtering and navigate to results
-    updateSelectedPersonas([persona]);
+    updateSelectedPersonas([persona] as unknown as any[]);
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'results' }));
   };
   const tabs = [
@@ -638,11 +676,14 @@ export default function BusinessPersonas() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
-            Top 10 Business Personas for "{state.searchData?.productService}"
+            Business Personas for "{state.searchData?.productService}"
           </h1>
           <p className="text-gray-600 mt-2">
             Ranked personas for businesses {state.searchData?.type === 'customer' ? 'needing' : 'providing'} your product/service
           </p>
+          {(!isDemo && realTimeData.progress.phase !== 'completed') && (
+            <div className="mt-2 text-sm text-blue-600">More businesses loading...</div>
+          )}
         </div>
         <button
           onClick={handleProceedToBusinessResults}

@@ -107,7 +107,8 @@ async function performWebSearch(query: string, focus: string, countryCode: strin
     }
     
     console.log(`Market research web search: "${searchQuery}" (focus: ${focus})`);
-    const results = await serperSearch(searchQuery, countryCode, 5);
+    const resp = await serperSearch(searchQuery, countryCode, 5);
+    const results = resp && resp.success ? resp.items : [];
     
     // Note: API usage logging will be handled by caller with proper user_id/search_id
     

@@ -39,14 +39,16 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
     market_insights: 0
   });
   const [currentPhase, setCurrentPhase] = useState('starting');
+  const [firstDataSeen, setFirstDataSeen] = useState(false);
   const [hasNavigatedEarly, setHasNavigatedEarly] = useState(false);
 
   const phases = [
     { key: 'starting', label: 'Initializing', icon: Search, color: 'text-blue-500' },
-    { key: 'personas', label: 'Creating Personas', icon: Users, color: 'text-purple-500' },
-    { key: 'businesses', label: 'Finding Businesses', icon: Building, color: 'text-green-500' },
+    { key: 'business_personas', label: 'Creating Personas', icon: Users, color: 'text-purple-500' },
+    { key: 'dm_personas', label: 'Creating DM Personas', icon: Users, color: 'text-pink-500' },
+    { key: 'business_discovery', label: 'Finding Businesses', icon: Building, color: 'text-green-500' },
     { key: 'decision_makers', label: 'Mapping Decision Makers', icon: UserCheck, color: 'text-orange-500' },
-    { key: 'market_insights', label: 'Generating Insights', icon: TrendingUp, color: 'text-indigo-500' },
+    { key: 'market_research', label: 'Generating Insights', icon: TrendingUp, color: 'text-indigo-500' },
     { key: 'completed', label: 'Complete', icon: CheckCircle, color: 'text-emerald-500' }
   ];
 
@@ -62,12 +64,31 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
         const data = await response.json();
         setProgress(data.progress);
         setDataCounts(data.data_counts);
-        setCurrentPhase(data.progress.phase);
+        // Normalize any legacy/alias phases coming from backend to UI phases
+        const rawPhase = data.progress.phase || 'starting';
+        const normalizedPhase = ((): string => {
+          switch (rawPhase) {
+            case 'personas': return 'business_personas';
+            case 'businesses': return 'business_discovery';
+            case 'market_insights': return 'market_research';
+            case 'parallel_processing': return 'business_discovery';
+            case 'business_personas_completed': return 'business_personas';
+            case 'dm_personas_completed': return 'dm_personas';
+            default: return rawPhase;
+          }
+        })();
+        setCurrentPhase(normalizedPhase);
+        // Auto-dismiss overlay when first rows are visible to switch user to live screens quickly
+        const anyVisible = (data.data_counts.business_personas > 0 && data.data_counts.dm_personas > 0) || data.data_counts.businesses > 0;
+        if (!firstDataSeen && anyVisible && onEarlyNavigation) {
+          setFirstDataSeen(true);
+          onEarlyNavigation();
+        }
         
-        // Early navigation when personas and businesses are ready
+        // Early navigation when personas are ready (3 and 3 per new limits)
         if (!hasNavigatedEarly && 
-            data.data_counts.business_personas >= 5 && 
-            data.data_counts.dm_personas >= 5 &&
+            data.data_counts.business_personas >= 3 && 
+            data.data_counts.dm_personas >= 3 &&
             onEarlyNavigation) {
           setHasNavigatedEarly(true);
           setTimeout(() => {
@@ -97,7 +118,8 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
   if (!isVisible) return null;
 
   const getCurrentPhaseIndex = () => {
-    return phases.findIndex(p => p.key === currentPhase);
+    const idx = phases.findIndex(p => p.key === currentPhase);
+    return idx === -1 ? 0 : idx;
   };
 
   const currentPhaseIndex = getCurrentPhaseIndex();
@@ -112,6 +134,9 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">AI Agents Working</h2>
           <p className="text-gray-600">Our AI agents are analyzing your market and finding leads</p>
+          {firstDataSeen && (
+            <p className="text-blue-600 text-sm mt-1">Live results are loading in the background…</p>
+          )}
         </div>
 
         {/* Progress Bar */}
@@ -166,12 +191,17 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
                   </h3>
                   
                   {/* Show data counts for relevant phases */}
-                  {phase.key === 'personas' && (dataCounts.business_personas > 0 || dataCounts.dm_personas > 0) && (
+                  {phase.key === 'business_personas' && dataCounts.business_personas > 0 && (
                     <p className="text-sm text-gray-600 mt-1">
-                      {dataCounts.business_personas} business + {dataCounts.dm_personas} decision maker personas
+                      {dataCounts.business_personas} business personas
                     </p>
                   )}
-                  {phase.key === 'businesses' && dataCounts.businesses > 0 && (
+                  {phase.key === 'dm_personas' && dataCounts.dm_personas > 0 && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      {dataCounts.dm_personas} decision maker personas
+                    </p>
+                  )}
+                  {phase.key === 'business_discovery' && dataCounts.businesses > 0 && (
                     <p className="text-sm text-gray-600 mt-1">
                       {dataCounts.businesses} businesses found
                     </p>
@@ -181,7 +211,7 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
                       {dataCounts.decision_makers} decision makers mapped
                     </p>
                   )}
-                  {phase.key === 'market_insights' && dataCounts.market_insights > 0 && (
+                  {phase.key === 'market_research' && dataCounts.market_insights > 0 && (
                     <p className="text-sm text-gray-600 mt-1">
                       Market insights generated
                     </p>

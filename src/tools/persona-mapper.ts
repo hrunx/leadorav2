@@ -119,7 +119,11 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     if (personaError) throw personaError;
     if (!personas || personas.length === 0) {
-      console.log('No personas available yet for mapping');
+      console.log('No personas available yet for mapping, retrying in background');
+      // retry later without throwing to avoid blocking inserts
+      setTimeout(() => {
+        mapBusinessesToPersonas(searchId, businessId).catch(() => {});
+      }, 5000);
       return;
     }
 
