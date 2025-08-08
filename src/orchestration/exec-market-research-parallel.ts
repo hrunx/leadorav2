@@ -35,11 +35,11 @@ export async function execMarketResearchParallel(payload: {
     });
     const analysis = res.choices?.[0]?.message?.content || '{}';
 
-    // Log OpenAI API usage
+    // Log OpenAI API usage (provider: openai)
     await logApiUsage({
       user_id: search.user_id,
       search_id: search.id,
-      provider: 'gemini',
+      provider: 'openai',
       endpoint: 'chat.completions',
       status: 200,
       ms: Date.now() - startTime,
@@ -68,16 +68,16 @@ export async function execMarketResearchParallel(payload: {
   } catch (error: any) {
     console.error('Market research failed:', error.message);
     
-    // Log failed API usage
+    // Log failed API usage (provider: openai)
     await logApiUsage({
       user_id: search.user_id,
       search_id: search.id,
-      provider: 'gemini',
-      endpoint: 'generateContent',
+      provider: 'openai',
+      endpoint: 'chat.completions',
       status: 500,
       ms: Date.now() - startTime,
       request: { 
-        model: 'gemini-2.0-flash-exp',
+        model: resolveModel('primary'),
         product: searchData.product_service,
         error: error.message
       },

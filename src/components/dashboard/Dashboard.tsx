@@ -265,18 +265,18 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
                 >
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-2">
-                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${getSearchTypeColor(search.searchData?.type || 'customer')}`}>
-                        {search.searchData?.type || 'customer'}
+                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${getSearchTypeColor(search.search_type || 'customer')}`}>
+                        {search.search_type || 'customer'}
                       </span>
                       <span className="text-sm text-gray-500">{formatDate(search.timestamp)}</span>
                     </div>
                     <h3 className="font-medium text-gray-900 mb-1">
-                      {search.product_service || search.searchData?.productService || 'Untitled Search'}
+                      {search.product_service || 'Untitled Search'}
                     </h3>
                     <div className="flex items-center space-x-4 text-sm text-gray-600">
                       <span className="flex items-center space-x-1">
                         <Users className="w-4 h-4" />
-                        <span>{search.totals?.business_personas || 0} personas</span>
+                        <span>{(search.totals?.business_personas || 0) + (search.totals?.dm_personas || 0)} personas</span>
                       </span>
                       <span className="flex items-center space-x-1">
                         <Building className="w-4 h-4" />

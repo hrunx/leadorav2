@@ -148,7 +148,7 @@ export const markSearchCompleted = async (search_id: string) => {
 export const logApiUsage = async (params: {
   user_id: string;
   search_id?: string;
-  provider: 'serper' | 'deepseek' | 'gemini';
+  provider: 'serper' | 'deepseek' | 'gemini' | 'openai';
   endpoint?: string;
   status?: number;
   ms?: number;

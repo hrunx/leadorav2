@@ -1,17 +1,23 @@
 import type { Handler } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-};
+function buildCorsHeaders(origin?: string) {
+  const allow = origin && (allowedOrigins.length === 0 || allowedOrigins.includes(origin))
+    ? origin
+    : '';
+  return {
+    'Access-Control-Allow-Origin': allow || 'null',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Vary': 'Origin'
+  } as Record<string,string>;
+}
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const corsHeaders = buildCorsHeaders(origin);
   // Handle CORS preflight
   if (event.httpMethod === 'OPTIONS') {
     return {
@@ -40,9 +46,10 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  // Relaxed auth: allow unauthenticated GETs (RLS permits anon per SQL fix).
-  // If a Bearer token is provided, we will prefer it for user-scoped tables,
-  // but we will not block if it's missing.
+  // Auth model:
+  // - For user-scoped queries (with user_id), require Bearer JWT
+  // - For search-scoped queries (with search_id), allow anon; RLS must permit read by search_id
+  // No service-role keys are used here.
   const authHeader = event.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
@@ -69,6 +76,24 @@ export const handler: Handler = async (event) => {
     };
   }
 
+  // Require at least one scope
+  if (!search_id && !user_id) {
+    return {
+      statusCode: 400,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Either search_id or user_id is required' })
+    };
+  }
+
+  // For user-scoped requests, require JWT
+  if (user_id && !token) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Authorization required for user-scoped requests' })
+    };
+  }
+
   // Build Supabase REST query
   const params = new URLSearchParams();
   params.append('select', '*');
@@ -86,12 +111,12 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Query Supabase REST directly with service role (server-side only)
+    // Query Supabase REST without service role; pass through anon and user token
     const restUrl = `${supabaseUrl}/rest/v1/${path}?${params.toString()}`;
     const response = await fetch(restUrl, {
       headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: supabaseAnonKey,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       }
