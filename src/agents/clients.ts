@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // Orchestration (OpenAI Mini for planning)
+ensureEnv(['OPENAI_API_KEY','VITE_SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','GEMINI_API_KEY','VITE_SUPABASE_ANON_KEY']);
 export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 setDefaultOpenAIClient(openai);
 
@@ -26,6 +27,13 @@ export const supa = createClient(
 );
 
 export const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+
+function ensureEnv(keys: string[]) {
+  const missing = keys.filter(k => !process.env[k] || String(process.env[k]).trim() === '');
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
 
 // Centralized model routing with GPT‑5 preference
 export const modelRouter = {

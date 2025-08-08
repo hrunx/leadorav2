@@ -84,23 +84,19 @@ function AppContent() {
 
   const handleViewSearch = (searchId: string) => {
     const search = getSearch(searchId);
-    if (search) {
-      // Set current search in both local state and UserData context
-      setCurrentSearchId(searchId);
-      setCurrentSearch(searchId);
-      
-      // Load search data into context (transform database format to expected format)
-      const searchData = {
-        type: search.search_type,
-        productService: search.product_service,
-        industries: search.industries || [],
-        countries: search.countries || [],
-        timestamp: search.created_at
-      };
-      updateSearchData(searchData);
-      // Navigate directly to business personas (first results page)
-      setActiveModule('personas');
-    }
+    if (!search) return;
+    // Select existing search only; do NOT create a new one
+    setCurrentSearchId(searchId);
+    setCurrentSearch(searchId);
+    updateSearchData({
+      type: search.search_type,
+      productService: search.product_service,
+      industries: search.industries || [],
+      countries: search.countries || [],
+      timestamp: search.created_at
+    });
+    // Show personas screen; data hooks will load existing rows for this search
+    setActiveModule('personas');
   };
 
   const handleCreateCampaign = () => {
