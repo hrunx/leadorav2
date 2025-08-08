@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { SearchService } from '../services/searchService';
 import type { Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
@@ -39,11 +39,13 @@ export function useRealTimeSearch(searchId: string | null) {
     },
     isLoading: false
   });
+  const hasLoadedOnceRef = useRef(false);
 
   // Load all data for a search
   const loadSearchData = useCallback(async (searchId: string) => {
     try {
-      setData(prev => ({ ...prev, isLoading: true }));
+      // Only show loading on the very first load to avoid UI flicker on polling
+      setData(prev => (hasLoadedOnceRef.current ? prev : { ...prev, isLoading: true }));
 
       // Load all data in parallel using SearchService (with proxy fallback)
       const [
@@ -78,6 +80,7 @@ export function useRealTimeSearch(searchId: string | null) {
         },
         isLoading: false
       });
+      hasLoadedOnceRef.current = true;
 
     } catch (error) {
       console.error('Error loading search data:', error);
@@ -106,21 +109,25 @@ export function useRealTimeSearch(searchId: string | null) {
         console.log('📊 Business update received:', payload);
         
         if (payload.eventType === 'INSERT') {
-          setData(prev => ({
-            ...prev,
-            businesses: [...prev.businesses, payload.new],
-            progress: {
-              ...prev.progress,
-              businesses_count: prev.businesses.length + 1
-            }
-          }));
+          setData(prev => {
+            const newBiz = payload.new as unknown as Business;
+            const next = {
+              ...prev,
+              businesses: ([...prev.businesses, newBiz] as Business[]),
+              progress: {
+                ...prev.progress,
+                businesses_count: prev.businesses.length + 1
+              }
+            };
+            return next;
+          });
         } else if (payload.eventType === 'UPDATE') {
-          setData(prev => ({
-            ...prev,
-            businesses: prev.businesses.map(b => 
-              b.id === payload.new.id ? { ...b, ...payload.new } : b
-            )
-          }));
+          setData(prev => {
+            const updated = prev.businesses.map(b => 
+              b.id === (payload.new as any).id ? ({ ...b, ...(payload.new as any) } as Business) : b
+            ) as Business[];
+            return { ...prev, businesses: updated };
+          });
         }
       })
       .subscribe();
@@ -137,14 +144,15 @@ export function useRealTimeSearch(searchId: string | null) {
         console.log('👥 Business persona update received:', payload);
         
         if (payload.eventType === 'INSERT') {
-          setData(prev => ({
-            ...prev,
-            businessPersonas: [...prev.businessPersonas, payload.new].sort((a, b) => a.rank - b.rank),
-            progress: {
-              ...prev.progress,
-              personas_count: prev.progress.personas_count + 1
-            }
-          }));
+          setData(prev => {
+            const newPersona = payload.new as unknown as DecisionMakerPersona;
+            const sorted = ([...prev.businessPersonas, newPersona] as DecisionMakerPersona[]).sort((a, b) => (a.rank as any) - (b.rank as any));
+            return {
+              ...prev,
+              businessPersonas: sorted,
+              progress: { ...prev.progress, personas_count: prev.progress.personas_count + 1 }
+            };
+          });
         }
       })
       .subscribe();
@@ -161,14 +169,15 @@ export function useRealTimeSearch(searchId: string | null) {
         console.log('🎯 DM persona update received:', payload);
         
         if (payload.eventType === 'INSERT') {
-          setData(prev => ({
-            ...prev,
-            dmPersonas: [...prev.dmPersonas, payload.new].sort((a, b) => a.rank - b.rank),
-            progress: {
-              ...prev.progress,
-              personas_count: prev.progress.personas_count + 1
-            }
-          }));
+          setData(prev => {
+            const newPersona = payload.new as unknown as DecisionMakerPersona;
+            const sorted = ([...prev.dmPersonas, newPersona] as DecisionMakerPersona[]).sort((a, b) => (a.rank as any) - (b.rank as any));
+            return {
+              ...prev,
+              dmPersonas: sorted,
+              progress: { ...prev.progress, personas_count: prev.progress.personas_count + 1 }
+            };
+          });
         }
       })
       .subscribe();
@@ -185,22 +194,22 @@ export function useRealTimeSearch(searchId: string | null) {
         console.log('🧑‍💼 Decision maker update received:', payload);
         
         if (payload.eventType === 'INSERT') {
-          setData(prev => ({
-            ...prev,
-            decisionMakers: [...prev.decisionMakers, payload.new],
-            progress: {
-              ...prev.progress,
-              decision_makers_count: prev.decisionMakers.length + 1
-            }
-          }));
-          
+          setData(prev => {
+            const newDM = payload.new as unknown as DecisionMaker;
+            const nextDMs = ([...prev.decisionMakers, newDM] as DecisionMaker[]);
+            return {
+              ...prev,
+              decisionMakers: nextDMs,
+              progress: { ...prev.progress, decision_makers_count: prev.decisionMakers.length + 1 }
+            };
+          });
         } else if (payload.eventType === 'UPDATE') {
-          setData(prev => ({
-            ...prev,
-            decisionMakers: prev.decisionMakers.map(dm => 
-              dm.id === payload.new.id ? { ...dm, ...payload.new } : dm
-            )
-          }));
+          setData(prev => {
+            const updated = prev.decisionMakers.map(dm => 
+              dm.id === (payload.new as any).id ? ({ ...dm, ...(payload.new as any) } as DecisionMaker) : dm
+            ) as DecisionMaker[];
+            return { ...prev, decisionMakers: updated };
+          });
         }
       })
       .subscribe();
@@ -217,14 +226,15 @@ export function useRealTimeSearch(searchId: string | null) {
         console.log('📈 Market insights update received:', payload);
         
         if (payload.eventType === 'INSERT') {
-          setData(prev => ({
-            ...prev,
-            marketInsights: [...prev.marketInsights, payload.new],
-            progress: {
-              ...prev.progress,
-              market_insights_ready: true
-            }
-          }));
+          setData(prev => {
+            const newInsight = payload.new as unknown as MarketInsight;
+            const nextInsights = ([...prev.marketInsights, newInsight] as MarketInsight[]);
+            return {
+              ...prev,
+              marketInsights: nextInsights,
+              progress: { ...prev.progress, market_insights_ready: true }
+            };
+          });
         }
       })
       .subscribe();
@@ -263,6 +273,18 @@ export function useRealTimeSearch(searchId: string | null) {
       supabase.removeChannel(searchProgressChannel);
     };
   }, [searchId, loadSearchData]);
+
+  // Polling fallback: refresh data periodically while not completed (handles network drop/CORS issues)
+  useEffect(() => {
+    if (!searchId) return;
+    const interval = setInterval(() => {
+      if (data.progress.phase !== 'completed') {
+        // Silent refresh (no loading spinner on subsequent polls)
+        loadSearchData(searchId);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [searchId, data.progress.phase, loadSearchData]);
 
   // Helper function to get decision makers for a specific persona
   const getDecisionMakersForPersona = (personaId: string) => {

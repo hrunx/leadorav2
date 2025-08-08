@@ -42,7 +42,7 @@ export async function triggerInstantDMDiscovery(
   const searchData = await loadSearch(search_id);
 
   // Process businesses in small batches to avoid overwhelming the system
-  const batchSize = 3;
+  const batchSize = 2;
   for (let i = 0; i < businesses.length; i += batchSize) {
     const batch = businesses.slice(i, i + batchSize);
 
@@ -56,7 +56,7 @@ export async function triggerInstantDMDiscovery(
 
     // Small delay between batches to avoid rate limiting
     if (i + batchSize < businesses.length) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 2500));
     }
   }
 

@@ -218,7 +218,7 @@ export default function DecisionMakerPersonas() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
-            Top 10 Decision Maker Personas for "{state.searchData?.productService}"
+            Decision Maker Personas for "{state.searchData?.productService}"
           </h1>
           <p className="text-gray-600 mt-2">
             Ranked decision maker personas for businesses {state.searchData?.type === 'customer' ? 'needing' : 'providing'} your product/service

@@ -117,7 +117,7 @@ export const handler: Handler = async (event) => {
     });
 
     // Start business discovery immediately (non-blocking)
-    await updateProgress(search_id, 'starting_discovery', 5);
+    await updateProgress(search_id, 'business_discovery', 5);
     // Listen for new businesses and map them as they arrive
     stopPersonaListener = startPersonaMappingListener(search_id);
     await mapBusinessesToPersonas(search_id);
@@ -129,7 +129,7 @@ export const handler: Handler = async (event) => {
     });
 
     // Start personas in parallel (these typically finish first)
-    await updateProgress(search_id, 'personas', 10);
+    await updateProgress(search_id, 'business_personas', 10);
     console.log('Starting persona generation...');
     await retry(() => withTimeout(Promise.all([
       limiter(()=>execBusinessPersonas({ search_id, user_id })),
@@ -137,10 +137,10 @@ export const handler: Handler = async (event) => {
     ]), 120_000, 'personas'));
 
     // Business discovery continues in background; update progress snapshot
-    await updateProgress(search_id, 'businesses', 40);
+    await updateProgress(search_id, 'business_discovery', 40);
 
     // PHASE 4: Wait for market research to complete (should be done by now)
-    await updateProgress(search_id, 'market_insights', 85);
+    await updateProgress(search_id, 'market_research', 85);
     console.log('Waiting for market research to complete...');
     const marketResult = await marketResearchPromise;
     if (marketResult) {

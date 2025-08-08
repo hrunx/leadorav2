@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Building, MapPin, Users, DollarSign, Star, ArrowRight, Filter, Target, Search, Plus } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Building, MapPin, Users, DollarSign, Star, ArrowRight, Filter, Target, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
-import { supabase } from '../../lib/supabase';
+// import { supabase } from '../../lib/supabase';
 
 import { isDemoUser } from '../../constants/demo';
 
@@ -22,6 +22,11 @@ interface Business {
   keyProducts: string[];
   recentActivity: string[];
   personaType: string; // Which persona this business matches
+  // Optional display fields from DB (contacts/metadata)
+  address?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  rating?: number | null;
 }
 
 export default function BusinessResults() {
@@ -33,10 +38,7 @@ export default function BusinessResults() {
   // Real-time data hook for progressive loading
   const realTimeData = useRealTimeSearch(currentSearch?.id || null);
 
-  const [businesses, setBusinesses] = useState<Business[]>([]);
   const [discoveryStatus, setDiscoveryStatus] = useState<'discovering' | 'completed'>('discovering');
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasSearch, setHasSearch] = useState(false);
 
   // UI state
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
@@ -54,21 +56,10 @@ export default function BusinessResults() {
     }
   }, [state.selectedPersonas]);
 
-  // Load demo data for demo users only
-  useEffect(() => {
-    if (isDemo) {
-      setBusinesses(getStaticBusinesses());
-      setIsLoading(false);
-      setHasSearch(true);
-      setDiscoveryStatus('completed');
-    }
-  }, [isDemo]);
-
-  // Sync real-time search data to state for real users
-  useEffect(() => {
-    if (isDemo) return;
-
-    const formatted = (realTimeData.businesses ?? []).map(b => ({
+  // Derive businesses from source of truth (demo or realtime) without extra state updates
+  const businesses: Business[] = useMemo(() => {
+    if (isDemo) return getStaticBusinesses();
+    return (realTimeData.businesses ?? []).map(b => ({
       id: b.id,
       name: b.name,
       industry: b.industry,
@@ -82,56 +73,22 @@ export default function BusinessResults() {
       keyProducts: b.key_products ?? [],
       recentActivity: b.recent_activity ?? [],
       personaType: b.persona_type || 'General',
-      address: b.address,
-      phone: b.phone,
-      website: b.website,
-      rating: b.rating
+      address: (b as any).address ?? null,
+      phone: (b as any).phone ?? null,
+      website: (b as any).website ?? null,
+      rating: (b as any).rating ?? null
     }));
+  }, [isDemo, realTimeData.businesses]);
 
-    setBusinesses(formatted);
-    setIsLoading(realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && formatted.length === 0));
-    setHasSearch(!!currentSearch);
-    setDiscoveryStatus(realTimeData.progress.phase === 'completed' ? 'completed' : 'discovering');
-  }, [realTimeData, currentSearch, isDemo]);
+  const hasSearch = !!currentSearch;
+  const isLoading = !isDemo && (realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && businesses.length === 0));
 
-  // Real-time subscription for streaming newly inserted businesses
   useEffect(() => {
-    const currentSearch = getCurrentSearch();
-    if (!currentSearch) return;
-    
-    const channel = supabase
-      .channel('businesses-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'businesses',
-          filter: `search_id=eq.${currentSearch.id}`
-        },
-        (payload) => {
-          const b = payload.new;
-          setBusinesses(prev => [
-            ...prev,
-            {
-              ...b,
-              matchScore: b.match_score,
-              relevantDepartments: b.relevant_departments || [],
-              keyProducts: b.key_products || [],
-              recentActivity: b.recent_activity || [],
-              personaType: b.persona_type
-            }
-          ]);
-          
-          // Update discovery status when first business appears
-          setDiscoveryStatus('completed');
-          setIsLoading(false);
-          setHasSearch(true);
-        }
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [getCurrentSearch]);
+    const completed = realTimeData.progress.phase === 'completed' || businesses.length > 0;
+    setDiscoveryStatus(completed ? 'completed' : 'discovering');
+  }, [realTimeData.progress.phase, businesses.length]);
+
+  // rely on useRealTimeSearch subscriptions; avoid duplicative subscriptions here to prevent render loops
 
 
   const getStaticBusinesses = (): Business[] => [

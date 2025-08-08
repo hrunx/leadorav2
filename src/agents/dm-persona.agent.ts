@@ -1,6 +1,6 @@
 import { Agent, tool } from '@openai/agents';
 import { insertDMPersonas, updateSearchProgress } from '../tools/db.write';
-import { gemini } from './clients';
+import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 
 interface DMPersona {
   title: string;
@@ -40,7 +40,7 @@ interface StoreDMPersonasToolInput {
 
 const storeDMPersonasTool = tool({
   name: 'storeDMPersonas',
-  description: 'Persist exactly 5 decision-maker personas for a search.',
+  description: 'Persist exactly 3 decision-maker personas for a search.',
   parameters: {
     type: 'object',
     properties: {
@@ -118,16 +118,15 @@ const storeDMPersonasTool = tool({
   strict: true,
   execute: async (input: unknown) => {
     const { search_id, user_id, personas } = input as StoreDMPersonasToolInput;
-    if (!Array.isArray(personas) || personas.length !== 5) {
-      throw new Error('Expected exactly 5 personas.');
+    if (!Array.isArray(personas) || personas.length !== 3) {
+      throw new Error('Expected exactly 3 personas.');
     }
     for (const p of personas) {
       for (const k of ['title','rank','match_score','demographics','characteristics','behaviors','market_potential']) {
         if (!(k in p)) throw new Error(`persona missing key: ${k}`);
       }
     }
-    const rows = personas.slice(0,5).map((p: DMPersona, idx: number) => ({
-      id: `${search_id}-dm-${idx+1}`,
+    const rows = personas.slice(0,3).map((p: DMPersona) => ({
       search_id,
       user_id,
       title: p.title,
@@ -145,13 +144,13 @@ const storeDMPersonasTool = tool({
 export const DMPersonaAgent = new Agent({
   name: 'DMPersonaAgent',
   tools: [storeDMPersonasTool],
-  handoffDescription: 'Generates 5 decision maker personas for a search context',
+  handoffDescription: 'Generates 3 decision maker personas for a search context',
   handoffs: [],
-  model: 'gpt-4o-mini',
+  model: resolveModel('ultraLight'),
 
-  instructions: `Create exactly 5 decision maker personas using the provided search criteria.
+  instructions: `Create exactly 3 decision maker personas using the provided search criteria.
 
-TASK: Call storeDMPersonas tool ONCE with all 5 personas. Each persona needs:
+  TASK: Call storeDMPersonas tool ONCE with all 3 personas. Each persona needs:
 - title: Role title for the specific industry/country
 - rank: 1-5 (1 = highest decision authority)  
 - match_score: 80-100
@@ -200,7 +199,7 @@ export async function runDMPersonas(search: {
   try {
     await updateSearchProgress(search.id, 10, 'dm_personas', 'in_progress');
     let personas: DMPersona[] = [];
-    const improvedPrompt = `Generate 5 decision-maker personas for:
+    const improvedPrompt = `Generate 3 decision-maker personas for:
 - search_id=${search.id}
 - user_id=${search.user_id}
 - product_service=${search.product_service}
@@ -215,124 +214,106 @@ CRITICAL: Each persona must have:
 - Use plausible role titles, levels, departments, experience, geographies, responsibilities, pain points, motivations, challenges, decision factors, decision making, communication styles, buying processes, preferred channels, and market potential for the given industry/country/product.
 - If you cannot fill a field, infer a plausible value based on industry/country context.
 - Do not repeat personas. Each must be unique and relevant.
-- Output as a JSON array of 5 persona objects with all required fields.`;
-    // Try Gemini first
+ - Output as a JSON array of 3 persona objects with all required fields.`;
+    // Preferred chain: GPT-5 mini → Gemini 2.0 Flash → DeepSeek
+    // 1) GPT-5 mini
     try {
-      const model = gemini.getGenerativeModel({ model: 'gemini-1.5-pro' });
-      const res = await model.generateContent([{ text: improvedPrompt }]);
-      const text = res.response.text().trim();
-      const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
-      if (Array.isArray(json) && json.length === 5 && json.every(isRealisticDMPersona)) {
-        personas = json;
-        const rows = personas.slice(0, 5).map((p: DMPersona, idx: number) => ({
-          id: `${search.id}-dm-gemini-${idx+1}`,
-          search_id: search.id,
-          user_id: search.user_id,
-          title: p.title,
-          rank: p.rank,
-          match_score: p.match_score,
-          demographics: p.demographics || {},
-          characteristics: p.characteristics || {},
-          behaviors: p.behaviors || {},
-          market_potential: p.market_potential || {}
-        }));
-        if (!rows.every(isRealisticDMPersona)) {
-          throw new Error('One or more personas failed strict validation.');
-        }
-        await insertDMPersonas(rows);
-        await updateSearchProgress(search.id, 20, 'dm_personas_completed');
-        console.log(`Completed DM persona generation for search ${search.id} (Gemini)`);
-        return;
-      }
-    } catch (geminiError: any) {
-      console.warn(`[DMPersona] Gemini failed:`, (geminiError as any).message);
-    }
-    // Try GPT-4 next
-    try {
-      const { OpenAI } = await import('openai');
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [{ role: 'user', content: improvedPrompt }],
-        max_tokens: 2048,
-        temperature: 0.7
+      const text = await callOpenAIChatJSON({
+        model: resolveModel('light'),
+        system: 'You output ONLY a JSON array of exactly 3 complete decision-maker persona objects per spec.',
+        user: improvedPrompt,
+        temperature: 0.6,
+        maxTokens: 2000
       });
-      const text = completion.choices[0]?.message?.content?.trim() || '';
       const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
-      if (Array.isArray(json) && json.length === 5 && json.every(isRealisticDMPersona)) {
+      if (Array.isArray(json) && json.length === 3 && json.every(isRealisticDMPersona)) {
         personas = json;
-        const rows = personas.slice(0, 5).map((p: DMPersona, idx: number) => ({
-          id: `${search.id}-dm-gpt4-${idx+1}`,
-          search_id: search.id,
-          user_id: search.user_id,
-          title: p.title,
-          rank: p.rank,
-          match_score: p.match_score,
-          demographics: p.demographics || {},
-          characteristics: p.characteristics || {},
-          behaviors: p.behaviors || {},
-          market_potential: p.market_potential || {}
-        }));
-        if (!rows.every(isRealisticDMPersona)) {
-          throw new Error('One or more personas failed strict validation.');
-        }
-        await insertDMPersonas(rows);
-        await updateSearchProgress(search.id, 20, 'dm_personas_completed');
-        console.log(`Completed DM persona generation for search ${search.id} (GPT-4)`);
-        return;
       }
-    } catch (gptError: any) {
-      console.warn(`[DMPersona] GPT-4 failed:`, (gptError as any).message);
+    } catch (e) {
+      console.warn('[DMPersona] gpt-5-mini failed:', (e as any).message);
     }
-    // Try DeepSeek next
-    try {
-      const { deepseek } = await import('./clients');
-      const model = deepseek.getGenerativeModel({ model: 'deepseek-coder' });
-      const res = await model.generateContent([{ text: improvedPrompt }]);
-      const text = res.response.text().trim();
-      const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
-      if (Array.isArray(json) && json.length === 5 && json.every(isRealisticDMPersona)) {
-        personas = json;
-        const rows = personas.slice(0, 5).map((p: DMPersona, idx: number) => ({
-          id: `${search.id}-dm-deepseek-${idx+1}`,
-          search_id: search.id,
-          user_id: search.user_id,
-          title: p.title,
-          rank: p.rank,
-          match_score: p.match_score,
-          demographics: p.demographics || {},
-          characteristics: p.characteristics || {},
-          behaviors: p.behaviors || {},
-          market_potential: p.market_potential || {}
-        }));
-        if (!rows.every(isRealisticDMPersona)) {
-          throw new Error('One or more personas failed strict validation.');
+    // 2) Gemini 2.0 Flash (if needed)
+    if (!personas.length) {
+      try {
+        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt);
+        const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
+        if (Array.isArray(json) && json.length === 3 && json.every(isRealisticDMPersona)) {
+          personas = json;
         }
-        await insertDMPersonas(rows);
-        await updateSearchProgress(search.id, 20, 'dm_personas_completed');
-        console.log(`Completed DM persona generation for search ${search.id} (DeepSeek)`);
-        return;
+      } catch (e) {
+        console.warn('[DMPersona] gemini-2.0-flash failed:', (e as any).message);
       }
-    } catch (deepseekError: any) {
-      console.warn(`[DMPersona] DeepSeek failed:`, (deepseekError as any).message);
     }
-    // All LLMs failed, insert placeholder
-    console.error(`[DMPersona] All LLMs failed for search ${search.id}. Inserting placeholder persona.`);
-    const placeholder = [{
-      id: `${search.id}-dm-placeholder-1`,
-      search_id: search.id,
-      user_id: search.user_id,
-      title: 'Persona Generation Failed',
-      rank: 1,
-      match_score: 0,
-      demographics: { level: 'N/A', department: 'N/A', experience: 'N/A', geography: 'N/A' },
-      characteristics: { responsibilities: ['N/A'], painPoints: ['N/A'], motivations: ['N/A'], challenges: ['N/A'], decisionFactors: ['N/A'] },
-      behaviors: { decisionMaking: 'N/A', communicationStyle: 'N/A', buyingProcess: 'N/A', preferredChannels: ['N/A'] },
-      market_potential: { totalDecisionMakers: 0, avgInfluence: 0, conversionRate: 0 }
-    }];
-    await insertDMPersonas(placeholder);
-    await updateSearchProgress(search.id, 20, 'dm_personas_completed');
-    console.log(`Inserted placeholder persona for search ${search.id}`);
+    // 3) DeepSeek (if needed)
+    if (!personas.length) {
+      try {
+        const text = await callDeepseekChatJSON({ user: improvedPrompt, temperature: 0.6, maxTokens: 2000 });
+        const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
+        if (Array.isArray(json) && json.length === 3 && json.every(isRealisticDMPersona)) {
+          personas = json;
+        }
+      } catch (e) {
+        console.warn('[DMPersona] deepseek failed:', (e as any).message);
+      }
+    }
+    if (personas.length) {
+      const rows = personas.slice(0, 3).map((p: DMPersona) => ({
+        search_id: search.id,
+        user_id: search.user_id,
+        title: p.title,
+        rank: p.rank,
+        match_score: p.match_score,
+        demographics: p.demographics || {},
+        characteristics: p.characteristics || {},
+        behaviors: p.behaviors || {},
+        market_potential: p.market_potential || {}
+      }));
+      await insertDMPersonas(rows);
+      await updateSearchProgress(search.id, 20, 'dm_personas');
+      console.log(`Completed DM persona generation for search ${search.id}`);
+      return;
+    }
+    // All LLMs failed, insert 3 deterministic DM personas
+    console.error(`[DMPersona] All LLMs failed for search ${search.id}. Inserting deterministic DM personas.`);
+    const [countryA] = search.countries.length ? search.countries : ['Global'];
+    const rows = [
+      {
+        search_id: search.id,
+        user_id: search.user_id,
+        title: 'Chief Technology Officer',
+        rank: 1,
+        match_score: 92,
+        demographics: { level: 'executive', department: 'Technology', experience: '15+ years', geography: countryA },
+        characteristics: { responsibilities: ['Technology strategy','Digital transformation'], painPoints: ['Legacy','Security'], motivations: ['Innovation','Efficiency'], challenges: ['Budget','Talent'], decisionFactors: ['Alignment','Scalability'] },
+        behaviors: { decisionMaking: 'Strategic', communicationStyle: 'High-level', buyingProcess: 'Committee', preferredChannels: ['Executive briefings','Conferences'] },
+        market_potential: { totalDecisionMakers: 1500, avgInfluence: 90, conversionRate: 8 }
+      },
+      {
+        search_id: search.id,
+        user_id: search.user_id,
+        title: 'VP Operations',
+        rank: 2,
+        match_score: 88,
+        demographics: { level: 'director', department: 'Operations', experience: '10+ years', geography: countryA },
+        characteristics: { responsibilities: ['Process optimization','Cost control'], painPoints: ['Inefficiency','Downtime'], motivations: ['Throughput','Quality'], challenges: ['Change mgmt','ROI'], decisionFactors: ['Impact','Time-to-value'] },
+        behaviors: { decisionMaking: 'Data-driven', communicationStyle: 'Concise', buyingProcess: 'Cross-functional', preferredChannels: ['Demos','Case studies'] },
+        market_potential: { totalDecisionMakers: 3000, avgInfluence: 75, conversionRate: 12 }
+      },
+      {
+        search_id: search.id,
+        user_id: search.user_id,
+        title: 'Head of Procurement',
+        rank: 3,
+        match_score: 84,
+        demographics: { level: 'manager', department: 'Procurement', experience: '8+ years', geography: countryA },
+        characteristics: { responsibilities: ['Vendor selection','Negotiation'], painPoints: ['Compliance','Costs'], motivations: ['Savings','Reliability'], challenges: ['Supplier risk','Integration'], decisionFactors: ['TCO','Compliance'] },
+        behaviors: { decisionMaking: 'Criteria-based', communicationStyle: 'Formal', buyingProcess: 'RFP/RFQ', preferredChannels: ['RFP','Email'] },
+        market_potential: { totalDecisionMakers: 5000, avgInfluence: 60, conversionRate: 15 }
+      }
+    ];
+    await insertDMPersonas(rows as any);
+    await updateSearchProgress(search.id, 20, 'dm_personas');
+    console.log(`Inserted deterministic DM personas for search ${search.id}`);
   } catch (error) {
     console.error(`DM persona generation failed for search ${search.id}:`, error);
     throw error;

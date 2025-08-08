@@ -44,7 +44,8 @@ export class CampaignService {
           const response = await fetch(`/.netlify/functions/user-data-proxy?table=email_campaigns&user_id=${userId}`, {
             method: 'GET',
             headers: {
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
             }
           });
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
