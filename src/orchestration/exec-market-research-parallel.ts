@@ -1,5 +1,6 @@
 // import { executeAdvancedMarketResearch } from '../agents/market-research-advanced.agent';
 import { openai, resolveModel } from '../agents/clients';
+import { serperSearch } from '../tools/serper';
 import { loadSearch } from '../tools/db.read';
 import { insertMarketInsights, logApiUsage } from '../tools/db.write';
 
@@ -24,14 +25,29 @@ export async function execMarketResearchParallel(payload: {
   try {
     // Execute market research via OpenAI GPT-5
     const modelId = resolveModel('primary');
-    const prompt = `Generate structured market insights JSON for ${searchData.product_service} targeting ${searchData.industries.join(', ')} in ${searchData.countries.join(', ')}. Include TAM/SAM/SOM, competitors, trends, opportunities, and cite sources.`;
+
+    // Pre-fetch web sources via Serper for each country (low token footprint: pass only URLs and short titles)
+    const webFindings = (
+      await Promise.all(
+        (searchData.countries || []).slice(0, 3).map(async (country: string) => {
+          const q = `${searchData.product_service} ${searchData.industries.join(' ')} market size competitors trends ${country}`;
+          const r = await serperSearch(q, country, 4).catch(() => ({ success: false, items: [] } as any));
+          return (r && (r as any).success ? (r as any).items : []).map((i: { title: string; link: string }) => ({ title: i.title, url: i.link }));
+        })
+      )
+    ).flat().slice(0, 8);
+
+    const sourcesForPrompt = webFindings.map(s => `- ${s.title} (${s.url})`).join('\n');
+    const prompt = `Generate structured market insights JSON for ${searchData.product_service} targeting ${searchData.industries.join(', ')} in ${searchData.countries.join(', ')}.
+
+Use ONLY valid JSON. Use these sources when relevant (do not quote text, just use as references):\n${sourcesForPrompt}`;
     const res = await openai.chat.completions.create({
       model: modelId,
       messages: [
         { role: 'system', content: 'You output ONLY valid JSON for market insights per the user spec.' },
         { role: 'user', content: prompt }
       ],
-      // Omit temperature to use default supported by the model
+      response_format: { type: 'json_object' }
     });
     const analysis = res.choices?.[0]?.message?.content || '{}';
 
@@ -48,7 +64,7 @@ export async function execMarketResearchParallel(payload: {
     });
 
     // Parse the analysis to extract structured data
-    const insights = await parseMarketAnalysis(analysis, []);
+    const insights = await parseMarketAnalysis(analysis, webFindings.map(s => s.url));
     
     // Store in database with sources and methodology
     return await insertMarketInsights({

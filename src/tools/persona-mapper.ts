@@ -29,8 +29,8 @@ function calculatePersonaMatchScore(business: any, persona: any): number {
   const businessRevenue = (business.revenue || '').toLowerCase();
   
   const personaTitle = (persona.title || '').toLowerCase();
-  // const personaChars = persona.characteristics || {}; // Unused for now
   const personaDemos = persona.demographics || {};
+  const personaChars = persona.characteristics || {};
   
   // Size-based matching
   if (businessSize.includes('small') || businessSize.includes('startup')) {
@@ -79,6 +79,23 @@ function calculatePersonaMatchScore(business: any, persona: any): number {
     }
   }
 
+  // Keyword overlap between business description and persona characteristics
+  if (personaChars) {
+    const charsStr = JSON.stringify(personaChars).toLowerCase();
+    const keywords = ['energy','logistics','supply','diesel','retail','manufacturing','healthcare','finance','saas','crm','automation'];
+    let hits = 0;
+    for (const k of keywords) {
+      if (businessDesc.includes(k) && charsStr.includes(k)) hits++;
+    }
+    score += Math.min(hits * 3, 15);
+  }
+
+  // Revenue/size alignment bonus if persona demographics encode ranges
+  if (personaDemos && typeof personaDemos.companySize === 'string') {
+    const size = personaDemos.companySize.toLowerCase();
+    if (businessSize && size.includes(businessSize.split('-')[0])) score += 5;
+  }
+
   // Ensure score doesn't exceed reasonable bounds
   return Math.min(score, 100);
 }
@@ -93,6 +110,18 @@ function calculatePersonaMatchScore(business: any, persona: any): number {
 export async function mapBusinessesToPersonas(searchId: string, businessId?: string) {
   try {
     console.log(`Starting persona mapping for search ${searchId}`);
+
+    // Ensure business personas exist before mapping
+    const { data: personaCheck } = await supa
+      .from('business_personas')
+      .select('id')
+      .eq('search_id', searchId)
+      .limit(1);
+    if (!personaCheck || personaCheck.length === 0) {
+      console.log('Business personas not ready yet. Deferring mapping by 5s.');
+      setTimeout(() => { mapBusinessesToPersonas(searchId, businessId).catch(()=>{}); }, 5000);
+      return;
+    }
 
     // Only load businesses that don't yet have a persona mapping. Optionally
     // limit to a single business when an id is provided.
@@ -139,7 +168,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
         .from('businesses')
         .update({
           persona_id: bestPersona.id,
-          persona_type: bestPersona.title,
+          persona_type: bestPersona.title || 'mapped',
           // Use calculated match score based on persona compatibility
           match_score: Math.min(matchScore, 100)
         })
@@ -284,6 +313,18 @@ export async function intelligentPersonaMapping(searchId: string) {
 export async function mapDecisionMakersToPersonas(searchId: string) {
   try {
     console.log(`Starting DM persona mapping for search ${searchId}`);
+
+    // Ensure DM personas exist before mapping
+    const { data: personaCheck } = await supa
+      .from('decision_maker_personas')
+      .select('id')
+      .eq('search_id', searchId)
+      .limit(1);
+    if (!personaCheck || personaCheck.length === 0) {
+      console.log('DM personas not ready yet. Deferring mapping by 5s.');
+      setTimeout(() => { mapDecisionMakersToPersonas(searchId).catch(()=>{}); }, 5000);
+      return;
+    }
 
     const { data: dms, error: dmError } = await supa
       .from('decision_makers')

@@ -73,6 +73,8 @@ export async function callOpenAIChatJSON(params: {
   user: string;
   temperature?: number;
   maxTokens?: number;
+  requireJsonObject?: boolean;
+  verbosity?: 'low' | 'medium' | 'high';
 }): Promise<string> {
   const payload: any = {
     model: params.model,
@@ -91,6 +93,13 @@ export async function callOpenAIChatJSON(params: {
     } else {
       payload.max_tokens = params.maxTokens;
     }
+  }
+  // GPT‑5 structured output and verbosity controls
+  if (isGpt5 && params.requireJsonObject) {
+    payload.response_format = { type: 'json_object' };
+  }
+  if (isGpt5 && params.verbosity) {
+    payload.verbosity = params.verbosity;
   }
   const res = await openai.chat.completions.create(payload);
   return (res.choices?.[0]?.message?.content || '').trim();

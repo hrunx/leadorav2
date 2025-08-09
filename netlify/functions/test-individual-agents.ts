@@ -94,7 +94,7 @@ export const handler: Handler = async (event) => {
         console.log('execBusinessPersonas imported successfully');
         
         // Import OK ← heavy execution skipped to avoid 30-s timeout in Netlify-CLI test runner
-        return {
+         return {
           statusCode: 200,
           body: JSON.stringify({ 
             success: true, 
@@ -114,11 +114,44 @@ export const handler: Handler = async (event) => {
         };
       }
     }
+
+    if (test_type === 'exec-dm-personas') {
+      try {
+        const { execDMPersonas } = await import('../../src/orchestration/exec-dm-personas.js')
+          .catch(() => import('../../src/orchestration/exec-dm-personas'));
+        console.log('execDMPersonas imported successfully');
+        return { statusCode: 200, body: JSON.stringify({ success: true, test: 'exec-dm-personas', message: 'DM personas import OK' }) };
+      } catch (error: any) {
+        return { statusCode: 200, body: JSON.stringify({ success: false, test: 'exec-dm-personas', error: error.message, stack: error.stack }) };
+      }
+    }
+
+    if (test_type === 'exec-business-discovery') {
+      try {
+        const { execBusinessDiscovery } = await import('../../src/orchestration/exec-business-discovery.js')
+          .catch(() => import('../../src/orchestration/exec-business-discovery'));
+        console.log('execBusinessDiscovery imported successfully');
+        return { statusCode: 200, body: JSON.stringify({ success: true, test: 'exec-business-discovery', message: 'Business discovery import OK' }) };
+      } catch (error: any) {
+        return { statusCode: 200, body: JSON.stringify({ success: false, test: 'exec-business-discovery', error: error.message, stack: error.stack }) };
+      }
+    }
+
+    if (test_type === 'exec-market-research') {
+      try {
+        const { execMarketResearchParallel } = await import('../../src/orchestration/exec-market-research-parallel.js')
+          .catch(() => import('../../src/orchestration/exec-market-research-parallel'));
+        console.log('execMarketResearchParallel imported successfully');
+        return { statusCode: 200, body: JSON.stringify({ success: true, test: 'exec-market-research', message: 'Market research import OK' }) };
+      } catch (error: any) {
+        return { statusCode: 200, body: JSON.stringify({ success: false, test: 'exec-market-research', error: error.message, stack: error.stack }) };
+      }
+    }
     
     return {
       statusCode: 400,
       body: JSON.stringify({ 
-        error: 'Specify test_type: serper-direct, deepseek-direct, or exec-business-personas' 
+        error: 'Specify test_type: serper-direct, deepseek-direct, exec-business-personas, exec-dm-personas, exec-business-discovery, exec-market-research' 
       })
     };
     

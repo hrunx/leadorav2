@@ -1,6 +1,6 @@
 import { Agent, tool, run } from '@openai/agents';
 import { serperPlaces } from '../tools/serper';
-import { resolveModel, gemini } from './clients';
+import { resolveModel } from './clients';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
@@ -80,31 +80,7 @@ const serperPlacesTool = tool({
   }
 });
 
-// --- Helper: Enrich business data via Gemini 2.0 Flash ---
-async function enrichBusiness(b: Business, industry: string, country: string): Promise<Business> {
-  try {
-    const model = gemini.getGenerativeModel({ model: 'gemini-2.0-flash' });
-    const prompt = `You are enriching a company profile. Output STRICT JSON only with keys: relevant_departments (string[]), key_products (string[]), recent_activity (string[]).
-Company: ${b.name}
-Industry: ${industry}
-Country: ${country}
-Website: ${b.website || ''}`;
-    const res = await model.generateContent([{ text: prompt }]);
-    const text = res.response.text().trim();
-    const json = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || '{}');
-    const departments = Array.isArray(json.relevant_departments) ? json.relevant_departments.slice(0, 3) : [];
-    const products = Array.isArray(json.key_products) ? json.key_products.slice(0, 3) : [];
-    const activity = Array.isArray(json.recent_activity) ? json.recent_activity.slice(0, 2) : [];
-    return {
-      ...b,
-      relevant_departments: departments.length ? departments : (b.relevant_departments || []),
-      key_products: products.length ? products : (b.key_products || []),
-      recent_activity: activity.length ? activity : (b.recent_activity || [])
-    };
-  } catch {
-    return b;
-  }
-}
+// Enrichment removed for first paint speed; can be added later as a background step
 
 const storeBusinessesTool = tool({
   name: 'storeBusinesses',
@@ -153,11 +129,9 @@ const storeBusinessesTool = tool({
       country: string; 
       items: Business[] 
     };
-    // Enrich each business before DB insert; hard cap to 5 places per call
-    const enriched: Business[] = await Promise.all(
-      items.slice(0, 5).map((b: Business) => enrichBusiness(b, industry, country))
-    );
-    const rows = enriched.map((b: Business) => buildBusinessData({
+    // Insert IMMEDIATELY without enrichment for fastest UI paint; enrichment can be handled later
+    const capped = items.slice(0, 5);
+    const rows = capped.map((b: Business) => buildBusinessData({
       search_id,
       user_id,
       persona_id: b.persona_id || null, // Use null if no persona mapping yet (will be updated later)
@@ -165,7 +139,7 @@ const storeBusinessesTool = tool({
       industry,
       country,
       address: b.address || '',
-      city: b.city || country,
+      city: b.city || (b.address?.split(',')?.[0] || country),
       phone: b.phone || undefined,
       website: b.website || undefined,
       rating: b.rating ?? undefined,
@@ -173,7 +147,7 @@ const storeBusinessesTool = tool({
       revenue: b.revenue || 'Unknown',
       description: b.description || 'Business discovered via search',
       match_score: b.match_score || 75,
-      persona_type: b.persona_type || 'business',
+      persona_type: 'business_candidate',
       relevant_departments: b.relevant_departments || [],
       key_products: b.key_products || [],
       recent_activity: b.recent_activity || []
@@ -277,7 +251,7 @@ START NOW - NO WAITING!`,
   tools: [serperPlacesTool, storeBusinessesTool],
   handoffDescription: 'Discovers real businesses via Serper Places API and stores them immediately for fast results',
   handoffs: [],
-  model: resolveModel('ultraLight')
+  model: resolveModel('light')
 });
 
 export async function runBusinessDiscovery(search: {
@@ -298,19 +272,23 @@ export async function runBusinessDiscovery(search: {
     // Build one precise discovery query from the first country to cap results to 10 places total
     const firstCountry = search.countries[0] || '';
     const gl = countryToGL(firstCountry || countries);
-    const discoveryQuery = `${search.product_service} ${industries} companies ${firstCountry || countries}`.trim();
+    const lens = search.search_type === 'customer' 
+      ? 'companies that need require adopt buy'
+      : 'companies that sell provide supply distribute';
+    const discoveryQuery = `${lens} ${search.product_service} ${industries} ${firstCountry || countries}`.trim();
 
     const msg = `search_id=${search.id} user_id=${search.user_id}
-- product_service=${search.product_service}
-- industries=${industries}
-- countries=${countries}
-- search_type=${search.search_type}
-
-MANDATE:
-- Call serperPlaces ONCE with q="${discoveryQuery}", gl="${gl}", limit=5, search_id="${search.id}", user_id="${search.user_id}"
-- Immediately call storeBusinesses with ALL returned places (cap 5) for industry="${search.industries[0] || industries}", country="${firstCountry || countries}"
-- Do not perform additional place searches.
-`;
+ - product_service=${search.product_service}
+ - industries=${industries}
+ - countries=${countries}
+ - search_type=${search.search_type}
+ 
+ MANDATE:
+ - Call serperPlaces ONCE with q="${discoveryQuery}", gl="${gl}", limit=5, search_id="${search.id}", user_id="${search.user_id}"
+ - Immediately call storeBusinesses with ALL returned places (cap 5) for industry="${search.industries[0] || industries}", country="${firstCountry || countries}"
+ - Do not perform additional place searches.
+ 
+ NOTE: If serperPlaces returns 0 places, relax the query slightly (remove industry words) and try once more, then store results immediately if found.`;
     
     console.log(`Starting business discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries}`);
     

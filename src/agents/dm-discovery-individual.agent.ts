@@ -63,19 +63,12 @@ const linkedinSearchTool = tool({
     const startTime = Date.now();
     
     try {
-      // Three precise searches per company: use the 3 DM persona titles
+      // Single precise search per company to limit API usage
       const personas = await loadDMPersonas(search_id);
-      const titles = Array.isArray(personas)
-        ? personas
-            .slice(0,3)
-            .map((p:any)=>String(p.title||'').trim())
-            .filter(t => t && t.toLowerCase() !== 'persona generation failed')
-        : [];
-      const queries = (titles.length ? titles : ['Head of','Director','VP']).map(t => {
-        const ctx = (product_service || '').trim();
-        const suffix = ctx ? ` ${ctx}` : '';
-        return `"${company_name}" site:linkedin.com/in/ ${t}${suffix}`;
-      });
+      const primaryTitle = (Array.isArray(personas) && personas[0]?.title) ? String(personas[0].title).trim() : 'Head of';
+      const ctx = (product_service || '').trim();
+      const suffix = ctx ? ` ${ctx}` : '';
+      const queries = [`"${company_name}" site:linkedin.com/in/ ${primaryTitle}${suffix}`];
       
       const allEmployees: Employee[] = [];
       
@@ -155,7 +148,7 @@ const linkedinSearchTool = tool({
         index === self.findIndex(e => e.linkedin === employee.linkedin)
       );
       
-      return { employees: uniqueEmployees.slice(0, 10) }; // Limit to 10 per company
+       return { employees: uniqueEmployees.slice(0, 10) }; // Limit to 10 per company
       
       } catch (error) {
       const endTime = Date.now();
@@ -396,7 +389,8 @@ export async function runDMDiscoveryForBusiness(params: {
   product_service?: string;
 }) {
   // Wait for DM personas with shorter timeout, proceed anyway if not ready
-  const personas = await waitForPersonas(params.search_id, 60000, 2000); // 1 minute timeout
+  // Wait less but proceed; mapping to DM personas will happen after persona generation completes
+  const personas = await waitForPersonas(params.search_id, 20000, 2000); // 20s timeout
   if (personas.length === 0) {
     console.warn(`⚠️ Proceeding with DM discovery for ${params.business_name} without personas (they may still be generating)`);
   }
@@ -426,6 +420,7 @@ Search LinkedIn for executives and decision makers who would be involved in purc
         console.warn(`No DMs stored by agent for business ${params.business_id}. Running deterministic fallback...`);
         await runDeterministicDMDiscovery(params);
       }
+      // Do not attempt persona mapping here; a separate mapping step will run after personas are generated
       return result;
     } catch (err: any) {
       lastError = err;

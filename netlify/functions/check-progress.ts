@@ -10,11 +10,23 @@ const supa = createClient(
 // UUID validation regex
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Simple in-memory throttle/cache to reduce DB load and noisy logs during polling
+// Cache responses for a very short TTL (e.g., 1500ms) per search_id
+const cache = new Map<string, { ts: number; body: string }>();
+const TTL_MS = 1500;
+
 export const handler: Handler = async (event) => {
   try {
     const { search_id } = JSON.parse(event.body || '{}');
     if (!search_id) {
       return { statusCode: 400, body: JSON.stringify({ error: 'search_id required' }) };
+    }
+
+    // Throttle: return cached response if within TTL
+    const now = Date.now();
+    const cached = cache.get(search_id);
+    if (cached && now - cached.ts < TTL_MS) {
+      return { statusCode: 200, body: cached.body };
     }
 
     // Handle fallback/non-UUID search IDs (offline mode)
@@ -85,9 +97,7 @@ export const handler: Handler = async (event) => {
       supa.from('market_insights').select('id').eq('search_id', search_id)
     ]);
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
+    const body = JSON.stringify({
         search_id,
         progress: search,
         data_counts: {
@@ -100,8 +110,9 @@ export const handler: Handler = async (event) => {
           market_insights: marketInsights.data?.length || 0
         },
         recent_api_calls: logs
-      })
-    };
+      });
+    cache.set(search_id, { ts: Date.now(), body });
+    return { statusCode: 200, body };
   } catch (error: any) {
     return {
       statusCode: 500,

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
 
 // Create a dedicated client for database operations that works in both browser and Netlify functions
 const getSupabaseClient = () => {
@@ -14,10 +15,50 @@ const getSupabaseClient = () => {
   );
 };
 
+// --- Totals helpers ---
+async function countBySearch(table: string, search_id: string): Promise<number> {
+  const supa = getSupabaseClient();
+  const { count, error } = await supa
+    .from(table)
+    .select('id', { count: 'exact', head: true })
+    .eq('search_id', search_id);
+  if (error) throw error;
+  return count || 0;
+}
+
+export async function updateSearchTotals(search_id: string): Promise<void> {
+  const supa = getSupabaseClient();
+  const [businessPersonas, dmPersonas, businesses, decisionMakers, marketInsights] = await Promise.all([
+    countBySearch('business_personas', search_id),
+    countBySearch('decision_maker_personas', search_id),
+    countBySearch('businesses', search_id),
+    countBySearch('decision_makers', search_id),
+    countBySearch('market_insights', search_id),
+  ]);
+
+  const totals = {
+    business_personas: businessPersonas,
+    dm_personas: dmPersonas,
+    businesses,
+    decision_makers: decisionMakers,
+    market_insights: marketInsights,
+  } as const;
+
+  const { error } = await supa
+    .from('user_searches')
+    .update({ totals, updated_at: new Date().toISOString() })
+    .eq('id', search_id);
+  if (error) throw error;
+}
+
 export const insertBusinessPersonas = async (rows: any[]) => {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('business_personas').insert(rows).select('*');
   if (error) throw error;
+  const search_id = rows?.[0]?.search_id as string | undefined;
+  if (search_id) {
+    try { await updateSearchTotals(search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
+  }
   return data!;
 };
 
@@ -28,6 +69,10 @@ export const insertBusinesses = async (rows: any[]) => {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('businesses').insert(rows).select('*');
   if (error) throw error; 
+  const search_id = rows?.[0]?.search_id as string | undefined;
+  if (search_id) {
+    try { await updateSearchTotals(search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
+  }
   return data!;
 };
 
@@ -35,6 +80,10 @@ export const insertDMPersonas = async (rows: any[]) => {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('decision_maker_personas').insert(rows).select('id,title,rank');
   if (error) throw error; 
+  const search_id = rows?.[0]?.search_id as string | undefined;
+  if (search_id) {
+    try { await updateSearchTotals(search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
+  }
   return data!;
 };
 
@@ -42,7 +91,8 @@ export const insertDMPersonas = async (rows: any[]) => {
 export const insertDecisionMakersBasic = async (rows: any[]) => {
   const basicRows = rows.map(row => ({
     ...row,
-    id: row.id || undefined,
+    // Ensure id is present to avoid NOT NULL constraint violations on some schemas
+    id: row.id || randomUUID(),
     linkedin: String(row.linkedin || ''),
     enrichment_status: 'pending' as const,
     enrichment: row.enrichment ?? null
@@ -51,6 +101,10 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('decision_makers').insert(basicRows).select('id,name,company,title,linkedin');
   if (error) throw error; 
+  const search_id = basicRows?.[0]?.search_id as string | undefined;
+  if (search_id) {
+    try { await updateSearchTotals(search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
+  }
   return data!;
 };
 
@@ -72,6 +126,7 @@ export const insertMarketInsights = async (row: {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('market_insights').insert(row).select('id').single();
   if (error) throw error;
+  try { await updateSearchTotals(row.search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
   return data!;
 };
 
@@ -159,13 +214,16 @@ export const logApiUsage = async (params: {
 }) => {
   try {
     const supa = getSupabaseClient();
+    const isValidUuid = (v: any) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+    const safeUserId = isValidUuid(params.user_id) ? params.user_id : null;
+    const allowedProvider = (p: any) => (p === 'serper' || p === 'deepseek' || p === 'gemini' || p === 'openai') ? p : 'openai';
     const { error } = await supa
       .from('api_usage_logs')
       .insert({
-        // If user_id is not a valid auth.users id (e.g., local/dev), log with null to avoid FK errors
-        user_id: params.user_id || null,
+        // If user_id invalid or not present (e.g., local/dev), log with null to avoid FK errors
+        user_id: safeUserId,
         search_id: params.search_id || null,
-        provider: params.provider,
+        provider: allowedProvider(params.provider),
         endpoint: params.endpoint || null,
         status: params.status || 200,
         ms: params.ms || 0,
@@ -217,8 +275,7 @@ export const updateDecisionMakerEnrichment = async (dmId: string, enrichmentData
   const { data, error } = await supa
     .from('decision_makers')
     .update({
-      ...enrichmentData,
-      updated_at: new Date().toISOString()
+      ...enrichmentData
     })
     .eq('id', dmId)
     .select('id,name,email,phone');

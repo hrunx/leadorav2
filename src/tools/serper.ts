@@ -1,4 +1,5 @@
 import { retryWithBackoff } from './util';
+import { glToCountryName } from './util';
 import { createClient } from '@supabase/supabase-js';
 
 // Lightweight in-process limiter for Serper calls
@@ -26,7 +27,7 @@ const supa = (process.env.VITE_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE
   ? createClient(process.env.VITE_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession:false, autoRefreshToken:false } })
   : null;
 
-type CacheEntry = { response: any; ttl_at: string };
+// type CacheEntry = { response: any; ttl_at: string };
 const memCache = new Map<string, { value:any; ttl:number }>();
 const now = () => Date.now();
 const DEFAULT_TTL_MS = Number(process.env.SERPER_CACHE_TTL_MS || 6*60*60*1000); // 6h
@@ -151,7 +152,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     }
     
     const data = await r.json();
-      const places = (data.places || []).slice(0, limit).map((p: any) => {
+      let places = (data.places || []).slice(0, limit).map((p: any) => {
       // Extract city from address
       let city = '';
       if (p.address) {
@@ -171,6 +172,20 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
         city: city || country // Fallback to country if city not found
       };
     });
+
+    // Conservative country filter: allow when address/city clearly match or when site ccTLD matches.
+    // For KSA and some markets, addresses often omit country; allow items with empty address but strong ccTLD.
+    const countryName = glToCountryName(gl).toLowerCase();
+    const ccTld = `.${gl}`;
+    places = places.filter((pl: any) => {
+      const addr = (pl.address || '').toLowerCase();
+      const city = (pl.city || '').toLowerCase();
+      const site = (pl.website || '').toLowerCase();
+      const hasCountrySignal = addr.includes(countryName) || city.includes(countryName);
+      const hasCcTld = site.endsWith(ccTld) || site.includes(`${ccTld}/`);
+      // Allow if either clear country signal or ccTLD. Keep US as relaxed.
+      return hasCountrySignal || hasCcTld || gl === 'us';
+    }).slice(0, limit);
     
     console.log(`Found ${places.length} places for query: "${q}" in ${country}`);
     await setCache(cacheKey, 'serper', places);
