@@ -30,8 +30,12 @@ export default function MarketingInsights() {
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
   
   // Use real-time data for real users, demo data for demo users
-  const marketData = isDemo ? demoMarketData : realTimeData.marketInsights.length > 0 ? realTimeData.marketInsights[0] : null;
-  
+  const marketRow = isDemo ? demoMarketData : realTimeData.marketInsights.length > 0 ? realTimeData.marketInsights[0] : null;
+  // Derive normalized blocks for rendering (tam/sam/som)
+  const marketBlocks = isDemo
+    ? (demoMarketData ? { tam: demoMarketData.tam, sam: demoMarketData.sam, som: demoMarketData.som } : null)
+    : (marketRow ? { tam: (marketRow as any).tam_data, sam: (marketRow as any).sam_data, som: (marketRow as any).som_data } : null);
+
   const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || !realTimeData.progress.market_insights_ready;
   const hasSearch = isDemo ? !!demoMarketData : !!currentSearch;
   const [competitorData, setCompetitorData] = useState<any[]>([]);
@@ -115,6 +119,25 @@ export default function MarketingInsights() {
       setIsLoading(false);
     }
   };
+
+  // Sync real-time market insights into local display state for real users
+  useEffect(() => {
+    if (isDemo) return;
+    const row: any = marketRow;
+    if (!row) {
+      setCompetitorData([]);
+      setTrends([]);
+      setSources([]);
+      setResearchSummary('');
+      setMethodology('');
+      return;
+    }
+    setCompetitorData(Array.isArray(row.competitor_data) ? row.competitor_data : []);
+    setTrends(Array.isArray(row.trends) ? row.trends : []);
+    setSources(Array.isArray(row.sources) ? row.sources : []);
+    setResearchSummary(row.analysis_summary || row.opportunities?.summary || '');
+    setMethodology(row.research_methodology || '');
+  }, [isDemo, marketRow]);
 
   const handleProceedToCampaigns = () => {
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'campaigns' }));
@@ -238,7 +261,7 @@ export default function MarketingInsights() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         <div className="border-b border-gray-200">
-          <nav className="flex space-x-8 px-6">
+          <nav className="flex space-x-8 px-6 overflow-x-auto no-scrollbar">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -268,7 +291,7 @@ export default function MarketingInsights() {
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-6">Market Size Analysis</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {Object.entries(marketData || {}).map(([key, data]) => (
+                  {marketBlocks && Object.entries(marketBlocks).map(([key, data]) => (
                     <div key={key} className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-200">
                       <div className="flex items-center justify-between mb-4">
                         <h4 className="font-semibold text-gray-900">{data?.description || ''}</h4>

@@ -146,7 +146,8 @@ export const DMPersonaAgent = new Agent({
   tools: [storeDMPersonasTool],
   handoffDescription: 'Generates 3 decision maker personas for a search context',
   handoffs: [],
-  model: resolveModel('ultraLight'),
+  // Use primary GPT-5 for better persona quality
+  model: resolveModel('primary'),
 
   instructions: `Create exactly 3 decision maker personas using the provided search criteria.
 
@@ -215,47 +216,69 @@ CRITICAL: Each persona must have:
 - If you cannot fill a field, infer a plausible value based on industry/country context.
 - Do not repeat personas. Each must be unique and relevant.
  - Output as a JSON array of 3 persona objects with all required fields.`;
-    // Preferred chain: GPT-5 mini → Gemini 2.0 Flash → DeepSeek
-    // 1) GPT-5 mini
-    try {
+    // Lightning-fast persona generation: race models and accept first valid
+    const fastCall = async () => {
       const text = await callOpenAIChatJSON({
-        model: resolveModel('light'),
-        system: 'You output ONLY a JSON array of exactly 3 complete decision-maker persona objects per spec.',
+        model: resolveModel('ultraLight'),
+        system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete decision-maker persona objects.',
         user: improvedPrompt,
-        temperature: 0.6,
-        maxTokens: 2000
+        temperature: 0.4,
+        maxTokens: 700,
+        requireJsonObject: true,
+        verbosity: 'low'
       });
-      const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
-      if (Array.isArray(json) && json.length === 3 && json.every(isRealisticDMPersona)) {
-        personas = json;
-      }
-    } catch (e) {
-      console.warn('[DMPersona] gpt-5-mini failed:', (e as any).message);
-    }
-    // 2) Gemini 2.0 Flash (if needed)
-    if (!personas.length) {
-      try {
-        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt);
-        const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
-        if (Array.isArray(json) && json.length === 3 && json.every(isRealisticDMPersona)) {
-          personas = json;
-        }
-      } catch (e) {
-        console.warn('[DMPersona] gemini-2.0-flash failed:', (e as any).message);
-      }
-    }
-    // 3) DeepSeek (if needed)
-    if (!personas.length) {
-      try {
-        const text = await callDeepseekChatJSON({ user: improvedPrompt, temperature: 0.6, maxTokens: 2000 });
-        const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
-        if (Array.isArray(json) && json.length === 3 && json.every(isRealisticDMPersona)) {
-          personas = json;
-        }
-      } catch (e) {
-        console.warn('[DMPersona] deepseek failed:', (e as any).message);
-      }
-    }
+      const obj = JSON.parse(text || '{}');
+      const arr = Array.isArray(obj?.personas) ? obj.personas : [];
+      if (arr.length === 3 && arr.every(isRealisticDMPersona)) return arr as DMPersona[];
+      throw new Error('fast invalid');
+    };
+    const primaryCall = async () => {
+      const text = await callOpenAIChatJSON({
+        model: resolveModel('primary'),
+        system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete decision-maker persona objects.',
+        user: improvedPrompt,
+        temperature: 0.4,
+        maxTokens: 1200,
+        requireJsonObject: true,
+        verbosity: 'low'
+      });
+      const obj = JSON.parse(text || '{}');
+      const arr = Array.isArray(obj?.personas) ? obj.personas : [];
+      if (arr.length === 3 && arr.every(isRealisticDMPersona)) return arr as DMPersona[];
+      throw new Error('primary invalid');
+    };
+    const geminiCall = async () => {
+      const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
+      const obj = JSON.parse(text || '{}');
+      const arr = Array.isArray((obj as any)?.personas) ? (obj as any).personas : [];
+      if (arr.length === 3 && arr.every(isRealisticDMPersona)) return arr as DMPersona[];
+      throw new Error('gemini invalid');
+    };
+    const deepseekCall = async () => {
+      const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
+      const obj = JSON.parse(text || '{}');
+      const arr = Array.isArray((obj as any)?.personas) ? (obj as any).personas : [];
+      if (arr.length === 3 && arr.every(isRealisticDMPersona)) return arr as DMPersona[];
+      throw new Error('deepseek invalid');
+    };
+
+    // Promise.any polyfill
+    const promiseAny = async <T>(arr: Array<Promise<T>>): Promise<T> => new Promise((resolve, reject) => {
+      let remaining = arr.length;
+      const errors: any[] = [];
+      if (remaining === 0) return reject(new Error('No promises'));
+      arr.forEach(p => {
+        p.then(resolve).catch(err => {
+          errors.push(err);
+          remaining -= 1;
+          if (remaining === 0) reject(errors[0] || err);
+        });
+      });
+    });
+
+    try {
+      personas = await promiseAny([fastCall(), primaryCall(), geminiCall(), deepseekCall()]);
+    } catch (_) {}
     if (personas.length) {
       const rows = personas.slice(0, 3).map((p: DMPersona) => ({
         search_id: search.id,

@@ -3,6 +3,12 @@ import type { UserSearch, BusinessPersona, Business, DecisionMakerPersona, Decis
 import { DEMO_USER_ID } from '../constants/demo';
 
 export class SearchService {
+  // Lightweight in-memory caches to avoid spamming functions on dashboard load
+  private static searchesCache: { userId: string; ts: number; data: any[] } | null = null;
+  private static progressCache = new Map<string, { ts: number; data: any }>();
+  private static readonly TTL_MS = 5000; // 5s cache TTL for dashboard views
+  private static backfillInFlight = new Set<string>();
+
   // Create a new search and trigger agent orchestration
   static async createSearch(userId: string, searchData: {
     search_type: 'customer' | 'supplier';
@@ -58,6 +64,11 @@ export class SearchService {
     const targetUserId = isDemoMode ? DEMO_USER_ID : userId;
     
     try {
+      // Serve from cache if recent
+      if (this.searchesCache && this.searchesCache.userId === targetUserId && Date.now() - this.searchesCache.ts < this.TTL_MS) {
+        return this.searchesCache.data as any;
+      }
+
       const { data, error } = await supabase
         .from('user_searches')
         .select('*')
@@ -66,29 +77,20 @@ export class SearchService {
 
       if (error) throw error;
       const searches = Array.isArray(data) ? data : [];
-      // Enrich each search with live totals via check-progress function (robust and RLS-safe)
-      const enriched = await Promise.all(searches.map(async (s: any) => {
-        try {
-          const resp = await fetch('/.netlify/functions/check-progress', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ search_id: s.id })
-          });
-          if (!resp.ok) throw new Error(`check-progress ${resp.status}`);
-          const j = await resp.json();
-          const totals = j?.data_counts || { business_personas:0, dm_personas:0, businesses:0, decision_makers:0, market_insights:0 };
-          const progress = j?.progress || {};
-          return {
-            ...s,
-            totals,
-            progress,
-            timestamp: s.created_at
-          };
-        } catch (_e) {
-          return { ...s, totals: { business_personas:0, dm_personas:0, businesses:0, decision_makers:0, market_insights:0 }, timestamp: s.created_at };
-        }
+
+      // Normalize progress and totals
+      const normalized = searches.map((s: any) => ({
+        ...s,
+        progress: { phase: s.phase, progress_pct: s.progress_pct, status: s.status },
+        totals: s.totals || { business_personas:0, dm_personas:0, businesses:0, decision_makers:0, market_insights:0 },
+        timestamp: s.created_at
       }));
-      return enriched as any;
+
+      // Fire-and-forget: backfill totals for any search missing counts
+      void this.backfillMissingTotals(normalized);
+
+      this.searchesCache = { userId: targetUserId, ts: Date.now(), data: normalized };
+      return normalized as any;
     } catch (error: any) {
       // Fallback to proxy if direct Supabase call fails (CORS issues)
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
@@ -110,6 +112,53 @@ export class SearchService {
       }
       throw error;
     }
+  }
+
+  // Backfill totals for searches that have zero/empty totals, without blocking UI
+  private static async backfillMissingTotals(searches: any[]): Promise<void> {
+    const candidates = searches.filter(s => {
+      const t = s.totals || {};
+      const missing = (t.business_personas ?? 0) + (t.dm_personas ?? 0) + (t.businesses ?? 0) + (t.decision_makers ?? 0) + (t.market_insights ?? 0);
+      return !this.backfillInFlight.has(s.id) && missing === 0;
+    });
+    if (candidates.length === 0) return;
+
+    const limit = 3; // limit concurrency
+    const queue = [...candidates];
+    const runOne = async () => {
+      const s = queue.shift();
+      if (!s) return;
+      this.backfillInFlight.add(s.id);
+      try {
+        const [bp, dmp, b, dm, mi] = await Promise.all([
+          supabase.from('business_personas').select('id', { count: 'exact', head: true }).eq('search_id', s.id),
+          supabase.from('decision_maker_personas').select('id', { count: 'exact', head: true }).eq('search_id', s.id),
+          supabase.from('businesses').select('id', { count: 'exact', head: true }).eq('search_id', s.id),
+          supabase.from('decision_makers').select('id', { count: 'exact', head: true }).eq('search_id', s.id),
+          supabase.from('market_insights').select('id', { count: 'exact', head: true }).eq('search_id', s.id),
+        ]);
+        const totals = {
+          business_personas: bp.count || 0,
+          dm_personas: dmp.count || 0,
+          businesses: b.count || 0,
+          decision_makers: dm.count || 0,
+          market_insights: mi.count || 0,
+        } as any;
+        // Update DB, but do not block
+        void supabase.from('user_searches').update({ totals, updated_at: new Date().toISOString() }).eq('id', s.id);
+        // Also update in-memory cache copy if present
+        if (this.searchesCache) {
+          this.searchesCache.data = this.searchesCache.data.map(x => x.id === s.id ? { ...x, totals } : x);
+        }
+      } catch (e) {
+        // ignore errors; this is best-effort
+      } finally {
+        this.backfillInFlight.delete(s.id);
+        await runOne();
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, () => runOne()));
   }
 
   // Count qualified leads for a user: decision makers with at least one contact handle

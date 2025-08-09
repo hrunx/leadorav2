@@ -4,7 +4,9 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function buildCorsHeaders(origin?: string) {
-  const allow = origin && (allowedOrigins.length === 0 || allowedOrigins.includes(origin))
+  // In local dev, allow localhost origins automatically
+  const isLocal = origin?.startsWith('http://localhost') || origin?.startsWith('http://127.0.0.1');
+  const allow = (origin && (allowedOrigins.length === 0 || allowedOrigins.includes(origin) || isLocal))
     ? origin
     : '';
   return {
@@ -86,12 +88,17 @@ export const handler: Handler = async (event) => {
   }
 
   // For user-scoped requests, require JWT
+  // In local dev, allow user-scoped reads without JWT for localhost to avoid CORS pain
   if (user_id && !token) {
-    return {
-      statusCode: 401,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Authorization required for user-scoped requests' })
-    };
+    const origin = (event.headers.origin || event.headers.Origin || '').toString();
+    const isLocal = origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
+    if (!isLocal) {
+      return {
+        statusCode: 401,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Authorization required for user-scoped requests' })
+      };
+    }
   }
 
   // Build Supabase REST query

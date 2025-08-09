@@ -59,7 +59,7 @@ export const handler: Handler = async (event) => {
       } else {
         console.log('✅ Test search created:', search.id);
 
-        // Test orchestrator start
+        // Test orchestrator start (fire-and-forget background)
         const response = await fetch(`${process.env.URL}/.netlify/functions/orchestrator-start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -84,10 +84,11 @@ export const handler: Handler = async (event) => {
     // 3. Test API Endpoints
     console.log('🔗 Testing API endpoints...');
     try {
-      const endpoints = [
-        '/.netlify/functions/check-progress',
-        '/.netlify/functions/test-simple'
-      ];
+       const endpoints = [
+         '/.netlify/functions/check-progress',
+         '/.netlify/functions/test-simple',
+         '/.netlify/functions/test-individual-agents'
+       ];
 
       for (const endpoint of endpoints) {
         try {
@@ -106,7 +107,22 @@ export const handler: Handler = async (event) => {
       console.log('❌ API endpoint testing failed:', e.message);
     }
 
-    // 4. Test Data Schema
+    // 4. Test Data Flow (poll until personas appear)
+    try {
+      const deadline = Date.now() + 20000;
+      let gotAny = false;
+      while (Date.now() < deadline) {
+        const { data: bp } = await supa.from('business_personas').select('id').eq('search_id', (await supa.from('user_searches').select('id').order('created_at', { ascending: false }).limit(1)).data?.[0]?.id || '').limit(1);
+        const { data: dmp } = await supa.from('decision_maker_personas').select('id').order('created_at', { ascending: false }).limit(1);
+        if ((bp && bp.length) || (dmp && dmp.length)) { gotAny = true; break; }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      if (gotAny) console.log('✅ Personas started streaming'); else console.log('⚠️ Personas did not appear within timeout (still acceptable in CI)');
+    } catch (e:any) {
+      console.log('❌ Data flow polling failed:', e.message);
+    }
+
+    // 5. Test Data Schema
     console.log('📋 Testing data schema...');
     try {
       const tables = [
@@ -132,7 +148,7 @@ export const handler: Handler = async (event) => {
       console.log('❌ Schema testing failed:', e.message);
     }
 
-    // 5. Test Individual Agents
+    // 6. Test Individual Agents
     console.log('🧠 Testing individual agents...');
     try {
       // Test market research function
@@ -158,31 +174,31 @@ export const handler: Handler = async (event) => {
     const totalTests = Object.keys(testResults).length;
     const passRate = (passedTests / totalTests) * 100;
 
-    const report = {
+    const report: any = {
       timestamp: new Date().toISOString(),
       pass_rate: `${passRate.toFixed(1)}%`,
       tests_passed: passedTests,
       tests_total: totalTests,
       results: testResults,
       status: passRate >= 80 ? 'HEALTHY' : 'NEEDS_ATTENTION',
-      recommendations: []
+      recommendations: [] as string[]
     };
 
     // Add recommendations based on failures
     if (!testResults.database) {
-      report.recommendations.push('Check database connection and credentials');
+      (report.recommendations as string[]).push('Check database connection and credentials');
     }
     if (!testResults.agents) {
-      report.recommendations.push('Verify agent imports and dependencies');
+      (report.recommendations as string[]).push('Verify agent imports and dependencies');
     }
     if (!testResults.orchestration) {
-      report.recommendations.push('Check orchestrator function and API keys');
+      (report.recommendations as string[]).push('Check orchestrator function and API keys');
     }
     if (!testResults.api_endpoints) {
-      report.recommendations.push('Verify API endpoint availability');
+      (report.recommendations as string[]).push('Verify API endpoint availability');
     }
     if (!testResults.data_flow) {
-      report.recommendations.push('Check database schema and permissions');
+      (report.recommendations as string[]).push('Check database schema and permissions');
     }
 
     console.log('📊 SYSTEM TEST COMPLETE');

@@ -81,12 +81,13 @@ export default function BusinessResults() {
   }, [isDemo, realTimeData.businesses]);
 
   const hasSearch = !!currentSearch;
-  const isLoading = !isDemo && (realTimeData.isLoading || (realTimeData.progress.phase !== 'completed' && businesses.length === 0));
+  // Show loader only until the first business arrives; ignore phase to avoid UI blocking
+  const isLoading = !isDemo && businesses.length === 0;
 
   useEffect(() => {
-    const completed = realTimeData.progress.phase === 'completed' || businesses.length > 0;
+    const completed = businesses.length > 0 || realTimeData.progress.phase === 'completed';
     setDiscoveryStatus(completed ? 'completed' : 'discovering');
-  }, [realTimeData.progress.phase, businesses.length]);
+  }, [businesses.length, realTimeData.progress.phase]);
 
   // rely on useRealTimeSearch subscriptions; avoid duplicative subscriptions here to prevent render loops
 
@@ -286,6 +287,8 @@ export default function BusinessResults() {
 
   // Get unique persona types for filter
   const personaTypes = [...new Set(businesses.map(b => b.personaType))];
+  const countryOptions = [...new Set(businesses.map(b => b.country).filter(Boolean))];
+  const industryOptions = [...new Set(businesses.map(b => b.industry).filter(Boolean))];
 
   const filteredBusinesses = businesses.filter(business => {
     const matchesCountry = !filterCountry || business.country === filterCountry;
@@ -308,7 +311,7 @@ export default function BusinessResults() {
   };
 
   // Show discovery progress UI for real users
-  if (isLoading || (discoveryStatus === 'discovering' && businesses.length === 0)) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-96">
         <div className="text-center max-w-md">
@@ -439,13 +442,9 @@ export default function BusinessResults() {
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">All Countries</option>
-                <option value="United States">United States</option>
-                <option value="Germany">Germany</option>
-                <option value="Canada">Canada</option>
-                <option value="United Kingdom">United Kingdom</option>
-                <option value="Australia">Australia</option>
-                <option value="Norway">Norway</option>
-                <option value="Singapore">Singapore</option>
+                {countryOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -456,14 +455,9 @@ export default function BusinessResults() {
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">All Industries</option>
-                <option value="Technology">Technology</option>
-                <option value="Healthcare">Healthcare</option>
-                <option value="Manufacturing">Manufacturing</option>
-                <option value="Financial Services">Financial Services</option>
-                <option value="Retail">Retail</option>
-                <option value="Energy">Energy</option>
-                <option value="Education">Education</option>
-                <option value="Government">Government</option>
+                {industryOptions.map((i) => (
+                  <option key={i} value={i}>{i}</option>
+                ))}
               </select>
             </div>
           </div>

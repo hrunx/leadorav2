@@ -85,6 +85,7 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
     // Mark as completed
     await updateSearchProgress(search_id, 100, 'completed', 'completed');
     updateFn('PROGRESS', { phase: 'completed', progress: 100 });
+    updateFn('PROGRESS', { phase: 'completed', progress: 100 });
     
     console.log(`🎉 Optimized orchestration completed successfully for search ${search_id}`);
     return { success: true, search_id, results: results.map(r => r.status) };

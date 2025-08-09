@@ -179,7 +179,8 @@ CRITICAL: Call storeBusinessPersonas tool ONCE with complete data. Do not retry.
   tools: [storeBusinessPersonasTool],
   handoffDescription: 'Generates 3 hyper-personalized business personas tailored to exact search criteria',
   handoffs: [],
-  model: resolveModel('ultraLight')
+  // Use primary GPT-5 for higher quality, faster convergence
+  model: resolveModel('primary')
 });
 
 // --- Helper: Validate persona realism ---
@@ -234,47 +235,72 @@ CRITICAL: Each persona must have:
 - Use plausible company types, sizes, geographies, revenues, pain points, motivations, challenges, decision factors, buying processes, timelines, budget ranges, preferred channels, market potential, and locations for the given industry/country/product.
 - If you cannot fill a field, infer a plausible value based on industry/country context.
 - Do not repeat personas. Each must be unique and relevant.
- - Output as a JSON array of 3 persona objects with all required fields.`;
-    // Preferred chain: GPT-5 mini → Gemini 2.0 Flash → DeepSeek
-    // 1) GPT-5 mini
-    try {
+  - Return JSON object: {"personas": [ ...exactly 3 items... ] }`; 
+
+    // Lightning-fast: race multiple providers; accept the first valid result
+    const fastCall = async () => {
       const text = await callOpenAIChatJSON({
-        model: resolveModel('light'),
-        system: 'You output ONLY a JSON array of exactly 3 complete persona objects per spec.',
+        model: resolveModel('ultraLight'), // nano for lowest latency
+        system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete persona objects.',
         user: improvedPrompt,
-        temperature: 0.6,
-        maxTokens: 2000
+        temperature: 0.4,
+        maxTokens: 700,
+        requireJsonObject: true,
+        verbosity: 'low'
       });
-      const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
-      if (Array.isArray(json) && json.length === 3 && json.every(isRealisticPersona)) {
-        personas = json;
-      }
-    } catch (e) {
-      console.warn('[BusinessPersona] gpt-5-mini failed:', (e as any).message);
-    }
-    // 2) Gemini 2.0 Flash (if needed)
-    if (!personas.length) {
-      try {
-        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt);
-        const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
-        if (Array.isArray(json) && json.length === 3 && json.every(isRealisticPersona)) {
-          personas = json;
-        }
-      } catch (e) {
-        console.warn('[BusinessPersona] gemini-2.0-flash failed:', (e as any).message);
-      }
-    }
-    // 3) DeepSeek (if needed)
-    if (!personas.length) {
-      try {
-        const text = await callDeepseekChatJSON({ user: improvedPrompt, temperature: 0.6, maxTokens: 2000 });
-        const json = JSON.parse(text.match(/\[.*\]/s)?.[0] || '[]');
-        if (Array.isArray(json) && json.length === 3 && json.every(isRealisticPersona)) {
-          personas = json;
-        }
-      } catch (e) {
-        console.warn('[BusinessPersona] deepseek failed:', (e as any).message);
-      }
+      const obj = JSON.parse(text || '{}');
+      const arr = Array.isArray(obj?.personas) ? obj.personas : [];
+      if (arr.length === 3 && arr.every(isRealisticPersona)) return arr as Persona[];
+      throw new Error('fast invalid');
+    };
+    const primaryCall = async () => {
+      const text = await callOpenAIChatJSON({
+        model: resolveModel('primary'),
+        system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete persona objects.',
+        user: improvedPrompt,
+        temperature: 0.4,
+        maxTokens: 1200,
+        requireJsonObject: true,
+        verbosity: 'low'
+      });
+      const obj = JSON.parse(text || '{}');
+      const arr = Array.isArray(obj?.personas) ? obj.personas : [];
+      if (arr.length === 3 && arr.every(isRealisticPersona)) return arr as Persona[];
+      throw new Error('primary invalid');
+    };
+    const geminiCall = async () => {
+      const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
+      const obj = JSON.parse(text || '{}');
+      const arr = Array.isArray((obj as any)?.personas) ? (obj as any).personas : [];
+      if (arr.length === 3 && arr.every(isRealisticPersona)) return arr as Persona[];
+      throw new Error('gemini invalid');
+    };
+    const deepseekCall = async () => {
+      const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
+      const obj = JSON.parse(text || '{}');
+      const arr = Array.isArray((obj as any)?.personas) ? (obj as any).personas : [];
+      if (arr.length === 3 && arr.every(isRealisticPersona)) return arr as Persona[];
+      throw new Error('deepseek invalid');
+    };
+
+    // Promise.any polyfill for older TS lib targets
+    const promiseAny = async <T>(arr: Array<Promise<T>>): Promise<T> => new Promise((resolve, reject) => {
+      let remaining = arr.length;
+      const errors: any[] = [];
+      if (remaining === 0) return reject(new Error('No promises'));
+      arr.forEach(p => {
+        p.then(resolve).catch(err => {
+          errors.push(err);
+          remaining -= 1;
+          if (remaining === 0) reject(errors[0] || err);
+        });
+      });
+    });
+
+    try {
+      personas = await promiseAny([fastCall(), primaryCall(), geminiCall(), deepseekCall()]);
+    } catch (_) {
+      // all failed; personas remains []
     }
 
     if (personas.length) {

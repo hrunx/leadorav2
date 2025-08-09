@@ -118,9 +118,8 @@ export const handler: Handler = async (event) => {
 
     // Start business discovery immediately (non-blocking)
     await updateProgress(search_id, 'business_discovery', 5);
-    // Listen for new businesses and map them as they arrive
+    // Defer business→persona mapping until business personas are ready; still keep listener ready
     stopPersonaListener = startPersonaMappingListener(search_id);
-    await mapBusinessesToPersonas(search_id);
     const businessDiscoveryPromise = retry(() =>
       withTimeout(execBusinessDiscovery({ search_id, user_id }), 240_000, 'business_discovery')
     ).catch(e => {
@@ -136,10 +135,17 @@ export const handler: Handler = async (event) => {
       limiter(()=>execDMPersonas({ search_id, user_id })),
     ]), 120_000, 'personas'));
 
+    // After personas exist, perform initial business→persona mapping in batch
+    try {
+      await mapBusinessesToPersonas(search_id);
+    } catch (e) {
+      console.warn('Initial business→persona mapping failed (will retry via listener):', (e as any)?.message || e);
+    }
+
     // Business discovery continues in background; update progress snapshot
     await updateProgress(search_id, 'business_discovery', 40);
 
-    // PHASE 4: Wait for market research to complete (should be done by now)
+    // PHASE 4: Wait for market research to complete (should be doing work in background)
     await updateProgress(search_id, 'market_research', 85);
     console.log('Waiting for market research to complete...');
     const marketResult = await marketResearchPromise;

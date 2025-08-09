@@ -22,7 +22,8 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
     responseRateChange: 0
   });
 
-  const recentSearches = userData.searchHistory.slice(0, 5);
+  // Show all searches (most recent first). No slicing.
+  const recentSearches = userData.searchHistory;
   const activeCampaigns = userData.activeCampaigns.slice(0, 3);
   
   // Simple demo user detection without CORS issues
@@ -257,7 +258,7 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
           </div>
 
           {recentSearches.length > 0 ? (
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[480px] overflow-y-auto pr-1">
               {recentSearches.map((search) => (
                 <div
                   key={search.id}
@@ -273,10 +274,14 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
                     <h3 className="font-medium text-gray-900 mb-1">
                       {search.product_service || 'Untitled Search'}
                     </h3>
-                    <div className="flex items-center space-x-4 text-sm text-gray-600">
+                    <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
                       <span className="flex items-center space-x-1">
                         <Users className="w-4 h-4" />
-                        <span>{(search.totals?.business_personas || 0) + (search.totals?.dm_personas || 0)} personas</span>
+                        <span>
+                          {(search.totals?.business_personas || 0) + (search.totals?.dm_personas || 0)} personas
+                          {` (`}
+                          {search.totals?.business_personas || 0} business, {search.totals?.dm_personas || 0} DM{`)`}
+                        </span>
                       </span>
                       <span className="flex items-center space-x-1">
                         <Building className="w-4 h-4" />

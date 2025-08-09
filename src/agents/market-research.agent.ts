@@ -97,22 +97,24 @@ Requirements:
 `;
 
   const startTime = Date.now();
-  const modelMini = resolveModel('light');
+  const modelMini = resolveModel('primary');
   
-  try {
-    // 1) GPT-5 mini
-    let text: string | null = null;
     try {
-      text = await callOpenAIChatJSON({
-        model: modelMini,
-        system: 'You are an expert market research analyst that outputs ONLY valid JSON per the user specification.',
-        user: prompt,
-        temperature: 0.5,
-        maxTokens: 3000
-      });
-    } catch (e) {
-      console.warn('[MarketResearch] gpt-5-mini failed:', (e as any).message);
-    }
+      // 1) GPT-5 mini
+      let text: string | null = null;
+      try {
+        text = await callOpenAIChatJSON({
+          model: modelMini,
+          system: 'You are an expert market research analyst that outputs ONLY valid JSON per the user specification.',
+          user: prompt,
+          temperature: 0.4,
+          maxTokens: 5000,
+          requireJsonObject: true,
+          verbosity: 'low'
+        });
+      } catch (e) {
+        console.warn('[MarketResearch] gpt-5-mini failed:', (e as any).message);
+      }
     // 2) Gemini 2.0 Flash
     if (!text) {
       try {
@@ -143,8 +145,13 @@ Requirements:
       response: { text_length: text.length }
     });
 
-      // Try to extract JSON using utility
-      const json = extractJson(text);
+      // Try to extract JSON using utility; fallback to direct parse due to response_format
+      let json: any = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = extractJson(text);
+      }
       let data: any = {};
       if (!json) {
         console.error(`[MarketResearch] Gemini returned empty or unparseable output for search ${search.id}. Inserting placeholder insights.`);

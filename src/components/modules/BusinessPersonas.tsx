@@ -141,6 +141,7 @@ export default function BusinessPersonas() {
     return list as PersonaData[];
   }, [isDemo, demoPersonas, realTimeData.businessPersonas, realTimeData.businesses]);
   
+  // Show loader only until first persona arrives; do not block on phase value
   const isLoading = isDemo ? isLoadingDemo : (personas.length === 0);
   const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
 

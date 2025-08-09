@@ -1,6 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { supa } from '../../src/agents/clients';
-import { gemini } from '../../src/agents/clients';
+import { supa, openai, gemini } from '../../src/agents/clients';
 import { updateDecisionMakerEnrichment, logApiUsage } from '../../src/tools/db.write';
 import { fetchContactEnrichment } from '../../src/tools/contact-enrichment';
 
@@ -36,8 +35,6 @@ async function getPendingDecisionMakers(search_id: string): Promise<DecisionMake
 
 async function enrichDecisionMakerProfile(dm: DecisionMaker): Promise<any | null> {
   try {
-    const model = gemini.getGenerativeModel({ model: 'gemini-1.5-pro' });
-    
     const prompt = `Analyze this decision maker profile and generate enrichment data:
 
 Name: ${dm.name}
@@ -64,8 +61,23 @@ Generate enrichment JSON with the following structure:
 
 Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON object.`;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    // Try GPT-5 first with strict JSON, fallback to Gemini if it fails
+    let responseText = '';
+    try {
+      const res = await openai.chat.completions.create({
+        model: 'gpt-5',
+        messages: [
+          { role: 'system', content: 'You output ONLY valid JSON object.' },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_object' }
+      });
+      responseText = res.choices?.[0]?.message?.content || '';
+    } catch (e) {
+      const g = gemini.getGenerativeModel({ model: 'gemini-1.5-pro' });
+      const result = await g.generateContent(prompt);
+      responseText = result.response.text();
+    }
     
     // Clean up JSON response
     let cleanJson = responseText.trim();
@@ -90,7 +102,7 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
     await logApiUsage({
       user_id: dm.user_id,
       search_id: dm.search_id,
-      provider: 'gemini',
+      provider: 'openai',
       endpoint: 'enrichment',
       status: 200,
       request: { dm_id: dm.id, name: dm.name },
@@ -106,7 +118,7 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
     await logApiUsage({
       user_id: dm.user_id,
       search_id: dm.search_id,
-      provider: 'gemini',
+      provider: 'openai',
       endpoint: 'enrichment',
       status: 500,
       request: { dm_id: dm.id, name: dm.name },
@@ -167,7 +179,11 @@ export const handler: Handler = async (event) => {
             fetchContactEnrichment(dm.name, dm.company)
           ]);
 
-          const updateData: any = profile ? { ...profile } : {};
+          // Store AI profile under enrichment JSON to avoid schema mismatch
+          const updateData: any = {};
+          if (profile) {
+            updateData.enrichment = profile;
+          }
           if (contact.email) updateData.email = contact.email;
           if (contact.phone) updateData.phone = contact.phone;
           if (contact.verification) {
