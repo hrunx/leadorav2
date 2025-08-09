@@ -674,7 +674,7 @@ export default function BusinessPersonas() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
             Business Personas for "{state.searchData?.productService}"
@@ -695,7 +695,7 @@ export default function BusinessPersonas() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
         {/* Personas List */}
         <div className="space-y-4">
           <h2 className="text-xl font-semibold text-gray-900">Ranked Business Personas</h2>
@@ -815,11 +815,11 @@ export default function BusinessPersonas() {
         </div>
 
         {/* Persona Details */}
-        <div className="sticky top-8">
+        <div className="lg:sticky lg:top-8">
           {selectedPersona ? (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200">
               <div className="border-b border-gray-200">
-                <nav className="flex space-x-6 px-6">
+                <nav className="flex space-x-6 px-6 overflow-x-auto no-scrollbar">
                   {tabs.map((tab) => {
                     const Icon = tab.icon;
                     const isActive = activeTab === tab.id;

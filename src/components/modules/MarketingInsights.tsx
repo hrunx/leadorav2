@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, DollarSign, Users, Building, Globe, Target, BarChart3, PieChart, ArrowRight, ArrowUp, ArrowDown, Calendar, Filter, Download, Share, Search, Plus, ExternalLink, FileText } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
@@ -139,6 +139,15 @@ export default function MarketingInsights() {
     setMethodology(row.research_methodology || '');
   }, [isDemo, marketRow]);
 
+  // Normalize sources to objects with at least title/url when backend returns string URLs
+  const normalizedSources = useMemo(() => {
+    return (sources || []).map((s: any) => {
+      if (typeof s === 'string') return { title: s, url: s };
+      // Some agents may return { title, url, date, used_for } or { source, url, focus_area }
+      return s;
+    });
+  }, [sources]);
+
   const handleProceedToCampaigns = () => {
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'campaigns' }));
   };
@@ -213,7 +222,7 @@ export default function MarketingInsights() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
             Market Insights for "{state.searchData?.productService}"
@@ -232,9 +241,9 @@ export default function MarketingInsights() {
       </div>
 
       {/* Controls */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center space-x-3 sm:space-x-4">
             <Filter className="w-5 h-5 text-gray-400" />
             <select
               value={timeRange}
@@ -261,7 +270,7 @@ export default function MarketingInsights() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         <div className="border-b border-gray-200">
-          <nav className="flex space-x-8 px-6 overflow-x-auto no-scrollbar">
+          <nav className="flex space-x-8 px-4 sm:px-6 overflow-x-auto no-scrollbar">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -284,7 +293,7 @@ export default function MarketingInsights() {
           </nav>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {activeTab === 'market-size' && (
             <div className="space-y-8">
               {/* TAM/SAM/SOM */}
@@ -516,20 +525,24 @@ export default function MarketingInsights() {
               {/* Research Sources */}
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-6">Data Sources & References</h3>
-                {sources.length > 0 ? (
+                {normalizedSources.length > 0 ? (
                   <div className="grid grid-cols-1 gap-4">
-                    {sources.map((source, index) => (
+                    {normalizedSources.map((source: any, index: number) => (
                       <div key={index} className="bg-white rounded-xl p-6 border border-gray-200 hover:border-blue-300 transition-colors">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center space-x-2 mb-2">
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                {source.focus_area || 'Research'}
+                                {source.focus_area || (Array.isArray(source.used_for) ? source.used_for.join(', ') : 'Research')}
                               </span>
-                              <span className="text-sm text-gray-500">{source.source}</span>
+                              {source.source && (
+                                <span className="text-sm text-gray-500">{source.source}</span>
+                              )}
                             </div>
-                            <h4 className="font-semibold text-gray-900 mb-2">{source.title}</h4>
-                            <p className="text-gray-600 text-sm leading-relaxed mb-3">{source.snippet}</p>
+                            <h4 className="font-semibold text-gray-900 mb-2">{source.title || source.url}</h4>
+                            {source.snippet && (
+                              <p className="text-gray-600 text-sm leading-relaxed mb-3">{source.snippet}</p>
+                            )}
                             {source.url && (
                               <a 
                                 href={source.url} 

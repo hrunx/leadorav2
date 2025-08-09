@@ -69,14 +69,30 @@ export class SearchService {
         return this.searchesCache.data as any;
       }
 
-      const { data, error } = await supabase
-        .from('user_searches')
-        .select('*')
-        .eq('user_id', targetUserId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      const searches = Array.isArray(data) ? data : [];
+      let searches: any[] = [];
+      try {
+        const proxyResp = await fetch(`/.netlify/functions/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
+          method: 'GET', headers: { 'Accept': 'application/json' }
+        });
+        if (proxyResp.ok) {
+          searches = await proxyResp.json();
+        } else {
+          const { data, error } = await supabase
+            .from('user_searches')
+            .select('*')
+            .eq('user_id', targetUserId)
+            .order('created_at', { ascending: false });
+          if (error) throw error;
+          searches = Array.isArray(data) ? data : [];
+        }
+      } catch (e) {
+        const { data } = await supabase
+          .from('user_searches')
+          .select('*')
+          .eq('user_id', targetUserId)
+          .order('created_at', { ascending: false });
+        searches = Array.isArray(data) ? data : [];
+      }
 
       // Normalize progress and totals
       const normalized = searches.map((s: any) => ({
@@ -163,7 +179,21 @@ export class SearchService {
 
   // Count qualified leads for a user: decision makers with at least one contact handle
   static async countQualifiedLeads(userId: string): Promise<number> {
+    // Prefer proxy to avoid CORS/RLS issues in browsers (Safari)
+    const proxyUrl = `/.netlify/functions/user-data-proxy?table=decision_makers&user_id=${userId}`;
     try {
+      const resp = await fetch(proxyUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      if (resp.ok) {
+        const data = await resp.json();
+        const arr = Array.isArray(data) ? data : [];
+        return arr.filter((dm: any) => {
+          const hasLinkedin = typeof dm.linkedin === 'string' && dm.linkedin.trim() !== '';
+          const hasEmail = typeof dm.email === 'string' && dm.email.trim() !== '';
+          const hasPhone = typeof dm.phone === 'string' && dm.phone.trim() !== '';
+          return hasLinkedin || hasEmail || hasPhone;
+        }).length;
+      }
+      // Fallback to direct Supabase if proxy unavailable
       const { data, error } = await supabase
         .from('decision_makers')
         .select('id, linkedin, email, phone')
@@ -301,6 +331,16 @@ export class SearchService {
         .eq('search_id', searchId)
         .order('match_score', { ascending: false });
       if (error) throw error;
+      if (!data || data.length === 0) {
+        // RLS can return empty arrays silently; try proxy too
+        try {
+          const response = await fetch(`/.netlify/functions/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+          if (response.ok) {
+            const arr = await response.json();
+            return Array.isArray(arr) ? arr : [];
+          }
+        } catch {}
+      }
       return data || [];
     } catch (error: any) {
       console.log('Primary fetch failed for businesses, falling back to proxy...', error?.message || error);

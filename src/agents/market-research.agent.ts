@@ -1,7 +1,7 @@
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
-import { loadBusinessPersonas, loadBusinesses, loadDMPersonas } from '../tools/db.read';
 import { insertMarketInsights, updateSearchProgress, markSearchCompleted, logApiUsage } from '../tools/db.write';
 import { extractJson } from '../tools/json';
+import { serperSearch } from '../tools/serper';
 
 export async function runMarketResearch(search: {
   id:string; 
@@ -15,134 +15,153 @@ export async function runMarketResearch(search: {
     await updateSearchProgress(search.id, 90, 'market_research', 'in_progress');
     console.log(`Starting market research for search ${search.id}`);
     
-    const [bp, biz, dmp] = await Promise.all([
-      loadBusinessPersonas(search.id),
-      loadBusinesses(search.id),
-      loadDMPersonas(search.id),
-    ]);
+    // Prefetch strong external sources per country and industry to ground the analysis
+    const countries = (search.countries || []).slice(0, 3);
+    const industriesStr = (search.industries || []).join(' ');
+    const baseQuery = `${search.product_service} ${industriesStr}`.trim();
+    const queryTemplates = [
+      `${baseQuery} market size TAM SAM SOM 2024 2025 report`,
+      `${baseQuery} industry report competitors top players`,
+      `${baseQuery} growth rate CAGR by country regulation policy 2024`,
+      `${baseQuery} adoption trends demand forecast 2025`
+    ];
+    const webFindings = (
+      await Promise.all(
+        countries.map(async (country) => {
+          const perCountry = await Promise.all(
+            queryTemplates.map(async (qt) => {
+              const r = await serperSearch(`${qt} ${country}`, country, 5).catch(() => ({ success:false, items:[] } as any));
+              return (r && (r as any).success ? (r as any).items : []).map((i: any) => ({ title: i.title, url: i.link }));
+            })
+          );
+          return perCountry.flat();
+        })
+      )
+    ).flat();
+    // Deduplicate by URL
+    const seen = new Set<string>();
+    const sources = webFindings.filter(({ url }) => {
+      if (!url || seen.has(url)) return false;
+      seen.add(url);
+      return true;
+    }).slice(0, 12);
+
+    const sourcesForPrompt = sources.map(s => `- ${s.title} (${s.url})`).join('\n');
 
   const prompt = `
-You are an expert market research analyst providing investor-grade analysis. Create comprehensive market insights PRECISELY tailored to the specific search criteria.
+You are an expert market research analyst. Produce an investor-grade market analysis that is fully grounded in recent, reputable sources. Every numeric figure MUST be backed by a specific citation URL.
 
-EXACT SEARCH CONTEXT:
-Product/Service: ${search.product_service}
-Target Industries: ${search.industries.join(', ')}
-Target Countries: ${search.countries.join(', ')}
-Search Type: ${search.search_type === 'customer' ? 'Customer Discovery' : 'Supplier Discovery'}
+SEARCH CONTEXT:
+- Product/Service: ${search.product_service}
+- Target Industries: ${search.industries.join(', ')}
+- Target Countries: ${search.countries.join(', ')}
+- Lens: ${search.search_type === 'customer' ? 'Customer demand and adoption' : 'Supplier capacity and supply chain'}
 
- DISCOVERED BUSINESS INTELLIGENCE (DB CACHE):
- - Business Personas (${bp.length}): ${bp.map((p:any) => p.title).join(', ')}
- - Real Companies (${biz.length}): ${biz.map((b:any) => b.name).slice(0,10).join(', ')}
- - Decision Maker Personas (${dmp.length}): ${dmp.map((p:any) => p.title).join(', ')}
+REFERENCE SOURCES (use as anchors; you may add more you know but always cite):
+${sourcesForPrompt}
 
- NOTES:
- - If DB cache lists are empty, proceed anyway: do independent web research for ${search.product_service} across ${search.industries.join(', ')} in ${search.countries.join(', ')}.
- - Prefer fresh sources; synthesize despite missing cache data.
+STRICT REQUIREMENTS:
+1) Provide country-specific TAM, SAM, and SOM with explicit methodology and assumptions. Use currency formatting like $2.4B, $850M, +15%.
+2) All numbers (market size, growth/CAGR, competitor revenue/share) MUST include a direct source URL in the JSON.
+3) Competitor analysis must list 4-6 named companies operating in these industries/countries with revenue/share and a source.
+4) Include 4-6 trends with impact and source.
+5) Include an opportunities playbook with actionable actions and timing.
+6) Avoid placeholders or generic content. If you must infer, state assumptions.
+7) Output ONLY valid JSON matching the schema below.
 
-CRITICAL REQUIREMENTS:
-1. Focus EXCLUSIVELY on ${search.product_service} market across ALL specified countries (${search.countries.join(', ')})
-2. Use industry-specific data and metrics for ALL specified industries (${search.industries.join(', ')})
-3. Reference the actual discovered businesses and personas in analysis
-4. Provide country-specific market size calculations for each target country
-5. Include regulatory and cultural factors for ALL target countries
-6. Calculate market size "pinned to every dollar" with strong sources
-7. Provide investor-grade analysis with visible source links
-8. Consider cross-industry and cross-border opportunities for the specified product/service
-
-Generate this EXACT JSON structure:
+OUTPUT JSON SCHEMA EXACTLY:
 {
   "tam_data": {
     "value": "$X.XB",
-    "growth": "+XX%", 
+    "growth": "+XX%",
     "description": "Total Addressable Market",
-    "calculation": "methodology and assumptions"
+    "calculation": "methodology and assumptions",
+    "source": "https://..."
   },
   "sam_data": {
-    "value": "$XXXMn", 
+    "value": "$XXXM",
     "growth": "+XX%",
     "description": "Serviceable Addressable Market",
-    "calculation": "methodology and assumptions"
+    "calculation": "methodology and assumptions",
+    "source": "https://..."
   },
   "som_data": {
-    "value": "$XXMn",
-    "growth": "+XX%", 
+    "value": "$XXM",
+    "growth": "+XX%",
     "description": "Serviceable Obtainable Market",
-    "calculation": "methodology and assumptions"
+    "calculation": "methodology and assumptions",
+    "source": "https://..."
   },
   "competitor_data": [
-    {"name": "Company Name", "marketShare": XX, "revenue": "$XXXMn", "growth": "+XX%", "notes": "competitive analysis"},
-    ... (4-5 competitors total)
+    { "name": "Company", "marketShare": XX, "revenue": "$XXXM", "growth": "+XX%", "notes": "context", "source": "https://..." }
   ],
   "trends": [
-    {"trend": "Trend Name", "impact": "High/Medium/Low", "growth": "+XX%", "description": "detailed impact analysis"},
-    ... (4-5 trends total)
+    { "trend": "Trend", "impact": "High|Medium|Low", "growth": "+XX%", "description": "impact analysis", "source": "https://..." }
   ],
   "opportunities": {
     "summary": "Key market opportunities overview",
     "playbook": ["actionable strategy 1", "actionable strategy 2", "actionable strategy 3"],
     "market_gaps": ["gap 1", "gap 2"],
     "timing": "market timing analysis"
-  }
-}
-
-Requirements:
-- Use realistic market data for this industry/country
-- Base TAM/SAM/SOM on actual business personas and companies found
-- Include real competitor analysis based on the businesses discovered
-- Provide actionable insights, not generic advice
-- Use proper formatting: $2.4B, $850M, +15%, etc.
-- If you must infer, state your assumptions in a comment field for each section.
-- Cite all sources for numbers, trends, and competitor data.
-- No generic, placeholder, or default values. All data must be contextually relevant and as real as possible.
-`;
+  },
+  "sources": [
+    { "title": "Source Title", "url": "https://...", "date": "YYYY-MM", "used_for": ["TAM", "Competitors", "Trends"] }
+  ],
+  "analysis_summary": "Executive summary",
+  "research_methodology": "How the analysis was constructed and any assumptions"
+}`;
 
   const startTime = Date.now();
   const modelMini = resolveModel('primary');
   
+    let providerUsed: 'openai' | 'gemini' | 'deepseek' = 'openai';
     try {
-      // 1) GPT-5 mini
+      // 1) Try OpenAI GPT‑5 (preferred)
       let text: string | null = null;
       try {
         text = await callOpenAIChatJSON({
           model: modelMini,
           system: 'You are an expert market research analyst that outputs ONLY valid JSON per the user specification.',
           user: prompt,
-          temperature: 0.4,
+          temperature: 0.3,
           maxTokens: 5000,
           requireJsonObject: true,
           verbosity: 'low'
         });
+        providerUsed = 'openai';
       } catch (e) {
         console.warn('[MarketResearch] gpt-5-mini failed:', (e as any).message);
       }
-    // 2) Gemini 2.0 Flash
-    if (!text) {
-      try {
-        text = await callGeminiText('gemini-2.0-flash', prompt);
-      } catch (e) {
-        console.warn('[MarketResearch] gemini-2.0-flash failed:', (e as any).message);
+      // 2) Gemini 2.0 Flash
+      if (!text) {
+        try {
+          text = await callGeminiText('gemini-2.0-flash', prompt);
+          providerUsed = 'gemini';
+        } catch (e) {
+          console.warn('[MarketResearch] gemini-2.0-flash failed:', (e as any).message);
+        }
       }
-    }
-    // 3) DeepSeek
-    if (!text) {
-      try {
-        text = await callDeepseekChatJSON({ user: prompt, temperature: 0.5, maxTokens: 3000 });
-      } catch (e) {
-        console.warn('[MarketResearch] deepseek failed:', (e as any).message);
+      // 3) DeepSeek
+      if (!text) {
+        try {
+          text = await callDeepseekChatJSON({ user: prompt, temperature: 0.4, maxTokens: 3500 });
+          providerUsed = 'deepseek';
+        } catch (e) {
+          console.warn('[MarketResearch] deepseek failed:', (e as any).message);
+        }
       }
-    }
     text = (text || '').trim();
     
     // Log successful API usage to OpenAI
     await logApiUsage({
       user_id: search.user_id,
       search_id: search.id,
-      provider: 'gemini',
-      endpoint: 'market_research',
+        provider: providerUsed,
+        endpoint: 'market_research',
       status: 200,
       ms: Date.now() - startTime,
-      request: { model: modelMini, business_count: biz.length, persona_count: bp.length },
-      response: { text_length: text.length }
+        request: { model: modelMini, sources_candidate_count: sources.length },
+        response: { text_length: text.length }
     });
 
       // Try to extract JSON using utility; fallback to direct parse due to response_format
@@ -164,7 +183,7 @@ Requirements:
           competitor_data: [],
           trends: [],
           opportunities: {},
-          sources: [],
+          sources: sources.map(s => s.url),
           analysis_summary: 'Market research failed: no data',
           research_methodology: 'Gemini returned empty or unparseable output.'
         };
@@ -183,9 +202,9 @@ Requirements:
         competitor_data: data.competitor_data || [],
         trends: data.trends || [],
         opportunities: data.opportunities || {},
-        sources: data.sources || [],
+        sources: (data.sources && Array.isArray(data.sources)) ? data.sources : sources.map(s => s.url),
         analysis_summary: data.analysis_summary || 'Market research completed using OpenAI GPT-5 analysis',
-        research_methodology: data.research_methodology || 'AI-powered market analysis based on business personas, discovered companies, and decision maker profiles'
+        research_methodology: data.research_methodology || 'AI-assisted market analysis grounded in recent web sources and country/industry context'
       };
 
     await insertMarketInsights(row);
@@ -197,11 +216,11 @@ Requirements:
     await logApiUsage({
       user_id: search.user_id,
       search_id: search.id,
-      provider: 'gemini',
+      provider: 'openai',
       endpoint: 'market_research',
       status: 500,
       ms: Date.now() - startTime,
-      request: { model: modelMini, business_count: biz.length, persona_count: bp.length },
+      request: { model: modelMini },
       response: { error: error.message }
     });
     throw error;
