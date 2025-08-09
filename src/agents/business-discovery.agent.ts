@@ -272,10 +272,9 @@ export async function runBusinessDiscovery(search: {
     // Build one precise discovery query from the first country to cap results to 10 places total
     const firstCountry = search.countries[0] || '';
     const gl = countryToGL(firstCountry || countries);
-    const lens = search.search_type === 'customer' 
-      ? 'companies that need require adopt buy'
-      : 'companies that sell provide supply distribute';
-    const discoveryQuery = `${lens} ${search.product_service} ${industries} ${firstCountry || countries}`.trim();
+    // lens not used in simplified placesQuery, but kept for future prompt variants
+    // Simpler query for Places API to maximize results
+    const placesQuery = `${search.product_service} ${search.industries[0] || ''} ${firstCountry || countries}`.trim();
 
     const msg = `search_id=${search.id} user_id=${search.user_id}
  - product_service=${search.product_service}
@@ -284,7 +283,7 @@ export async function runBusinessDiscovery(search: {
  - search_type=${search.search_type}
  
  MANDATE:
- - Call serperPlaces ONCE with q="${discoveryQuery}", gl="${gl}", limit=5, search_id="${search.id}", user_id="${search.user_id}"
+- Call serperPlaces ONCE with q="${placesQuery}", gl="${gl}", limit=5, search_id="${search.id}", user_id="${search.user_id}"
  - Immediately call storeBusinesses with ALL returned places (cap 5) for industry="${search.industries[0] || industries}", country="${firstCountry || countries}"
  - Do not perform additional place searches.
  

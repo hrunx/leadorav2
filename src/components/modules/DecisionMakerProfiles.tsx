@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Crown, Shield, Users, Mail, Phone, Linkedin, ArrowRight, Building, Eye, X, Target, TrendingUp, Plus } from 'lucide-react';
+import { User, Crown, Shield, Users, Mail, Phone, Linkedin, ArrowRight, Building, Eye, X, Target, TrendingUp, Plus, RefreshCw } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
@@ -81,6 +81,7 @@ export default function DecisionMakerProfiles() {
   const [expandedPersonas, setExpandedPersonas] = useState<string[]>([]);
   const [showEmployeeDetails, setShowEmployeeDetails] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<DecisionMaker | null>(null);
+  const [enriching, setEnriching] = useState(false);
   
   // Determine if we're in demo mode
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
@@ -196,6 +197,27 @@ export default function DecisionMakerProfiles() {
 
   const handleProceedToInsights = () => {
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'insights' }));
+  };
+
+  const rerunEnrichment = async (employee: DecisionMaker) => {
+    try {
+      setEnriching(true);
+      let enrichUrl = '/.netlify/functions/enrich-decision-makers';
+      if (typeof process !== 'undefined' && process.env && (process.env.URL || process.env.DEPLOY_URL)) {
+        enrichUrl = `${process.env.URL || process.env.DEPLOY_URL}/.netlify/functions/enrich-decision-makers`;
+      } else if (typeof window !== 'undefined' && window.location) {
+        enrichUrl = `${window.location.origin}/.netlify/functions/enrich-decision-makers`;
+      }
+      await fetch(enrichUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id: currentSearch?.id })
+      });
+    } catch (e) {
+      console.error('Failed to trigger enrichment:', e);
+    } finally {
+      setEnriching(false);
+    }
   };
 
   const tabs = [
@@ -352,6 +374,16 @@ export default function DecisionMakerProfiles() {
                         ? 'Contact information verified and enriched' 
                         : 'Contact enrichment in progress...'}
                     </p>
+                    <div className="mt-3">
+                      <button
+                        disabled={enriching}
+                        onClick={() => rerunEnrichment(selectedEmployee)}
+                        className={`inline-flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium border ${enriching ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-300'}`}
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>{enriching ? 'Re-triggering…' : 'Re-run Enrichment'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -443,7 +475,7 @@ export default function DecisionMakerProfiles() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
             Top 10 Decision Maker Personas for "{state.searchData?.productService}"
@@ -461,7 +493,7 @@ export default function DecisionMakerProfiles() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
         {/* Decision Maker Personas List */}
         <div className="space-y-4">
           <h2 className="text-xl font-semibold text-gray-900">Ranked Decision Maker Personas</h2>
@@ -586,7 +618,7 @@ export default function DecisionMakerProfiles() {
         </div>
 
         {/* Persona Details */}
-        <div className="sticky top-8">
+          <div className="lg:sticky lg:top-8">
           {selectedPersona ? (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200">
               <div className="border-b border-gray-200">

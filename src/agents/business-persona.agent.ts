@@ -1,6 +1,7 @@
 import { Agent, tool } from '@openai/agents';
 import { insertBusinessPersonas, updateSearchProgress } from '../tools/db.write';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
+import { extractJson } from '../tools/json';
 
 interface Persona {
   title: string;
@@ -193,7 +194,7 @@ function isRealisticPersona(persona: Persona): boolean {
   try {
     if (!isNonEmptyString(persona.title)) return false;
     if (typeof persona.rank !== 'number' || persona.rank < 1 || persona.rank > 5) return false;
-    if (typeof persona.match_score !== 'number' || persona.match_score < 80) return false;
+    if (typeof persona.match_score !== 'number' || persona.match_score < 60) return false;
     const d = persona.demographics;
     if (!d || !isNonEmptyString(d.industry) || !isNonEmptyString(d.companySize) || !isNonEmptyString(d.geography) || !isNonEmptyString(d.revenue)) return false;
     const c = persona.characteristics;
@@ -237,70 +238,89 @@ CRITICAL: Each persona must have:
 - Do not repeat personas. Each must be unique and relevant.
   - Return JSON object: {"personas": [ ...exactly 3 items... ] }`; 
 
-    // Lightning-fast: race multiple providers; accept the first valid result
-    const fastCall = async () => {
-      const text = await callOpenAIChatJSON({
-        model: resolveModel('ultraLight'), // nano for lowest latency
-        system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete persona objects.',
-        user: improvedPrompt,
-        temperature: 0.4,
-        maxTokens: 700,
-        requireJsonObject: true,
-        verbosity: 'low'
-      });
-      const obj = JSON.parse(text || '{}');
-      const arr = Array.isArray(obj?.personas) ? obj.personas : [];
-      if (arr.length === 3 && arr.every(isRealisticPersona)) return arr as Persona[];
-      throw new Error('fast invalid');
+    // Sequential fallback: GPT -> Gemini -> DeepSeek
+    const tryParsePersonas = (text: string): Persona[] => {
+      try {
+        const obj = JSON.parse(text || '{}');
+        return Array.isArray((obj as any)?.personas) ? (obj as any).personas as Persona[] : [];
+      } catch {
+        const ex = extractJson(text);
+        try {
+          const obj = typeof ex === 'string' ? JSON.parse(ex) : ex;
+          return Array.isArray((obj as any)?.personas) ? (obj as any).personas as Persona[] : [];
+        } catch { return []; }
+      }
     };
-    const primaryCall = async () => {
+
+    const sanitizePersona = (p: any, index: number): Persona => ({
+      title: String(p?.title || `Persona ${index+1}`),
+      rank: typeof p?.rank === 'number' ? p.rank : index + 1,
+      match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
+      demographics: {
+        industry: String(p?.demographics?.industry || (search.industries[0] || 'General')),
+        companySize: String(p?.demographics?.companySize || '200-1000'),
+        geography: String(p?.demographics?.geography || (search.countries[0] || 'Global')),
+        revenue: String(p?.demographics?.revenue || '$10M-$100M')
+      },
+      characteristics: {
+        painPoints: Array.isArray(p?.characteristics?.painPoints) && p.characteristics.painPoints.length ? p.characteristics.painPoints : ['Cost','Scalability'],
+        motivations: Array.isArray(p?.characteristics?.motivations) && p.characteristics.motivations.length ? p.characteristics.motivations : ['Growth','Efficiency'],
+        challenges: Array.isArray(p?.characteristics?.challenges) && p.characteristics.challenges.length ? p.characteristics.challenges : ['Budget','Talent'],
+        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) && p.characteristics.decisionFactors.length ? p.characteristics.decisionFactors : ['ROI','Time-to-Value']
+      },
+      behaviors: {
+        buyingProcess: String(p?.behaviors?.buyingProcess || 'Committee'),
+        decisionTimeline: String(p?.behaviors?.decisionTimeline || '3-9 months'),
+        budgetRange: String(p?.behaviors?.budgetRange || '$50K-$500K'),
+        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) && p.behaviors.preferredChannels.length ? p.behaviors.preferredChannels : ['Direct','Analyst']
+      },
+      market_potential: {
+        totalCompanies: typeof p?.market_potential?.totalCompanies === 'number' ? p.market_potential.totalCompanies : 1000,
+        avgDealSize: String(p?.market_potential?.avgDealSize || '$150K'),
+        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 12
+      },
+      locations: Array.isArray(p?.locations) && p.locations.length ? p.locations : [search.countries[0] || 'Global']
+    });
+
+    const acceptPersonas = (arr: any[]): Persona[] => {
+      const three = (arr || []).slice(0,3);
+      if (three.length !== 3) return [];
+      const sanitized = three.map((p, i) => sanitizePersona(p, i));
+      return sanitized;
+    };
+
+    try {
+      // 1) GPT-5 primary
       const text = await callOpenAIChatJSON({
         model: resolveModel('primary'),
         system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete persona objects.',
         user: improvedPrompt,
-        temperature: 0.4,
-        maxTokens: 1200,
+        temperature: 0.3,
+        maxTokens: 1400,
         requireJsonObject: true,
         verbosity: 'low'
       });
-      const obj = JSON.parse(text || '{}');
-      const arr = Array.isArray(obj?.personas) ? obj.personas : [];
-      if (arr.length === 3 && arr.every(isRealisticPersona)) return arr as Persona[];
-      throw new Error('primary invalid');
-    };
-    const geminiCall = async () => {
-      const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
-      const obj = JSON.parse(text || '{}');
-      const arr = Array.isArray((obj as any)?.personas) ? (obj as any).personas : [];
-      if (arr.length === 3 && arr.every(isRealisticPersona)) return arr as Persona[];
-      throw new Error('gemini invalid');
-    };
-    const deepseekCall = async () => {
-      const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
-      const obj = JSON.parse(text || '{}');
-      const arr = Array.isArray((obj as any)?.personas) ? (obj as any).personas : [];
-      if (arr.length === 3 && arr.every(isRealisticPersona)) return arr as Persona[];
-      throw new Error('deepseek invalid');
-    };
-
-    // Promise.any polyfill for older TS lib targets
-    const promiseAny = async <T>(arr: Array<Promise<T>>): Promise<T> => new Promise((resolve, reject) => {
-      let remaining = arr.length;
-      const errors: any[] = [];
-      if (remaining === 0) return reject(new Error('No promises'));
-      arr.forEach(p => {
-        p.then(resolve).catch(err => {
-          errors.push(err);
-          remaining -= 1;
-          if (remaining === 0) reject(errors[0] || err);
-        });
-      });
-    });
-
-    try {
-      personas = await promiseAny([fastCall(), primaryCall(), geminiCall(), deepseekCall()]);
-    } catch (_) {
-      // all failed; personas remains []
+      const arr = tryParsePersonas(text);
+      const accepted = acceptPersonas(arr);
+      if (accepted.length === 3) personas = accepted;
+    } catch (e) {}
+    if (!personas.length) {
+      // 2) Gemini fallback
+      try {
+        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
+        const arr = tryParsePersonas(text);
+        const accepted = acceptPersonas(arr);
+        if (accepted.length === 3) personas = accepted;
+      } catch (e) {}
+    }
+    if (!personas.length) {
+      // 3) DeepSeek fallback
+      try {
+        const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
+        const arr = tryParsePersonas(text);
+        const accepted = acceptPersonas(arr);
+        if (accepted.length === 3) personas = accepted;
+      } catch (e) {}
     }
 
     if (personas.length) {

@@ -121,7 +121,8 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     const r = await fetchWithTimeout('https://google.serper.dev/places', {
       method: 'POST',
       headers: { 'X-API-KEY': process.env.SERPER_KEY!, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q, gl, num: Math.min(limit, 10) })
+      // request a bit more and trim after filtering
+      body: JSON.stringify({ q, gl, num: Math.min(Math.max(limit, 10), 15) })
     });
     
     if (!r.ok) {
@@ -185,7 +186,10 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
       const hasCcTld = site.endsWith(ccTld) || site.includes(`${ccTld}/`);
       // Allow if either clear country signal or ccTLD. Keep US as relaxed.
       return hasCountrySignal || hasCcTld || gl === 'us';
-    }).slice(0, limit);
+    });
+    // After filtering, cap to requested limit, but if only 1 remains and we requested 5+, allow up to 8 to improve UX
+    const cap = places.length <= 1 && limit >= 5 ? 8 : limit;
+    places = places.slice(0, cap);
     
     console.log(`Found ${places.length} places for query: "${q}" in ${country}`);
     await setCache(cacheKey, 'serper', places);

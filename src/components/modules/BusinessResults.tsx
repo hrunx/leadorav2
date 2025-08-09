@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Building, MapPin, Users, DollarSign, Star, ArrowRight, Filter, Target, Plus } from 'lucide-react';
+import { Building, MapPin, Users, DollarSign, Star, ArrowRight, Filter, Target, Plus, ExternalLink } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
@@ -293,7 +293,9 @@ export default function BusinessResults() {
   const filteredBusinesses = businesses.filter(business => {
     const matchesCountry = !filterCountry || business.country === filterCountry;
     const matchesIndustry = !filterIndustry || business.industry === filterIndustry;
-    const matchesPersona = !filterPersona || business.personaType === filterPersona;
+    // Include unmapped businesses when a persona filter is active so users still see results immediately
+    const isUnmapped = !business.personaType || business.personaType === 'business_candidate' || business.personaType === 'General';
+    const matchesPersona = !filterPersona || business.personaType === filterPersona || isUnmapped;
     return matchesCountry && matchesIndustry && matchesPersona;
   });
 
@@ -305,7 +307,7 @@ export default function BusinessResults() {
     return 'text-red-600 bg-red-100';
   };
 
-  const handleViewDecisionMakers = (business: Business) => {
+  const handleViewDecisionMakers = (_business: Business) => {
     // Navigate to decision maker profiles (next step in flow)
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'decision-maker-profiles' }));
   };
@@ -391,7 +393,7 @@ export default function BusinessResults() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
             {state.selectedPersonas && state.selectedPersonas.length === 1 
@@ -417,16 +419,16 @@ export default function BusinessResults() {
       </div>
 
       {/* Enhanced Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center space-x-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
           <Filter className="w-5 h-5 text-gray-400" />
-          <div className="flex space-x-4 flex-1">
-            <div>
+          <div className="flex flex-col sm:flex-row sm:space-x-4 w-full">
+            <div className="w-full sm:w-auto">
               <label className="block text-sm font-medium text-gray-700 mb-1">Business Persona</label>
               <select
                 value={filterPersona}
                 onChange={(e) => setFilterPersona(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-48"
+                className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">All Personas</option>
                 {personaTypes.map(persona => (
@@ -434,12 +436,12 @@ export default function BusinessResults() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="w-full sm:w-auto">
               <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
               <select
                 value={filterCountry}
                 onChange={(e) => setFilterCountry(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">All Countries</option>
                 {countryOptions.map((c) => (
@@ -447,12 +449,12 @@ export default function BusinessResults() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="w-full sm:w-auto">
               <label className="block text-sm font-medium text-gray-700 mb-1">Industry</label>
               <select
                 value={filterIndustry}
                 onChange={(e) => setFilterIndustry(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">All Industries</option>
                 {industryOptions.map((i) => (
@@ -464,7 +466,7 @@ export default function BusinessResults() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
         {/* Business List */}
         <div className="space-y-4">
           {filteredBusinesses.map((business) => (
@@ -526,7 +528,7 @@ export default function BusinessResults() {
         </div>
 
         {/* Business Details */}
-        <div className="sticky top-8">
+        <div className="lg:sticky lg:top-8">
           {selectedBusiness ? (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="flex items-start justify-between mb-6">
@@ -545,7 +547,7 @@ export default function BusinessResults() {
 
               <p className="text-gray-600 mb-6">{selectedBusiness.description}</p>
 
-              <div className="space-y-6">
+                <div className="space-y-6">
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-3">Relevant Departments</h3>
                   <div className="flex flex-wrap gap-2">
@@ -581,6 +583,35 @@ export default function BusinessResults() {
                     ))}
                   </ul>
                 </div>
+
+                {(selectedBusiness.website || selectedBusiness.phone || selectedBusiness.address) && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {selectedBusiness.website && (
+                      <a
+                        className="flex items-center space-x-2 p-3 bg-gray-50 rounded-md border border-gray-200 text-blue-700 hover:text-blue-900 hover:border-blue-300"
+                        href={selectedBusiness.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span className="truncate">Website</span>
+                      </a>
+                    )}
+                    {selectedBusiness.phone && (
+                      <a
+                        className="flex items-center space-x-2 p-3 bg-gray-50 rounded-md border border-gray-200 text-gray-700"
+                        href={`tel:${selectedBusiness.phone}`}
+                      >
+                        <span className="truncate">{selectedBusiness.phone}</span>
+                      </a>
+                    )}
+                    {selectedBusiness.address && (
+                      <div className="flex items-center space-x-2 p-3 bg-gray-50 rounded-md border border-gray-200 text-gray-700">
+                        <span className="truncate">{selectedBusiness.address}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <button
                   onClick={() => handleViewDecisionMakers(selectedBusiness)}

@@ -1,6 +1,7 @@
 import { Agent, tool } from '@openai/agents';
 import { insertDMPersonas, updateSearchProgress } from '../tools/db.write';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
+import { extractJson } from '../tools/json';
 
 interface DMPersona {
   title: string;
@@ -216,69 +217,86 @@ CRITICAL: Each persona must have:
 - If you cannot fill a field, infer a plausible value based on industry/country context.
 - Do not repeat personas. Each must be unique and relevant.
  - Output as a JSON array of 3 persona objects with all required fields.`;
-    // Lightning-fast persona generation: race models and accept first valid
-    const fastCall = async () => {
-      const text = await callOpenAIChatJSON({
-        model: resolveModel('ultraLight'),
-        system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete decision-maker persona objects.',
-        user: improvedPrompt,
-        temperature: 0.4,
-        maxTokens: 700,
-        requireJsonObject: true,
-        verbosity: 'low'
-      });
-      const obj = JSON.parse(text || '{}');
-      const arr = Array.isArray(obj?.personas) ? obj.personas : [];
-      if (arr.length === 3 && arr.every(isRealisticDMPersona)) return arr as DMPersona[];
-      throw new Error('fast invalid');
+    // Sequential fallback: GPT -> Gemini -> DeepSeek, with JSON extraction and sanitization
+    const tryParsePersonas = (text: string): any[] => {
+      try {
+        const obj = JSON.parse(text || '{}');
+        return Array.isArray((obj as any)?.personas) ? (obj as any).personas as any[] : [];
+      } catch {
+        const ex = extractJson(text);
+        try {
+          const obj = typeof ex === 'string' ? JSON.parse(ex) : ex;
+          return Array.isArray((obj as any)?.personas) ? (obj as any).personas as any[] : [];
+        } catch { return []; }
+      }
     };
-    const primaryCall = async () => {
+
+    const sanitizePersona = (p: any, index: number): DMPersona => ({
+      title: String(p?.title || `Decision Maker ${index+1}`),
+      rank: typeof p?.rank === 'number' ? p.rank : index + 1,
+      match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
+      demographics: {
+        level: String(p?.demographics?.level || 'manager'),
+        department: String(p?.demographics?.department || 'General'),
+        experience: String(p?.demographics?.experience || '8+ years'),
+        geography: String(p?.demographics?.geography || (search.countries[0] || 'Global'))
+      },
+      characteristics: {
+        responsibilities: Array.isArray(p?.characteristics?.responsibilities) && p.characteristics.responsibilities.length ? p.characteristics.responsibilities : ['Strategy','Execution'],
+        painPoints: Array.isArray(p?.characteristics?.painPoints) && p.characteristics.painPoints.length ? p.characteristics.painPoints : ['Budget','Time'],
+        motivations: Array.isArray(p?.characteristics?.motivations) && p.characteristics.motivations.length ? p.characteristics.motivations : ['Growth','Efficiency'],
+        challenges: Array.isArray(p?.characteristics?.challenges) && p.characteristics.challenges.length ? p.characteristics.challenges : ['Legacy','Integration'],
+        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) && p.characteristics.decisionFactors.length ? p.characteristics.decisionFactors : ['ROI','Compliance']
+      },
+      behaviors: {
+        decisionMaking: String(p?.behaviors?.decisionMaking || 'Strategic'),
+        communicationStyle: String(p?.behaviors?.communicationStyle || 'Concise'),
+        buyingProcess: String(p?.behaviors?.buyingProcess || 'Committee'),
+        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) && p.behaviors.preferredChannels.length ? p.behaviors.preferredChannels : ['Demos','Briefings']
+      },
+      market_potential: {
+        totalDecisionMakers: typeof p?.market_potential?.totalDecisionMakers === 'number' ? p.market_potential.totalDecisionMakers : 1000,
+        avgInfluence: typeof p?.market_potential?.avgInfluence === 'number' ? p.market_potential.avgInfluence : 80,
+        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 10
+      }
+    });
+
+    const acceptPersonas = (arr: any[]): DMPersona[] => {
+      const three = (arr || []).slice(0,3);
+      if (three.length !== 3) return [];
+      return three.map((p, i) => sanitizePersona(p, i));
+    };
+
+    try {
+      // 1) GPT-5 primary
       const text = await callOpenAIChatJSON({
         model: resolveModel('primary'),
         system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete decision-maker persona objects.',
         user: improvedPrompt,
-        temperature: 0.4,
-        maxTokens: 1200,
+        temperature: 0.3,
+        maxTokens: 1400,
         requireJsonObject: true,
         verbosity: 'low'
       });
-      const obj = JSON.parse(text || '{}');
-      const arr = Array.isArray(obj?.personas) ? obj.personas : [];
-      if (arr.length === 3 && arr.every(isRealisticDMPersona)) return arr as DMPersona[];
-      throw new Error('primary invalid');
-    };
-    const geminiCall = async () => {
-      const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
-      const obj = JSON.parse(text || '{}');
-      const arr = Array.isArray((obj as any)?.personas) ? (obj as any).personas : [];
-      if (arr.length === 3 && arr.every(isRealisticDMPersona)) return arr as DMPersona[];
-      throw new Error('gemini invalid');
-    };
-    const deepseekCall = async () => {
-      const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
-      const obj = JSON.parse(text || '{}');
-      const arr = Array.isArray((obj as any)?.personas) ? (obj as any).personas : [];
-      if (arr.length === 3 && arr.every(isRealisticDMPersona)) return arr as DMPersona[];
-      throw new Error('deepseek invalid');
-    };
-
-    // Promise.any polyfill
-    const promiseAny = async <T>(arr: Array<Promise<T>>): Promise<T> => new Promise((resolve, reject) => {
-      let remaining = arr.length;
-      const errors: any[] = [];
-      if (remaining === 0) return reject(new Error('No promises'));
-      arr.forEach(p => {
-        p.then(resolve).catch(err => {
-          errors.push(err);
-          remaining -= 1;
-          if (remaining === 0) reject(errors[0] || err);
-        });
-      });
-    });
-
-    try {
-      personas = await promiseAny([fastCall(), primaryCall(), geminiCall(), deepseekCall()]);
-    } catch (_) {}
+      const accepted = acceptPersonas(tryParsePersonas(text));
+      if (accepted.length === 3) personas = accepted;
+    } catch (e) {}
+    if (!personas.length) {
+      // 2) Gemini fallback
+      try {
+        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) personas = accepted;
+      } catch (e) {}
+    }
+    if (!personas.length) {
+      // 3) DeepSeek fallback
+      try {
+        const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) personas = accepted;
+      } catch (e) {}
+    }
     if (personas.length) {
       const rows = personas.slice(0, 3).map((p: DMPersona) => ({
         search_id: search.id,

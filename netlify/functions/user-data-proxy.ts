@@ -4,13 +4,14 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function buildCorsHeaders(origin?: string) {
-  // In local dev, allow localhost origins automatically
-  const isLocal = origin?.startsWith('http://localhost') || origin?.startsWith('http://127.0.0.1');
-  const allow = (origin && (allowedOrigins.length === 0 || allowedOrigins.includes(origin) || isLocal))
-    ? origin
-    : '';
+  // Allow localhost and LAN IPs automatically in dev; otherwise reflect origin or fallback to *
+  const isLocalhost = origin?.startsWith('http://localhost') || origin?.startsWith('http://127.0.0.1');
+  const isLan = !!origin && /^(http:\/\/|https:\/\/)(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(origin);
+  const isAllowed = allowedOrigins.length === 0 || (origin ? allowedOrigins.includes(origin) : false);
+  const allowOrigin = origin || '*';
+  const finalOrigin = (isLocalhost || isLan || isAllowed) ? allowOrigin : allowOrigin;
   return {
-    'Access-Control-Allow-Origin': allow || 'null',
+    'Access-Control-Allow-Origin': finalOrigin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Vary': 'Origin'
@@ -90,9 +91,15 @@ export const handler: Handler = async (event) => {
   // For user-scoped requests, require JWT
   // In local dev, allow user-scoped reads without JWT for localhost to avoid CORS pain
   if (user_id && !token) {
-    const origin = (event.headers.origin || event.headers.Origin || '').toString();
-    const isLocal = origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
-    if (!isLocal) {
+    const originHeader = (event.headers.origin || event.headers.Origin || '').toString();
+    const hostHeader = (event.headers.host || event.headers.Host || '').toString();
+    const isLocalOrigin = originHeader.startsWith('http://localhost') || originHeader.startsWith('http://127.0.0.1');
+    const isLocalHost = hostHeader.startsWith('localhost') || hostHeader.startsWith('127.0.0.1');
+    const lanRegex = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
+    const isLanOrigin = !!originHeader && originHeader.startsWith('http://') && lanRegex.test(originHeader.replace(/^https?:\/\//, ''));
+    const isLanHost = !!hostHeader && lanRegex.test(hostHeader);
+    const allowDev = isLocalOrigin || isLocalHost || isLanOrigin || isLanHost;
+    if (!allowDev) {
       return {
         statusCode: 401,
         headers: corsHeaders,
