@@ -274,7 +274,8 @@ export async function runBusinessDiscovery(search: {
     const gl = countryToGL(firstCountry || countries);
     // lens not used in simplified placesQuery, but kept for future prompt variants
     // Simpler query for Places API to maximize results
-    const placesQuery = `${search.product_service} ${search.industries[0] || ''} ${firstCountry || countries}`.trim();
+    const intent = search.search_type === 'customer' ? 'buyers need use purchase adopt' : 'vendors suppliers sell provide manufacture distribute';
+    const placesQuery = `${search.product_service} ${search.industries[0] || ''} ${intent} ${firstCountry || countries}`.trim();
 
     const msg = `search_id=${search.id} user_id=${search.user_id}
  - product_service=${search.product_service}

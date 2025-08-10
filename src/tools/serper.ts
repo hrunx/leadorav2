@@ -184,6 +184,8 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
       const site = (pl.website || '').toLowerCase();
       const hasCountrySignal = addr.includes(countryName) || city.includes(countryName);
       const hasCcTld = site.endsWith(ccTld) || site.includes(`${ccTld}/`);
+      // Relax filtering for KSA where addresses/sites often omit country or ccTLD
+      if (gl === 'sa') return true;
       // Allow if either clear country signal or ccTLD. Keep US as relaxed.
       return hasCountrySignal || hasCcTld || gl === 'us';
     });

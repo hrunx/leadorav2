@@ -221,7 +221,7 @@ export async function runBusinessPersonas(search: {
   try {
     await updateSearchProgress(search.id, 10, 'business_personas', 'in_progress');
     let personas: Persona[] = [];
-    const improvedPrompt = `Generate 3 business personas for:
+    const improvedPrompt = `Generate 3 business personas (COMPANY ARCHETYPES) for:
 - search_id=${search.id}
 - user_id=${search.user_id}
 - product_service=${search.product_service}
@@ -236,7 +236,11 @@ CRITICAL: Each persona must have:
 - Use plausible company types, sizes, geographies, revenues, pain points, motivations, challenges, decision factors, buying processes, timelines, budget ranges, preferred channels, market potential, and locations for the given industry/country/product.
 - If you cannot fill a field, infer a plausible value based on industry/country context.
 - Do not repeat personas. Each must be unique and relevant.
-  - Return JSON object: {"personas": [ ...exactly 3 items... ] }`; 
+ - Titles MUST be descriptive company archetypes tied to the product_service and lens.
+   Examples (do not reuse literally): "Large Enterprise Energy Buyers (Utilities)", "Mid-Market Oilfield Services Providers", "Renewable EPC Contractors".
+ - Titles MUST NOT be generic like 'Persona 1' or 'Profile'.
+ - Ensure titles reflect ${search.search_type==='customer'?'needing/using':'selling/providing'} ${search.product_service} in ${search.countries.join(', ')}.
+ - Return ONLY JSON: {"personas": [ ...exactly 3 items... ] }`;
 
     // Sequential fallback: GPT -> Gemini -> DeepSeek
     const tryParsePersonas = (text: string): Persona[] => {
@@ -253,33 +257,33 @@ CRITICAL: Each persona must have:
     };
 
     const sanitizePersona = (p: any, index: number): Persona => ({
-      title: String(p?.title || `Persona ${index+1}`),
+      title: String(p?.title || `${search.search_type==='customer'?'Buyer':'Supplier'} Archetype ${index+1} - ${search.industries[0] || 'General'}`),
       rank: typeof p?.rank === 'number' ? p.rank : index + 1,
       match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
       demographics: {
         industry: String(p?.demographics?.industry || (search.industries[0] || 'General')),
-        companySize: String(p?.demographics?.companySize || '200-1000'),
+        companySize: String(p?.demographics?.companySize || ''),
         geography: String(p?.demographics?.geography || (search.countries[0] || 'Global')),
-        revenue: String(p?.demographics?.revenue || '$10M-$100M')
+        revenue: String(p?.demographics?.revenue || '')
       },
       characteristics: {
-        painPoints: Array.isArray(p?.characteristics?.painPoints) && p.characteristics.painPoints.length ? p.characteristics.painPoints : ['Cost','Scalability'],
-        motivations: Array.isArray(p?.characteristics?.motivations) && p.characteristics.motivations.length ? p.characteristics.motivations : ['Growth','Efficiency'],
-        challenges: Array.isArray(p?.characteristics?.challenges) && p.characteristics.challenges.length ? p.characteristics.challenges : ['Budget','Talent'],
-        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) && p.characteristics.decisionFactors.length ? p.characteristics.decisionFactors : ['ROI','Time-to-Value']
+        painPoints: Array.isArray(p?.characteristics?.painPoints) ? p.characteristics.painPoints : [],
+        motivations: Array.isArray(p?.characteristics?.motivations) ? p.characteristics.motivations : [],
+        challenges: Array.isArray(p?.characteristics?.challenges) ? p.characteristics.challenges : [],
+        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) ? p.characteristics.decisionFactors : []
       },
       behaviors: {
-        buyingProcess: String(p?.behaviors?.buyingProcess || 'Committee'),
-        decisionTimeline: String(p?.behaviors?.decisionTimeline || '3-9 months'),
-        budgetRange: String(p?.behaviors?.budgetRange || '$50K-$500K'),
-        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) && p.behaviors.preferredChannels.length ? p.behaviors.preferredChannels : ['Direct','Analyst']
+        buyingProcess: String(p?.behaviors?.buyingProcess || ''),
+        decisionTimeline: String(p?.behaviors?.decisionTimeline || ''),
+        budgetRange: String(p?.behaviors?.budgetRange || ''),
+        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) ? p.behaviors.preferredChannels : []
       },
       market_potential: {
-        totalCompanies: typeof p?.market_potential?.totalCompanies === 'number' ? p.market_potential.totalCompanies : 1000,
-        avgDealSize: String(p?.market_potential?.avgDealSize || '$150K'),
-        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 12
+        totalCompanies: typeof p?.market_potential?.totalCompanies === 'number' ? p.market_potential.totalCompanies : 0,
+        avgDealSize: String(p?.market_potential?.avgDealSize || ''),
+        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 0
       },
-      locations: Array.isArray(p?.locations) && p.locations.length ? p.locations : [search.countries[0] || 'Global']
+      locations: Array.isArray(p?.locations) ? p.locations : [search.countries[0] || 'Global']
     });
 
     const acceptPersonas = (arr: any[]): Persona[] => {
@@ -287,6 +291,18 @@ CRITICAL: Each persona must have:
       if (three.length !== 3) return [];
       const sanitized = three.map((p, i) => sanitizePersona(p, i));
       return sanitized;
+    };
+
+    const hasGenericTitles = (arr: Persona[]): boolean => {
+      const bad = ['persona', 'profile', 'archetype'];
+      const titles = arr.map(p => (p.title || '').toLowerCase());
+      const duplicates = new Set<string>();
+      let dup = false;
+      for (const t of titles) {
+        if (duplicates.has(t)) { dup = true; break; }
+        duplicates.add(t);
+      }
+      return titles.some(t => bad.some(b => t.includes(b))) || dup;
     };
 
     try {
@@ -321,6 +337,28 @@ CRITICAL: Each persona must have:
         const accepted = acceptPersonas(arr);
         if (accepted.length === 3) personas = accepted;
       } catch (e) {}
+    }
+
+    // If we got personas but titles are generic or duplicated, force a refinement pass with stricter instructions
+    if (personas.length === 3 && hasGenericTitles(personas)) {
+      try {
+        const refinePrompt = `Your previous titles were too generic or duplicated. Rewrite ONLY the titles to be highly descriptive, unique company archetypes directly tied to ${search.product_service} and the ${search.search_type==='customer'?'buying/usage':'selling/provision'} lens in ${search.countries.join(', ')}.
+Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."} ] }`;
+        const text = await callOpenAIChatJSON({
+          model: resolveModel('light'),
+          system: 'Return ONLY JSON with updated titles as instructed.',
+          user: refinePrompt,
+          temperature: 0.3,
+          maxTokens: 200,
+          requireJsonObject: true,
+          verbosity: 'low'
+        });
+        const obj = JSON.parse(text || '{}');
+        const newTitles = Array.isArray(obj?.personas) ? obj.personas.map((x:any)=>x?.title).filter(Boolean) : [];
+        if (newTitles.length === 3) {
+          personas = personas.map((p, i) => ({ ...p, title: String(newTitles[i]) }));
+        }
+      } catch {}
     }
 
     if (personas.length) {
