@@ -129,11 +129,11 @@ export default function BusinessPersonas() {
           budgetRange: (p as any).behaviors?.budgetRange || '$50K-500K',
           preferredChannels: (p as any).behaviors?.preferredChannels || []
         },
-        marketPotential: {
-          totalCompanies: (p as any).market_potential?.totalCompanies || 1000,
-          avgDealSize: (p as any).market_potential?.avgDealSize || '$100K',
-          conversionRate: (p as any).market_potential?.conversionRate || '10%'
-        },
+         marketPotential: {
+           totalCompanies: (p as any).market_potential?.totalCompanies ?? 0,
+           avgDealSize: (p as any).market_potential?.avgDealSize ?? '',
+           conversionRate: (p as any).market_potential?.conversionRate ?? ''
+         },
         locations: (p as any).locations || [],
         businesses: personaBusinesses
       } as PersonaData;
