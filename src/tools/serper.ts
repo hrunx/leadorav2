@@ -2,6 +2,12 @@ import { retryWithBackoff } from './util';
 import { glToCountryName } from './util';
 import { createClient } from '@supabase/supabase-js';
 
+function requireEnv(key: string) {
+  const v = process.env[key];
+  if (!v || v.trim() === '') throw new Error(`${key} is required`);
+  return v;
+}
+
 // Lightweight in-process limiter for Serper calls
 let running = 0;
 const queue: Array<() => void> = [];
@@ -118,6 +124,8 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     const cached = await getCache(cacheKey);
     if (cached) return cached.slice(0, limit);
     
+    // Validate SERPER_KEY early to avoid runtime crash messages
+    requireEnv('SERPER_KEY');
     const r = await fetchWithTimeout('https://google.serper.dev/places', {
       method: 'POST',
       headers: { 'X-API-KEY': process.env.SERPER_KEY!, 'Content-Type': 'application/json' },
@@ -207,6 +215,8 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
     const cached = await getCache(cacheKey);
     if (cached) return { success: true, items: cached.slice(0, limit) };
 
+    // Validate SERPER_KEY early to avoid runtime crash messages
+    requireEnv('SERPER_KEY');
     const r = await fetchWithTimeout('https://google.serper.dev/search', {
       method: 'POST',
       headers: { 'X-API-KEY': process.env.SERPER_KEY!, 'Content-Type': 'application/json' },

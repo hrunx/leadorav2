@@ -162,6 +162,11 @@ export function useProfile() {
     setError(null);
     
     try {
+      // Short-circuit for demo users to avoid unnecessary network calls
+      if (isDemoUser(authState.user?.id, authState.user?.email)) {
+        setProfile(DEMO_USER_PROFILE);
+        return DEMO_USER_PROFILE;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 

@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { DEMO_USER_ID } from '../constants/demo';
 import type { EmailCampaign, CampaignRecipient } from '../lib/supabase';
 
 export class CampaignService {
@@ -27,11 +28,13 @@ export class CampaignService {
 
   // Get user's campaigns
   static async getUserCampaigns(userId: string): Promise<EmailCampaign[]> {
+    const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+    const queryUserId = (userId === 'demo-user' || !isUuid(userId)) ? DEMO_USER_ID : userId;
     try {
       const { data, error } = await supabase
         .from('email_campaigns')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', queryUserId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -41,7 +44,7 @@ export class CampaignService {
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
         console.log('CORS issue detected for campaigns, falling back to proxy...');
         try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=email_campaigns&user_id=${userId}`, {
+          const response = await fetch(`/.netlify/functions/user-data-proxy?table=email_campaigns&user_id=${queryUserId}`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',

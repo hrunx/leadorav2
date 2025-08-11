@@ -166,30 +166,7 @@ Use EXACT search criteria provided. Create personas who would make purchasing de
 CRITICAL: Call storeDMPersonas tool ONCE with complete data. Do not retry.`
 });
 
-// --- Helper: Validate DM persona realism ---
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function isRealisticDMPersona(persona: DMPersona): boolean {
-  if (!persona) return false;
-  const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim() && !['unknown', 'n/a', 'default', 'none'].includes(v.trim().toLowerCase());
-  const isNonEmptyArray = (v: any) => Array.isArray(v) && v.length > 0 && v.every(isNonEmptyString);
-  const isNonZeroNumber = (v: any) => typeof v === 'number' && v > 0;
-  try {
-    if (!isNonEmptyString(persona.title)) return false;
-    if (typeof persona.rank !== 'number' || persona.rank < 1 || persona.rank > 5) return false;
-    if (typeof persona.match_score !== 'number' || persona.match_score < 80) return false;
-    const d = persona.demographics;
-    if (!d || !isNonEmptyString(d.level) || !isNonEmptyString(d.department) || !isNonEmptyString(d.experience) || !isNonEmptyString(d.geography)) return false;
-    const c = persona.characteristics;
-    if (!c || !isNonEmptyArray(c.responsibilities) || !isNonEmptyArray(c.painPoints) || !isNonEmptyArray(c.motivations) || !isNonEmptyArray(c.challenges) || !isNonEmptyArray(c.decisionFactors)) return false;
-    const b = persona.behaviors;
-    if (!b || !isNonEmptyString(b.decisionMaking) || !isNonEmptyString(b.communicationStyle) || !isNonEmptyString(b.buyingProcess) || !isNonEmptyArray(b.preferredChannels)) return false;
-    const m = persona.market_potential;
-    if (!m || !isNonZeroNumber(m.totalDecisionMakers) || !isNonZeroNumber(m.avgInfluence) || !isNonZeroNumber(m.conversionRate)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
+// Removed unused isRealisticDMPersona helper to reduce bundle size
 
 export async function runDMPersonas(search: {
   id:string; 

@@ -12,24 +12,11 @@ export function useOtpSignin() {
     setError(null);
     
     try {
-      // First verify credentials with Supabase
-      const { data, error } = await supabase.auth.signInWithPassword(input);
-      if (error) throw error;
-      
-      setEmail(input.email);
-
-      // Immediately sign out to require OTP verification
-      await supabase.auth.signOut();
-
-      // Request OTP for this user
+      // Request OTP for this user without signing in first (unified flow)
       const res = await fetch('/.netlify/functions/auth-request-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email: input.email, 
-          purpose: 'signin', 
-          user_id: data.user?.id 
-        })
+        body: JSON.stringify({ email: input.email, purpose: 'signin' })
       });
       
       const j = await res.json();
@@ -37,6 +24,7 @@ export function useOtpSignin() {
         throw new Error(j.error || 'Failed to send code');
       }
       
+      setEmail(input.email);
       setPhase('otp');
     } catch (e: any) {
       setError(e.message);

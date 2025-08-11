@@ -48,20 +48,29 @@ export function useRealTimeSearch(searchId: string | null) {
       setData(prev => (hasLoadedOnceRef.current ? prev : { ...prev, isLoading: true }));
 
       // Load all data in parallel using SearchService (with proxy fallback)
+      const progressPromise = (async () => {
+        const { data, error } = await supabase
+          .from('user_searches')
+          .select('phase, progress_pct')
+          .eq('id', searchId)
+          .single();
+        return error ? { phase: 'business_discovery', progress_pct: 0 } : data as any;
+      })();
+
       const [
         businesses,
         businessPersonas,
         dmPersonas,
         decisionMakers,
         marketInsights,
-        { data: searchProgress }
+        searchProgress
       ] = await Promise.all([
         SearchService.getBusinesses(searchId).catch(() => []),
         SearchService.getBusinessPersonas(searchId).catch(() => []),
         SearchService.getDecisionMakerPersonas(searchId).catch(() => []),
         SearchService.getDecisionMakers(searchId).catch(() => []),
         SearchService.getMarketInsights(searchId).catch(() => null),
-        supabase.from('user_searches').select('phase, progress_pct').eq('id', searchId).single().catch(() => ({ data: { phase: 'business_discovery', progress_pct: 0 } }))
+        progressPromise
       ]);
 
       setData({
@@ -91,8 +100,28 @@ export function useRealTimeSearch(searchId: string | null) {
   // Set up real-time subscriptions
   useEffect(() => {
     if (!searchId) return;
+    // Reset state when searchId changes to avoid stale content
+    hasLoadedOnceRef.current = false;
+    setData({
+      businesses: [],
+      businessPersonas: [],
+      dmPersonas: [],
+      decisionMakers: [],
+      marketInsights: [],
+      progress: {
+        phase: 'idle',
+        progress_pct: 0,
+        businesses_count: 0,
+        personas_count: 0,
+        decision_makers_count: 0,
+        market_insights_ready: false
+      },
+      isLoading: true
+    });
 
-    console.log(`🔄 Setting up real-time subscriptions for search: ${searchId}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`🔄 Setting up real-time subscriptions for search: ${searchId}`);
+    }
 
     // Initial load
     loadSearchData(searchId);
@@ -106,7 +135,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'businesses',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        console.log('📊 Business update received:', payload);
+        if (process.env.NODE_ENV !== 'production') console.log('📊 Business update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
@@ -130,7 +159,12 @@ export function useRealTimeSearch(searchId: string | null) {
           });
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') return;
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('Realtime subscription error: businesses');
+        }
+      });
 
     // Real-time subscription for business personas
     const businessPersonasChannel = supabase
@@ -155,7 +189,9 @@ export function useRealTimeSearch(searchId: string | null) {
           });
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: business_personas');
+      });
 
     // Real-time subscription for DM personas
     const dmPersonasChannel = supabase
@@ -166,7 +202,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'decision_maker_personas',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        console.log('🎯 DM persona update received:', payload);
+        if (process.env.NODE_ENV !== 'production') console.log('🎯 DM persona update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
@@ -180,7 +216,9 @@ export function useRealTimeSearch(searchId: string | null) {
           });
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: decision_maker_personas');
+      });
 
     // Real-time subscription for decision makers (progressive loading)
     const decisionMakersChannel = supabase
@@ -191,7 +229,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'decision_makers',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        console.log('🧑‍💼 Decision maker update received:', payload);
+        if (process.env.NODE_ENV !== 'production') console.log('🧑‍💼 Decision maker update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
@@ -212,7 +250,9 @@ export function useRealTimeSearch(searchId: string | null) {
           });
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: decision_makers');
+      });
 
     // Real-time subscription for market insights
     const marketInsightsChannel = supabase
@@ -223,7 +263,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'market_insights',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        console.log('📈 Market insights update received:', payload);
+        if (process.env.NODE_ENV !== 'production') console.log('📈 Market insights update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
@@ -237,7 +277,9 @@ export function useRealTimeSearch(searchId: string | null) {
           });
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: market_insights');
+      });
 
     // Real-time subscription for search progress
     const searchProgressChannel = supabase
@@ -248,7 +290,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'user_searches',
         filter: `id=eq.${searchId}`
       }, (payload) => {
-        console.log('⏳ Search progress update received:', payload);
+        if (process.env.NODE_ENV !== 'production') console.log('⏳ Search progress update received:', payload);
         
         setData(prev => ({
           ...prev,
@@ -259,11 +301,13 @@ export function useRealTimeSearch(searchId: string | null) {
           }
         }));
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: user_searches');
+      });
 
     // Cleanup subscriptions
     return () => {
-      console.log(`🧹 Cleaning up real-time subscriptions for search: ${searchId}`);
+      if (process.env.NODE_ENV !== 'production') console.log(`🧹 Cleaning up real-time subscriptions for search: ${searchId}`);
       
       supabase.removeChannel(businessesChannel);
       supabase.removeChannel(businessPersonasChannel);

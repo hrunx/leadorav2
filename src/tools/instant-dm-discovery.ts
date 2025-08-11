@@ -34,10 +34,14 @@ async function recordProgress(search_id: string) {
 export async function triggerInstantDMDiscovery(
   search_id: string,
   user_id: string,
-  businesses: Business[]
+  businesses: Business[],
+  options?: { initializeProgress?: boolean }
 ) {
   console.log(`🎯 Starting instant DM discovery for ${businesses.length} businesses`);
-  initDMDiscoveryProgress(search_id, businesses.length);
+  const shouldInit = options?.initializeProgress !== false;
+  if (shouldInit) {
+    initDMDiscoveryProgress(search_id, businesses.length);
+  }
 
   // Load search data once for all businesses to get product/service context
   const searchData = await loadSearch(search_id);
