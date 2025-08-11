@@ -10,6 +10,15 @@ const supa = createClient(
 async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   try {
     const body = event.body ? JSON.parse(event.body) : {};
     const product_service: string = body.product_service || 'AI-powered CRM software';
@@ -95,9 +104,9 @@ export const handler: Handler = async (event) => {
       }
     };
 
-    return { statusCode: 200, body: JSON.stringify(result) };
+    return { statusCode: 200, headers: cors, body: JSON.stringify(result) };
   } catch (e: any) {
-    return { statusCode: 500, body: JSON.stringify({ ok:false, error: e.message }) };
+    return { statusCode: 500, headers: cors, body: JSON.stringify({ ok:false, error: e.message }) };
   }
 };
 

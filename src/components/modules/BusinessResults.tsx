@@ -81,8 +81,8 @@ export default function BusinessResults() {
   }, [isDemo, realTimeData.businesses]);
 
   const hasSearch = !!currentSearch;
-  // Show loader only until the first business arrives; ignore phase to avoid UI blocking
-  const isLoading = !isDemo && businesses.length === 0;
+  // Show loader only during discovery phase; otherwise show empty state
+  const isLoading = !isDemo && realTimeData.progress.phase === 'business_discovery' && businesses.length === 0;
 
   useEffect(() => {
     const completed = businesses.length > 0 || realTimeData.progress.phase === 'completed';
@@ -346,7 +346,7 @@ export default function BusinessResults() {
   }
 
   // Show "still processing" state for users with search but no businesses yet
-  if (hasSearch && businesses.length === 0 && !isLoading && discoveryStatus !== 'discovering' && !isDemoUser(authState.user?.id, authState.user?.email)) {
+  if (hasSearch && businesses.length === 0 && !isLoading && !isDemoUser(authState.user?.id, authState.user?.email)) {
     // Check if this is a recent search that might still be processing
     if (currentSearch) {
       const searchAge = Date.now() - new Date(currentSearch.created_at).getTime();

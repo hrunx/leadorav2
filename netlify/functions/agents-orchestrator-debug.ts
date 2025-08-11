@@ -1,8 +1,16 @@
 import type { Handler } from '@netlify/functions';
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+    return { statusCode: 405, headers: cors, body: 'Method Not Allowed' };
   }
 
   try {
@@ -52,6 +60,7 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
+      headers: cors,
       body: JSON.stringify({ 
         success: true,
         message: 'Debug completed',
@@ -67,6 +76,7 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 500,
+      headers: cors,
       body: JSON.stringify({ 
         success: false, 
         error: err?.message || 'Unknown error',

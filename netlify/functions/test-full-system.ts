@@ -8,6 +8,15 @@ const supa = createClient(
 );
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   try {
     console.log('🧪 Starting comprehensive system test...');
     
@@ -205,23 +214,10 @@ export const handler: Handler = async (event) => {
     console.log(`Status: ${report.status}`);
     console.log(`Pass Rate: ${report.pass_rate}`);
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify(report, null, 2),
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    };
+    return { statusCode: 200, headers: { 'Content-Type': 'application/json', ...cors }, body: JSON.stringify(report, null, 2) };
 
   } catch (error: any) {
     console.error('🚨 System test failed:', error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        error: 'System test failed',
-        message: error.message,
-        timestamp: new Date().toISOString()
-      })
-    };
+    return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'System test failed', message: error.message, timestamp: new Date().toISOString() }) };
   }
 };

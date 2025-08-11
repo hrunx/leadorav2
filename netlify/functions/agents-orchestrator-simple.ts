@@ -35,8 +35,17 @@ const loadSearch = async (search_id: string) => {
 };
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+    return { statusCode: 405, headers: cors, body: 'Method Not Allowed' };
   }
 
   try {
@@ -45,6 +54,7 @@ export const handler: Handler = async (event) => {
     if (!search_id || !user_id) {
       return { 
         statusCode: 400, 
+        headers: cors,
         body: JSON.stringify({ error: 'search_id and user_id are required' }) 
       };
     }
@@ -56,6 +66,7 @@ export const handler: Handler = async (event) => {
     if (!search) {
       return {
         statusCode: 404,
+        headers: cors,
         body: JSON.stringify({ error: 'Search not found' })
       };
     }
@@ -75,6 +86,7 @@ export const handler: Handler = async (event) => {
     
     return {
       statusCode: 200,
+      headers: cors,
       body: JSON.stringify({ 
         success: true, 
         message: 'Agent orchestration completed successfully (simulated)',
@@ -102,6 +114,7 @@ export const handler: Handler = async (event) => {
     
     return {
       statusCode: 500,
+      headers: cors,
       body: JSON.stringify({ 
         success: false, 
         error: error.message,

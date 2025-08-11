@@ -18,7 +18,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { UserDataProvider, useUserData } from './context/UserDataContext';
 import { AppProvider, useAppContext } from './context/AppContext';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from './constants/demo';
+import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser as isDemoUserUtil } from './constants/demo';
 
 function AppContent() {
   const { state: authState, login } = useAuth();
@@ -31,10 +31,8 @@ function AppContent() {
   const [currentSearchId, setCurrentSearchId] = useState<string | null>(null);
   const [showBackgroundProgress, setShowBackgroundProgress] = useState(false);
 
-  // Simple demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
+  // Use centralized demo user detection
+  const isDemoUser = (userId?: string | null, userEmail?: string | null) => isDemoUserUtil(userId, userEmail);
 
   // Check if user should see onboarding
   useEffect(() => {

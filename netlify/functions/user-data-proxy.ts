@@ -4,16 +4,17 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function buildCorsHeaders(origin?: string) {
-  // Allow localhost and LAN IPs automatically in dev; otherwise reflect origin or fallback to *
+  // Liberal in dev: allow any localhost/LAN origin; otherwise reflect if whitelisted; fallback '*'
   const isLocalhost = origin?.startsWith('http://localhost') || origin?.startsWith('http://127.0.0.1');
   const isLan = !!origin && /^(http:\/\/|https:\/\/)(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(origin);
   const isAllowed = allowedOrigins.length === 0 || (origin ? allowedOrigins.includes(origin) : false);
-  const allowOrigin = origin || '*';
-  const finalOrigin = (isLocalhost || isLan || isAllowed) ? allowOrigin : allowOrigin;
+  const finalOrigin = (isLocalhost || isLan || isAllowed) ? (origin || '*') : '*';
   return {
     'Access-Control-Allow-Origin': finalOrigin,
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Access-Control-Allow-Credentials': 'false',
     'Vary': 'Origin'
   } as Record<string,string>;
 }

@@ -1,8 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 
-// Create a dedicated client for database operations that works in both browser and Netlify functions
+// Create a dedicated client for Netlify functions/server usage only
 const getSupabaseClient = () => {
+  if (typeof window !== 'undefined') {
+    throw new Error('db.write.ts must not be imported/used in the browser');
+  }
   return createClient(
     process.env.VITE_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -131,7 +134,7 @@ export const insertMarketInsights = async (row: {
 };
 
 // enforce allowed phases (must match DB CHECK constraint on user_searches.phase)
-const AllowedPhases = new Set([
+const AllowedPhasesList = [
   'starting',
   'business_discovery',
   'business_personas',
@@ -140,9 +143,9 @@ const AllowedPhases = new Set([
   'market_research',
   'completed',
   'failed',
-] as const);
-
-type Phase = typeof AllowedPhases extends Set<infer T> ? T : never;
+] as const;
+type Phase = typeof AllowedPhasesList[number];
+const AllowedPhases = new Set<string>(AllowedPhasesList as unknown as string[]);
 
 // Normalize old labels used in code
 function normalizePhase(p: string): Phase {
@@ -159,7 +162,7 @@ function normalizePhase(p: string): Phase {
     case 'dm_personas_completed': return 'dm_personas';
     case 'market_insights': return 'market_research';
     default:
-      return (AllowedPhases.has(p as Phase) ? (p as Phase) : 'starting');
+      return (AllowedPhases.has(p) ? (p as Phase) : 'starting');
   }
 }
 

@@ -71,14 +71,19 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({
   if (!isVisible || !progress) return null;
 
   const getStatusText = () => {
-    switch (progress.phase) {
-      case 'businesses': return 'Finding businesses...';
-      case 'decision_makers': return 'Mapping decision makers...';
-      case 'market_insights': return 'Generating market insights...';
-      case 'completed': return 'Analysis complete!';
-      case 'failed': return 'Analysis failed';
-      default: return 'Processing...';
-    }
+    const phase = progress.phase;
+    const map: Record<string, string> = {
+      starting: 'Starting analysis...',
+      business_personas: 'Generating business personas...',
+      dm_personas: 'Generating decision maker personas...',
+      business_discovery: 'Finding businesses...',
+      decision_makers: 'Mapping decision makers...',
+      market_research: 'Generating market research...',
+      market_insights: 'Generating market insights...',
+      completed: 'Analysis complete!',
+      failed: 'Analysis failed'
+    };
+    return map[phase] || 'Processing...';
   };
 
   const getStatusIcon = () => {

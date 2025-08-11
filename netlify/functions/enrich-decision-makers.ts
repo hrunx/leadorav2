@@ -130,9 +130,19 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
 }
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
+      headers: cors,
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
@@ -212,12 +222,10 @@ export const handler: Handler = async (event) => {
     
     console.log(`Enrichment completed for search ${search_id}: ${enrichedCount} successful, ${errorCount} errors`);
     
-    return {
-      statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json', ...cors },
+        body: JSON.stringify({
         success: true,
         search_id,
         total_pending: pendingDMs.length,
@@ -232,9 +240,7 @@ export const handler: Handler = async (event) => {
     
     return {
       statusCode: 500,
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json', ...cors },
       body: JSON.stringify({
         success: false,
         error: error.message,
