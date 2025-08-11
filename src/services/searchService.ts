@@ -4,8 +4,8 @@ import { DEMO_USER_ID } from '../constants/demo';
 
 export class SearchService {
   private static readonly functionsBase: string = '/.netlify/functions';
-  // Lightweight in-memory caches to avoid spamming functions on dashboard load
-  private static searchesCache: { userId: string; ts: number; data: any[] } | null = null;
+  // Lightweight in-memory caches to avoid spamming functions on dashboard load, scoped per user
+  private static searchesCacheByUser: Map<string, { ts: number; data: any[] }> = new Map();
   private static progressCache = new Map<string, { ts: number; data: any }>();
   private static readonly TTL_MS = 5000; // 5s cache TTL for dashboard views
   private static backfillInFlight = new Set<string>();
@@ -56,8 +56,8 @@ export class SearchService {
       }
     }
 
-    // Invalidate user searches cache so the new search appears immediately
-    this.searchesCache = null;
+    // Invalidate this user's searches cache so the new search appears immediately
+    this.searchesCacheByUser.delete(userId);
     return data;
   }
 
@@ -68,8 +68,9 @@ export class SearchService {
     
     try {
       // Serve from cache if recent
-      if (this.searchesCache && this.searchesCache.userId === targetUserId && Date.now() - this.searchesCache.ts < this.TTL_MS) {
-        return this.searchesCache.data as any;
+      const cached = this.searchesCacheByUser.get(targetUserId);
+      if (cached && Date.now() - cached.ts < this.TTL_MS) {
+        return cached.data as any;
       }
 
        let searches: any[] = [];
@@ -108,7 +109,7 @@ export class SearchService {
       // Fire-and-forget: backfill totals for any search missing counts
       void this.backfillMissingTotals(normalized);
 
-      this.searchesCache = { userId: targetUserId, ts: Date.now(), data: normalized };
+      this.searchesCacheByUser.set(targetUserId, { ts: Date.now(), data: normalized });
       return normalized as any;
     } catch (error: any) {
       // Fallback to proxy if direct Supabase call fails (CORS issues)
@@ -184,7 +185,9 @@ export class SearchService {
   // Count qualified leads for a user: decision makers with at least one contact handle
   static async countQualifiedLeads(userId: string): Promise<number> {
     // Prefer proxy to avoid CORS/RLS issues in browsers (Safari)
-    const proxyUrl = `/.netlify/functions/user-data-proxy?table=decision_makers&user_id=${userId}`;
+    const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+    const queryUserId = (userId === 'demo-user' || !isUuid(userId)) ? DEMO_USER_ID : userId;
+    const proxyUrl = `/.netlify/functions/user-data-proxy?table=decision_makers&user_id=${queryUserId}`;
     try {
       const resp = await fetch(proxyUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
       if (resp.ok) {
@@ -343,7 +346,7 @@ export class SearchService {
   }
 
   // Get decision maker personas for a search (agents generate them automatically)
-  static async generateDecisionMakerPersonas(searchId: string, userId: string, _searchData: any): Promise<DecisionMakerPersona[]> {
+  static async generateDecisionMakerPersonas(searchId: string, userId: string, searchData: any): Promise<DecisionMakerPersona[]> {
     // For demo user, generate mock data if none exists
     if (userId === DEMO_USER_ID) {
       const existing = await this.getDecisionMakerPersonas(searchId);
@@ -487,7 +490,7 @@ export class SearchService {
   }
 
   // Get market insights for a search (agents generate them automatically via Gemini)
-  static async generateMarketInsights(searchId: string, userId: string, _searchData: any): Promise<MarketInsight> {
+  static async generateMarketInsights(searchId: string, userId: string, searchData: any): Promise<MarketInsight> {
     // For demo user, generate mock data if none exists
     if (userId === DEMO_USER_ID) {
       const existing = await this.getMarketInsights(searchId);
@@ -602,7 +605,7 @@ export class SearchService {
     ]);
   }
 
-  private static generateMockDecisionMakerPersonas(_searchData: any): any[] {
+  private static generateMockDecisionMakerPersonas(searchData: any): any[] {
     return [
       {
         title: 'Chief Technology Officer',
@@ -611,7 +614,7 @@ export class SearchService {
           level: 'C-Level Executive',
           department: 'Technology',
           experience: '15+ years',
-          geography: searchData.countries.join(', ') || 'Global'
+          geography: Array.isArray(searchData?.countries) ? searchData.countries.join(', ') : 'Global'
         },
         characteristics: {
           responsibilities: ['Technology strategy', 'Digital transformation', 'Budget allocation'],

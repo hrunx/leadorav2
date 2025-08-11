@@ -29,10 +29,9 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 setDefaultOpenAIClient(openai as unknown as any);
 
 // Content generation (unchanged)
-export const deepseek = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY!,
-  baseURL: 'https://api.deepseek.com/v1',
-});
+export const deepseek = (process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_API_KEY.trim() !== '')
+  ? new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY!, baseURL: 'https://api.deepseek.com/v1' })
+  : null as unknown as OpenAI;
 
 const SUPABASE_URL = requireOneOf(['SUPABASE_URL','VITE_SUPABASE_URL']);
 const SUPABASE_SERVICE_ROLE_KEY = requireOneOf(['SUPABASE_SERVICE_ROLE_KEY','VITE_SUPABASE_SERVICE_ROLE_KEY']);
@@ -138,7 +137,10 @@ export async function callDeepseekChatJSON(params: {
   temperature?: number;
   maxTokens?: number;
 }): Promise<string> {
-  const res = await deepseek.chat.completions.create({
+  if (!process.env.DEEPSEEK_API_KEY || !deepseek) {
+    throw new Error('DeepSeek not configured');
+  }
+  const res = await (deepseek as any).chat.completions.create({
     model: params.model || process.env.DEEPSEEK_MODEL || 'deepseek-chat',
     messages: [{ role: 'user', content: params.user }],
     temperature: params.temperature,

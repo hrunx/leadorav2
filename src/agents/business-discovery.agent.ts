@@ -153,44 +153,40 @@ const storeBusinessesTool = tool({
     console.log(`Inserting ${rows.length} businesses for search ${search_id}`);
     const insertedBusinesses = await insertBusinesses(rows);
     // Only increment the running DM discovery total with this batch if there are new businesses
-    if (insertedBusinesses.length > 0) {
-      initDMDiscoveryProgress(search_id, insertedBusinesses.length);
-    }
+    // Do not initialize here; we'll initialize within the batch trigger call to avoid double-counting
     // 🚀 PERSONA MAPPING (fire-and-forget)
     void mapBusinessesToPersonas(search_id).catch(err => console.warn('Persona mapping failed:', err));
 
-    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately as it is inserted (fire-and-forget)
-    const triggeredBusinessIds = new Set<string>();
-    void Promise.all(
+    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately
+    // Initialize progress once for all inserted businesses
+    if (insertedBusinesses.length > 0) {
+      initDMDiscoveryProgress(search_id, insertedBusinesses.length);
+    }
+    const results = await Promise.allSettled(
       insertedBusinesses.map(async (business) => {
-        const success = await processBusinessForDM(search_id, user_id, {
+        return await processBusinessForDM(search_id, user_id, {
           ...business,
           country,
           industry
         });
-        if (success) {
-          triggeredBusinessIds.add(business.id);
-        }
       })
     );
+    const succeededIds = new Set(
+      results
+        .map((r, idx) => (r.status === 'fulfilled' && r.value ? insertedBusinesses[idx].id : null))
+        .filter(Boolean) as string[]
+    );
 
-    // Fallback: trigger batch discovery only for businesses not processed individually (fire-and-forget)
-    const pendingBusinesses = insertedBusinesses.filter(b => !triggeredBusinessIds.has(b.id));
+    // Fallback: trigger batch discovery only for businesses not processed individually
+    const pendingBusinesses = insertedBusinesses.filter(b => !succeededIds.has(b.id));
     if (pendingBusinesses.length > 0) {
-      setTimeout(() => {
-        void (async () => {
-          try {
-            console.log(`🎯 (Fallback) Triggering instant DM discovery for ${pendingBusinesses.length} businesses`);
-            await triggerInstantDMDiscovery(
-              search_id,
-              user_id,
-              pendingBusinesses.map(b => ({ ...b, country, industry }))
-            );
-          } catch (error) {
-            console.error('Failed to trigger instant DM discovery:', error);
-          }
-        })();
-      }, 1000); // Small delay to ensure businesses are stored
+      console.log(`🎯 (Fallback) Triggering instant DM discovery for ${pendingBusinesses.length} businesses`);
+      await triggerInstantDMDiscovery(
+        search_id,
+        user_id,
+        pendingBusinesses.map(b => ({ ...b, country, industry })),
+        { initializeProgress: true }
+      );
     }
     return insertedBusinesses;
   }

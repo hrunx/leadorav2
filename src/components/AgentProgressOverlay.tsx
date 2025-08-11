@@ -80,8 +80,9 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
         setCurrentPhase(normalizedPhase);
         // Auto-dismiss overlay when first rows are visible to switch user to live screens quickly
         const anyVisible = (data.data_counts.business_personas > 0 && data.data_counts.dm_personas > 0) || data.data_counts.businesses > 0;
-        if (!firstDataSeen && anyVisible && onEarlyNavigation) {
+        if (!firstDataSeen && !hasNavigatedEarly && anyVisible && onEarlyNavigation) {
           setFirstDataSeen(true);
+          setHasNavigatedEarly(true);
           onEarlyNavigation();
         }
         

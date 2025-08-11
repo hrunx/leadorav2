@@ -14,7 +14,9 @@ export const countryToGL = (country: string): string => {
   // Handle special case for SA abbreviation - DEFAULT TO SAUDI ARABIA
   if (country.toUpperCase() === 'SA') {
     // SA defaults to Saudi Arabia (original ISO code)
-    console.log(`COUNTRY MAPPING DEBUG: SA -> Saudi Arabia (sa)`);
+    if (process.env.NODE_ENV !== 'production' && process.env.DEBUG_COUNTRY_MAPPING === '1') {
+      console.log(`COUNTRY MAPPING DEBUG: SA -> Saudi Arabia (sa)`);
+    }
     return 'sa';
   }
   

@@ -1,5 +1,6 @@
 import { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { DEMO_USER_EMAIL } from '../constants/demo';
 
 interface User {
   id: string;
@@ -131,11 +132,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      // Check if this is demo login
-      if (email === 'demo@leadora.com' && password === 'demo123') {
+      // Check if this is demo login (moved to env-configured email only)
+      if (email === (process.env.VITE_DEMO_EMAIL || DEMO_USER_EMAIL)) {
         const user: User = {
           id: 'demo-user',
-          email: 'demo@leadora.com',
+          email: email,
           firstName: 'Demo',
           lastName: 'User',
           company: 'Demo Company',

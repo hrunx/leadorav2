@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions';
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function buildCorsHeaders(origin?: string) {
@@ -89,8 +90,9 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  // For user-scoped requests, require JWT
-  // In local dev, allow user-scoped reads without JWT for localhost to avoid CORS pain
+  // For user-scoped requests, require JWT in prod.
+  // In local dev, allow user-scoped reads without JWT for localhost/LAN, using service role for server-side fetch.
+  let allowDev = false;
   if (user_id && !token) {
     const originHeader = (event.headers.origin || event.headers.Origin || '').toString();
     const hostHeader = (event.headers.host || event.headers.Host || '').toString();
@@ -99,7 +101,7 @@ export const handler: Handler = async (event) => {
     const lanRegex = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
     const isLanOrigin = !!originHeader && originHeader.startsWith('http://') && lanRegex.test(originHeader.replace(/^https?:\/\//, ''));
     const isLanHost = !!hostHeader && lanRegex.test(hostHeader);
-    const allowDev = isLocalOrigin || isLocalHost || isLanOrigin || isLanHost;
+    allowDev = isLocalOrigin || isLocalHost || isLanOrigin || isLanHost;
     if (!allowDev) {
       return {
         statusCode: 401,
@@ -128,10 +130,11 @@ export const handler: Handler = async (event) => {
   try {
     // Query Supabase REST without service role; pass through anon and user token
     const restUrl = `${supabaseUrl}/rest/v1/${path}?${params.toString()}`;
+    const useServiceRole = (!token && allowDev && !!supabaseServiceKey);
     const response = await fetch(restUrl, {
       headers: {
-        apikey: supabaseAnonKey,
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        apikey: useServiceRole ? supabaseServiceKey : supabaseAnonKey,
+        ...(token ? { Authorization: `Bearer ${token}` } : (useServiceRole ? { Authorization: `Bearer ${supabaseServiceKey}` } : {})),
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       }

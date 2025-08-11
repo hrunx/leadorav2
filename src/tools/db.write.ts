@@ -1,16 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 
-// Create a dedicated client for Netlify functions/server usage only
+// Create a memoized client for Netlify functions/server usage only
+let _supaWrite: ReturnType<typeof createClient> | null = null;
 const getSupabaseClient = () => {
   if (typeof window !== 'undefined') {
     throw new Error('db.write.ts must not be imported/used in the browser');
   }
+  if (_supaWrite) return _supaWrite;
   const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL) throw new Error('supabaseUrl is required. Set SUPABASE_URL or VITE_SUPABASE_URL');
   if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('supabaseKey is required. Set SUPABASE_SERVICE_ROLE_KEY or VITE_SUPABASE_SERVICE_ROLE_KEY');
-  return createClient(
+  _supaWrite = createClient(
     SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY,
     {
@@ -20,6 +22,7 @@ const getSupabaseClient = () => {
       }
     }
   );
+  return _supaWrite;
 };
 
 // --- Totals helpers ---
