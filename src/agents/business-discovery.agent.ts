@@ -4,6 +4,7 @@ import { resolveModel } from './clients';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
+import { mapBusinessesToPersonas } from '../tools/persona-mapper';
 import { triggerInstantDMDiscovery, processBusinessForDM, initDMDiscoveryProgress } from '../tools/instant-dm-discovery';
 import type { Business } from '../tools/instant-dm-discovery';
 
@@ -12,7 +13,7 @@ import type { Business } from '../tools/instant-dm-discovery';
 
 const serperPlacesTool = tool({
   name: 'serperPlaces',
-  description: 'Search Serper Places, max 5.',
+  description: 'Search Serper Places with a specified limit (max 15).',
   parameters: { 
     type: 'object',
     properties: { 
@@ -29,7 +30,8 @@ const serperPlacesTool = tool({
     const { q, gl, limit, search_id, user_id } = input as { q: string; gl: string; limit: number; search_id: string; user_id: string };
     const startTime = Date.now();
     try {
-      const places = await serperPlaces(q, gl, 5);
+      const capped = Math.max(1, Math.min(Number(limit) || 5, 15));
+      const places = await serperPlaces(q, gl, capped);
       const endTime = Date.now();
 
       // Log API usage (with error handling)
@@ -41,7 +43,7 @@ const serperPlacesTool = tool({
           endpoint: 'places',
           status: 200,
           ms: endTime - startTime,
-          request: { q, gl, limit, startTime },
+          request: { q, gl, limit: capped, startTime },
           response: { count: places.length, endTime }
         });
       } catch (logError) {
@@ -158,6 +160,9 @@ const storeBusinessesTool = tool({
     if (insertedBusinesses.length > 0) {
       initDMDiscoveryProgress(search_id, insertedBusinesses.length);
     }
+    // 🚀 PERSONA MAPPING (fire-and-forget)
+    void mapBusinessesToPersonas(search_id).catch(err => console.warn('Persona mapping failed:', err));
+
     // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately as it is inserted (fire-and-forget)
     const triggeredBusinessIds = new Set<string>();
     void Promise.all(

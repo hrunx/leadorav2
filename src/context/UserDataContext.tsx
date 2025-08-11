@@ -144,7 +144,9 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       if (error.message?.includes('Load failed') || error.message?.includes('network')) {
         console.log('Network error detected, creating fallback search ID');
         // Generate a temporary search ID and add to local state
-        const fallbackId = crypto.randomUUID();
+        const fallbackId = (typeof crypto !== 'undefined' && (crypto as any).randomUUID)
+          ? (crypto as any).randomUUID()
+          : `tmp-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
         const fallbackSearch = {
           id: fallbackId,
           user_id: authState.user.id,

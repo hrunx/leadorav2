@@ -16,6 +16,14 @@ const cache = new Map<string, { ts: number; body: string }>();
 const TTL_MS = 1500;
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   try {
     const { search_id } = JSON.parse(event.body || '{}');
     if (!search_id) {
@@ -26,13 +34,14 @@ export const handler: Handler = async (event) => {
     const now = Date.now();
     const cached = cache.get(search_id);
     if (cached && now - cached.ts < TTL_MS) {
-      return { statusCode: 200, body: cached.body };
+      return { statusCode: 200, headers: cors, body: cached.body };
     }
 
     // Handle fallback/non-UUID search IDs (offline mode)
     if (!UUID_REGEX.test(search_id)) {
       return {
         statusCode: 200,
+        headers: cors,
         body: JSON.stringify({
           search_id,
           progress: { phase: 'offline', progress_pct: 0, status: 'offline' },
@@ -61,6 +70,7 @@ export const handler: Handler = async (event) => {
         // Search not found - return fallback response for offline/fallback searches
         return {
           statusCode: 200,
+          headers: cors,
           body: JSON.stringify({
             search_id,
             progress: { phase: 'offline', progress_pct: 0, status: 'offline' },
@@ -112,10 +122,11 @@ export const handler: Handler = async (event) => {
         recent_api_calls: logs
       });
     cache.set(search_id, { ts: Date.now(), body });
-    return { statusCode: 200, body };
+    return { statusCode: 200, headers: cors, body };
   } catch (error: any) {
     return {
       statusCode: 500,
+      headers: cors,
       body: JSON.stringify({ error: error.message })
     };
   }

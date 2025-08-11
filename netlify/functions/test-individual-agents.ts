@@ -1,6 +1,15 @@
 import type { Handler } from '@netlify/functions';
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   try {
     const { test_type } = JSON.parse(event.body || '{}');
     
@@ -25,6 +34,7 @@ export const handler: Handler = async (event) => {
         const text = await response.text();
         return {
           statusCode: 200,
+          headers: cors,
           body: JSON.stringify({ 
             success: false, 
             test: 'serper-direct',
@@ -37,6 +47,7 @@ export const handler: Handler = async (event) => {
       const data = await response.json();
       return {
         statusCode: 200,
+        headers: cors,
         body: JSON.stringify({ 
           success: true, 
           test: 'serper-direct',
@@ -65,6 +76,7 @@ export const handler: Handler = async (event) => {
         const text = await response.text();
         return {
           statusCode: 200,
+          headers: cors,
           body: JSON.stringify({ 
             success: false, 
             test: 'deepseek-direct',
@@ -77,6 +89,7 @@ export const handler: Handler = async (event) => {
       const data = await response.json();
       return {
         statusCode: 200,
+        headers: cors,
         body: JSON.stringify({ 
           success: true, 
           test: 'deepseek-direct',
@@ -96,6 +109,7 @@ export const handler: Handler = async (event) => {
         // Import OK ← heavy execution skipped to avoid 30-s timeout in Netlify-CLI test runner
          return {
           statusCode: 200,
+          headers: cors,
           body: JSON.stringify({ 
             success: true, 
             test: 'exec-business-personas',
@@ -120,7 +134,7 @@ export const handler: Handler = async (event) => {
         const { execDMPersonas } = await import('../../src/orchestration/exec-dm-personas.js')
           .catch(() => import('../../src/orchestration/exec-dm-personas'));
         console.log('execDMPersonas imported successfully');
-        return { statusCode: 200, body: JSON.stringify({ success: true, test: 'exec-dm-personas', message: 'DM personas import OK' }) };
+        return { statusCode: 200, headers: cors, body: JSON.stringify({ success: true, test: 'exec-dm-personas', message: 'DM personas import OK' }) };
       } catch (error: any) {
         return { statusCode: 200, body: JSON.stringify({ success: false, test: 'exec-dm-personas', error: error.message, stack: error.stack }) };
       }
@@ -131,7 +145,7 @@ export const handler: Handler = async (event) => {
         const { execBusinessDiscovery } = await import('../../src/orchestration/exec-business-discovery.js')
           .catch(() => import('../../src/orchestration/exec-business-discovery'));
         console.log('execBusinessDiscovery imported successfully');
-        return { statusCode: 200, body: JSON.stringify({ success: true, test: 'exec-business-discovery', message: 'Business discovery import OK' }) };
+        return { statusCode: 200, headers: cors, body: JSON.stringify({ success: true, test: 'exec-business-discovery', message: 'Business discovery import OK' }) };
       } catch (error: any) {
         return { statusCode: 200, body: JSON.stringify({ success: false, test: 'exec-business-discovery', error: error.message, stack: error.stack }) };
       }
@@ -142,7 +156,7 @@ export const handler: Handler = async (event) => {
         const { execMarketResearchParallel } = await import('../../src/orchestration/exec-market-research-parallel.js')
           .catch(() => import('../../src/orchestration/exec-market-research-parallel'));
         console.log('execMarketResearchParallel imported successfully');
-        return { statusCode: 200, body: JSON.stringify({ success: true, test: 'exec-market-research', message: 'Market research import OK' }) };
+        return { statusCode: 200, headers: cors, body: JSON.stringify({ success: true, test: 'exec-market-research', message: 'Market research import OK' }) };
       } catch (error: any) {
         return { statusCode: 200, body: JSON.stringify({ success: false, test: 'exec-market-research', error: error.message, stack: error.stack }) };
       }
@@ -150,6 +164,7 @@ export const handler: Handler = async (event) => {
     
     return {
       statusCode: 400,
+      headers: cors,
       body: JSON.stringify({ 
         error: 'Specify test_type: serper-direct, deepseek-direct, exec-business-personas, exec-dm-personas, exec-business-discovery, exec-market-research' 
       })
@@ -158,6 +173,7 @@ export const handler: Handler = async (event) => {
   } catch (error: any) {
     return {
       statusCode: 500,
+      headers: cors,
       body: JSON.stringify({ 
         success: false, 
         error: error.message,

@@ -179,11 +179,16 @@ export async function retryWithBackoff<T>(
         throw lastError;
       }
       
-      // Exponential backoff with jitter
-      // Use crypto.getRandomValues for better randomness in jitter
-  const jitterArray = new Uint32Array(1);
-  crypto.getRandomValues(jitterArray);
-  const jitter = (jitterArray[0] / 0xFFFFFFFF) * 1000; // 0-1000ms jitter
+  // Exponential backoff with jitter (portable across Node/browser)
+  const rng = () => {
+    if (typeof crypto !== 'undefined' && (crypto as any).getRandomValues) {
+      const arr = new Uint32Array(1);
+      (crypto as any).getRandomValues(arr);
+      return arr[0] / 0xFFFFFFFF;
+    }
+    return Math.random();
+  };
+  const jitter = rng() * 1000; // 0-1000ms jitter
   const delay = baseDelay * Math.pow(2, attempt) + jitter;
       await new Promise(resolve => setTimeout(resolve, delay));
     }
@@ -268,11 +273,11 @@ function inferDepartment(title: string): string {
  * Smart persona mapping for decision makers
  * Maps DM to most relevant persona based on title, department, and seniority
  */
-export function mapDMToPersona(employee: { title?: string; }, dmPersonas: { title?: string; }[]): { title?: string; } | null {
+export function mapDMToPersona<T extends { id?: string; title?: string }>(employee: { title?: string }, dmPersonas: T[]): T | null {
   if (!dmPersonas || dmPersonas.length === 0) return null;
-  
+
   const title = employee.title?.toLowerCase() || '';
-  
+
   // Define role keywords for smart matching
   const roleKeywords = {
     'c-level': ['ceo', 'chief executive', 'cto', 'chief technology', 'cmo', 'chief marketing', 'cfo', 'chief financial', 'chief', 'president'],
@@ -288,8 +293,8 @@ export function mapDMToPersona(employee: { title?: string; }, dmPersonas: { titl
   };
   
   // Calculate match scores for each persona
-  const personaScores = dmPersonas.map(persona => {
-    const personaTitle = persona.title?.toLowerCase() || '';
+  const personaScores = dmPersonas.map((persona: T) => {
+    const personaTitle = (persona.title || '').toLowerCase();
     let score = 0;
     
     // Match by persona keywords

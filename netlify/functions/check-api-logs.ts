@@ -8,6 +8,15 @@ const supa = createClient(
 );
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   try {
     // Get recent API usage logs to see 404 errors
     const { data: logs, error } = await supa
@@ -20,6 +29,7 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
+      headers: cors,
       body: JSON.stringify({ 
         success: true,
         recent_api_logs: logs,
@@ -29,6 +39,7 @@ export const handler: Handler = async (event) => {
   } catch (error: any) {
     return {
       statusCode: 500,
+      headers: cors,
       body: JSON.stringify({ success: false, error: error.message })
     };
   }

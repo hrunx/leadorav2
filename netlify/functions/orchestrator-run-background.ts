@@ -78,11 +78,20 @@ async function retry<T>(fn:()=>Promise<T>, tries=3) {
 }
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   // background functions return 202 immediately, Netlify runs the handler async
   let stopPersonaListener: (() => Promise<void>) | null = null;
   try {
     const { search_id, user_id } = JSON.parse(event.body || '{}');
-    if (!search_id || !user_id) return { statusCode: 400, body: 'search_id and user_id required' };
+    if (!search_id || !user_id) return { statusCode: 400, headers: cors, body: 'search_id and user_id required' };
 
     console.log(`Starting background orchestration for search ${search_id}, user ${user_id}`);
 
@@ -159,7 +168,7 @@ export const handler: Handler = async (event) => {
     await businessDiscoveryPromise;
     await updateProgress(search_id, 'completed', 100);
     console.log(`Orchestration completed for search ${search_id}`);
-    return { statusCode: 202, body: 'accepted' };
+    return { statusCode: 202, headers: cors, body: 'accepted' };
   } catch (e:any) {
     console.error('Background orchestration failed:', e);
     // best-effort: try to log search_id if present
@@ -171,7 +180,7 @@ export const handler: Handler = async (event) => {
         status: 500, ms: 0, error: e.message
       });
     } catch {}
-    return { statusCode: 202, body: 'accepted' }; // background function always returns 202
+    return { statusCode: 202, headers: cors, body: 'accepted' }; // background function always returns 202
   } finally {
     if (stopPersonaListener) await stopPersonaListener();
   }

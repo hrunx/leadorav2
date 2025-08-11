@@ -9,6 +9,15 @@ const supa = createClient(
 );
 
 export const handler: Handler = async (event) => {
+  const origin = event.headers.origin || event.headers.Origin || '';
+  const cors = {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   try {
     const YOUR_USER_ID = '0f63cc8c-03b0-4d4c-bddf-0c7ccecc7edb';
     
@@ -34,6 +43,7 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
+      headers: cors,
       body: JSON.stringify({
         success: true,
         message: 'Test search created successfully with your user ID',
@@ -48,6 +58,7 @@ export const handler: Handler = async (event) => {
     console.error('Failed to create test search:', error);
     return {
       statusCode: 500,
+      headers: cors,
       body: JSON.stringify({
         success: false,
         error: error.message,

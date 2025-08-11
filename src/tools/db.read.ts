@@ -1,16 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Create a dedicated client for database operations that works in both browser and Netlify functions
+  // WARNING: This module must be used from Netlify functions/server only
 const getSupabaseClient = () => {
+  if (typeof window !== 'undefined') {
+    throw new Error('db.read.ts must not be imported/used in the browser');
+  }
   return createClient(
     process.env.VITE_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { 
-      auth: { 
-        autoRefreshToken: false, 
-        persistSession: false
-      } 
-    }
+    { auth: { autoRefreshToken: false, persistSession: false } }
   );
 };
 

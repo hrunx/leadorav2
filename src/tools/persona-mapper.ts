@@ -1,6 +1,134 @@
-import { supa } from '../agents/clients';
+import { supa, resolveModel, callOpenAIChatJSON, callGeminiText } from '../agents/clients';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { mapDMToPersona } from './util';
+
+// ---- Types ----
+export interface BusinessRow {
+  id: string;
+  name: string;
+  industry: string;
+  country: string;
+  city?: string | null;
+  size?: string | null;
+  revenue?: string | null;
+  description?: string | null;
+  match_score?: number;
+}
+
+export interface BusinessPersonaRow {
+  id: string;
+  title: string;
+  rank?: number;
+  demographics?: { industry?: string; companySize?: string; geography?: string; revenue?: string };
+  characteristics?: Record<string, unknown>;
+}
+
+export interface DecisionMakerRow {
+  id: string;
+  name: string;
+  title: string;
+  department?: string;
+  level?: string;
+}
+
+export interface DMPersonaRow {
+  id: string;
+  title: string;
+  rank?: number;
+  demographics?: { level?: string; department?: string; experience?: string; geography?: string };
+  characteristics?: Record<string, unknown>;
+}
+
+// ---- Lightweight rate limiter for LLM mapping ----
+const MAX_CONCURRENT = 3;
+let inFlight = 0;
+const queue: Array<() => void> = [];
+async function withLimiter<T>(fn: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const runNext = async () => {
+      inFlight++;
+      try { resolve(await fn()); } catch (e) { reject(e); } finally {
+        inFlight--;
+        const next = queue.shift();
+        if (next) next();
+      }
+    };
+    if (inFlight < MAX_CONCURRENT) runNext(); else queue.push(runNext);
+  });
+}
+
+async function scoreBusinessToPersonasLLM(business: BusinessRow, personas: BusinessPersonaRow[]): Promise<{ personaId: string; score: number } | null> {
+  if (!personas || personas.length === 0) return null;
+  const prompt = `You are matching a business to the most relevant business persona. Return ONLY JSON: {"best": {"persona_id": "...", "score": 0-100}}.
+
+BUSINESS:
+- name: ${business.name}
+- industry: ${business.industry}
+- size: ${business.size || ''}
+- revenue: ${business.revenue || ''}
+- country: ${business.country}
+- city: ${business.city || ''}
+- description: ${business.description || ''}
+
+PERSONAS (JSON array):
+${JSON.stringify(personas.map(p => ({ id: p.id, title: p.title, demographics: p.demographics })), null, 2)}
+
+Rules:
+- Choose the single best persona id by industry, company size, geography, description alignment.
+- score: integer 0-100 for confidence.
+- Output ONLY the specified JSON.`;
+  const model = resolveModel('light');
+  return withLimiter(async () => {
+    try {
+      let text = await callOpenAIChatJSON({ model, system: 'You output ONLY valid JSON.', user: prompt, temperature: 0.2, maxTokens: 500, requireJsonObject: true, verbosity: 'low' });
+      let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
+      const best = obj?.best;
+      if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
+    } catch {}
+    try {
+      const text = await callGeminiText('gemini-2.0-flash', prompt);
+      let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
+      const best = obj?.best;
+      if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
+    } catch {}
+    return null;
+  });
+}
+
+async function scoreDMToPersonasLLM(dm: DecisionMakerRow, personas: DMPersonaRow[]): Promise<{ personaId: string; score: number } | null> {
+  if (!personas || personas.length === 0) return null;
+  const prompt = `You are matching a decision maker to the most relevant decision-maker persona. Return ONLY JSON: {"best": {"persona_id": "...", "score": 0-100}}.
+
+DECISION_MAKER:
+- name: ${dm.name}
+- title: ${dm.title}
+- level: ${dm.level || ''}
+- department: ${dm.department || ''}
+
+PERSONAS (JSON array):
+${JSON.stringify(personas.map(p => ({ id: p.id, title: p.title, demographics: p.demographics })), null, 2)}
+
+Rules:
+- Choose the single best persona id by title/level/department alignment.
+- score: integer 0-100.
+- Output ONLY the specified JSON.`;
+  const model = resolveModel('light');
+  return withLimiter(async () => {
+    try {
+      let text = await callOpenAIChatJSON({ model, system: 'Return ONLY JSON.', user: prompt, temperature: 0.2, maxTokens: 400, requireJsonObject: true, verbosity: 'low' });
+      let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
+      const best = obj?.best;
+      if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
+    } catch {}
+    try {
+      const text = await callGeminiText('gemini-2.0-flash', prompt);
+      let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
+      const best = obj?.best;
+      if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
+    } catch {}
+    return null;
+  });
+}
 
 // Intelligent business-persona matching functions
 function findBestMatchingPersona(business: any, personas: any[]): any {
@@ -158,20 +286,19 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     console.log(`Mapping ${businesses.length} businesses to ${personas.length} personas`);
 
-    // Intelligent mapping logic: analyze business characteristics for best-fit persona matching
-    const updates = businesses.map((business) => {
-      // Find the best matching persona based on business characteristics
-      const bestPersona = findBestMatchingPersona(business, personas);
-      const matchScore = calculatePersonaMatchScore(business, bestPersona);
-
+    // Intelligent mapping logic: use AI when enabled, fallback to heuristic
+    const updates = businesses.map(async (business) => {
+      let bestId: string | null = null;
+      let scoreNum = 0;
+      const ai = await scoreBusinessToPersonasLLM(business as BusinessRow, personas as any as BusinessPersonaRow[]).catch(() => null);
+      if (ai && ai.personaId) { bestId = ai.personaId; scoreNum = ai.score; }
+      if (!bestId) {
+        const bestPersona = findBestMatchingPersona(business, personas);
+        bestId = bestPersona.id; scoreNum = calculatePersonaMatchScore(business, bestPersona);
+      }
       return supa
         .from('businesses')
-        .update({
-          persona_id: bestPersona.id,
-          persona_type: bestPersona.title || 'mapped',
-          // Use calculated match score based on persona compatibility
-          match_score: Math.min(matchScore, 100)
-        })
+        .update({ persona_id: bestId, persona_type: (personas.find(p=>p.id===bestId)?.title) || 'mapped', match_score: Math.min(scoreNum, 100) })
         .eq('id', business.id);
     });
 
@@ -208,7 +335,9 @@ export function startPersonaMappingListener(searchId: string) {
         filter: `search_id=eq.${searchId}`
       },
       (payload: RealtimePostgresChangesPayload<{ id: string }>) => {
-        mapBusinessesToPersonas(searchId, payload.new.id).catch(err =>
+        const newRow = (payload.new || {}) as { id?: string };
+        if (!newRow.id) return;
+        mapBusinessesToPersonas(searchId, newRow.id).catch(err =>
           console.error('Error mapping persona for new business:', err)
         );
       }
@@ -328,7 +457,7 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
 
     const { data: dms, error: dmError } = await supa
       .from('decision_makers')
-      .select('id,title')
+      .select('id,title,department,level,name')
       .eq('search_id', searchId)
       .is('persona_id', null);
 
@@ -340,7 +469,7 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
 
     const { data: personas, error: personaError } = await supa
       .from('decision_maker_personas')
-      .select('id,title,rank')
+      .select('id,title,rank,demographics')
       .eq('search_id', searchId)
       .order('rank');
 
@@ -350,12 +479,16 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
       return;
     }
 
-    const updates = dms.map(dm => {
-      const persona = mapDMToPersona(dm, personas);
-      return supa
-        .from('decision_makers')
-        .update({ persona_id: persona?.id || personas[0].id })
-        .eq('id', dm.id);
+    const updates = dms.map(async dm => {
+      let bestId: string | null = null;
+      const ai = await scoreDMToPersonasLLM(dm as any as DecisionMakerRow, personas as any as DMPersonaRow[]).catch(() => null);
+      if (ai && ai.personaId) bestId = ai.personaId;
+      if (!bestId) {
+        const persona = mapDMToPersona(dm as any, personas as any);
+        const fallbackId = (persona && (persona as any).id) ? (persona as any).id : (personas[0] as any).id;
+        bestId = fallbackId;
+      }
+      return supa.from('decision_makers').update({ persona_id: bestId }).eq('id', dm.id);
     });
 
     const results = await Promise.allSettled(updates);

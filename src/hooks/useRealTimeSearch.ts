@@ -99,7 +99,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for businesses (immediate updates)
     const businessesChannel = supabase
-      .channel('businesses-changes')
+      .channel(`businesses-changes-${searchId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -110,7 +110,7 @@ export function useRealTimeSearch(searchId: string | null) {
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
-            const newBiz = payload.new as unknown as Business;
+            const newBiz = payload.new as Business;
             const next = {
               ...prev,
               businesses: ([...prev.businesses, newBiz] as Business[]),
@@ -124,7 +124,7 @@ export function useRealTimeSearch(searchId: string | null) {
         } else if (payload.eventType === 'UPDATE') {
           setData(prev => {
             const updated = prev.businesses.map(b => 
-              b.id === (payload.new as any).id ? ({ ...b, ...(payload.new as any) } as Business) : b
+              b.id === (payload.new as Business).id ? ({ ...b, ...(payload.new as Business) } as Business) : b
             ) as Business[];
             return { ...prev, businesses: updated };
           });
@@ -134,7 +134,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for business personas
     const businessPersonasChannel = supabase
-      .channel('business-personas-changes')
+      .channel(`business-personas-changes-${searchId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -145,7 +145,7 @@ export function useRealTimeSearch(searchId: string | null) {
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
-            const newPersona = payload.new as unknown as DecisionMakerPersona;
+            const newPersona = payload.new as DecisionMakerPersona;
             const sorted = ([...prev.businessPersonas, newPersona] as DecisionMakerPersona[]).sort((a, b) => (a.rank as any) - (b.rank as any));
             return {
               ...prev,
@@ -159,7 +159,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for DM personas
     const dmPersonasChannel = supabase
-      .channel('dm-personas-changes')
+      .channel(`dm-personas-changes-${searchId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -170,7 +170,7 @@ export function useRealTimeSearch(searchId: string | null) {
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
-            const newPersona = payload.new as unknown as DecisionMakerPersona;
+            const newPersona = payload.new as DecisionMakerPersona;
             const sorted = ([...prev.dmPersonas, newPersona] as DecisionMakerPersona[]).sort((a, b) => (a.rank as any) - (b.rank as any));
             return {
               ...prev,
@@ -184,7 +184,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for decision makers (progressive loading)
     const decisionMakersChannel = supabase
-      .channel('decision-makers-changes')
+      .channel(`decision-makers-changes-${searchId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -195,7 +195,7 @@ export function useRealTimeSearch(searchId: string | null) {
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
-            const newDM = payload.new as unknown as DecisionMaker;
+            const newDM = payload.new as DecisionMaker;
             const nextDMs = ([...prev.decisionMakers, newDM] as DecisionMaker[]);
             return {
               ...prev,
@@ -206,7 +206,7 @@ export function useRealTimeSearch(searchId: string | null) {
         } else if (payload.eventType === 'UPDATE') {
           setData(prev => {
             const updated = prev.decisionMakers.map(dm => 
-              dm.id === (payload.new as any).id ? ({ ...dm, ...(payload.new as any) } as DecisionMaker) : dm
+              dm.id === (payload.new as DecisionMaker).id ? ({ ...dm, ...(payload.new as DecisionMaker) } as DecisionMaker) : dm
             ) as DecisionMaker[];
             return { ...prev, decisionMakers: updated };
           });
@@ -216,7 +216,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for market insights
     const marketInsightsChannel = supabase
-      .channel('market-insights-changes')
+      .channel(`market-insights-changes-${searchId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -227,7 +227,7 @@ export function useRealTimeSearch(searchId: string | null) {
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
-            const newInsight = payload.new as unknown as MarketInsight;
+            const newInsight = payload.new as MarketInsight;
             const nextInsights = ([...prev.marketInsights, newInsight] as MarketInsight[]);
             return {
               ...prev,
@@ -241,7 +241,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for search progress
     const searchProgressChannel = supabase
-      .channel('search-progress-changes')
+      .channel(`search-progress-changes-${searchId}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
