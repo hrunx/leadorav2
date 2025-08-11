@@ -199,6 +199,24 @@ export async function retryWithBackoff<T>(
   throw lastError!;
 }
 
+export async function fetchWithTimeoutRetry(url: string, options: RequestInit, timeoutMs = 8000, retries = 1, backoffMs = 800): Promise<Response> {
+  let attempt = 0;
+  while (true) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (e) {
+      clearTimeout(timer);
+      if (attempt >= retries) throw e;
+      attempt += 1;
+      await new Promise(r => setTimeout(r, backoffMs * attempt));
+    }
+  }
+}
+
 // Build decision maker data with all required fields
 export function buildDMData(params: {
   search_id: string;

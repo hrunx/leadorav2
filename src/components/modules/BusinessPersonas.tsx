@@ -90,51 +90,51 @@ export default function BusinessPersonas() {
   const personas: PersonaData[] = useMemo(() => {
     if (isDemo) return demoPersonas;
     const list = (realTimeData.businessPersonas || [])
-      .filter((p:any) => String(p.title||'').trim().toLowerCase() !== 'persona generation failed')
-      .sort((a:any,b:any)=> (a.rank||999) - (b.rank||999))
-      .slice(0,3)
-      .map(p => {
+      .filter(p => typeof p?.title === 'string' && p.title.trim().toLowerCase() !== 'persona generation failed')
+      .sort((a, b) => ((a?.rank as number) ?? 999) - ((b?.rank as number) ?? 999))
+      .slice(0, 3)
+      .map((p) => {
     // Attach live-mapped businesses under each persona (progressive as they stream in)
-      const personaBusinesses = ((realTimeData.businesses || []) as any[])
-        .filter((b: any) => b.persona_id === (p as any).id)
-        .map((b: any) => ({
+      const personaBusinesses = (realTimeData.businesses || [])
+        .filter(b => b.persona_id === (p as any).id)
+        .map(b => ({
           id: b.id,
           name: b.name,
           country: b.country,
           city: b.city || '',
           matchScore: typeof b.match_score === 'number' ? b.match_score : 75
         }))
-        .sort((a: any, b: any) => (b.matchScore || 0) - (a.matchScore || 0));
+        .sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
 
       return {
         id: (p as any).id,
-        title: (p as any).title,
-        rank: (p as any).rank,
-        matchScore: (p as any).match_score,
+        title: (p as any).title as string,
+        rank: (p as any).rank as number,
+        matchScore: (p as any).match_score as number,
         demographics: {
-          industry: (p as any).demographics?.industry || 'Technology',
-          companySize: (p as any).demographics?.companySize || '100-1000 employees',
-          geography: (p as any).demographics?.geography || 'Global',
-          revenue: (p as any).demographics?.revenue || '$10M-100M'
+          industry: (p as any).demographics?.industry ?? 'Technology',
+          companySize: (p as any).demographics?.companySize ?? '100-1000 employees',
+          geography: (p as any).demographics?.geography ?? 'Global',
+          revenue: (p as any).demographics?.revenue ?? '$10M-100M'
         },
         characteristics: {
-          painPoints: (p as any).characteristics?.painPoints || [],
-          motivations: (p as any).characteristics?.motivations || [],
-          challenges: (p as any).characteristics?.challenges || [],
-          decisionFactors: (p as any).characteristics?.decisionFactors || []
+          painPoints: (p as any).characteristics?.painPoints ?? [],
+          motivations: (p as any).characteristics?.motivations ?? [],
+          challenges: (p as any).characteristics?.challenges ?? [],
+          decisionFactors: (p as any).characteristics?.decisionFactors ?? []
         },
         behaviors: {
-          buyingProcess: (p as any).behaviors?.buyingProcess || 'Standard evaluation process',
-          decisionTimeline: (p as any).behaviors?.decisionTimeline || '3-6 months',
-          budgetRange: (p as any).behaviors?.budgetRange || '$50K-500K',
-          preferredChannels: (p as any).behaviors?.preferredChannels || []
+          buyingProcess: (p as any).behaviors?.buyingProcess ?? 'Standard evaluation process',
+          decisionTimeline: (p as any).behaviors?.decisionTimeline ?? '3-6 months',
+          budgetRange: (p as any).behaviors?.budgetRange ?? '$50K-500K',
+          preferredChannels: (p as any).behaviors?.preferredChannels ?? []
         },
          marketPotential: {
            totalCompanies: (p as any).market_potential?.totalCompanies ?? 0,
            avgDealSize: (p as any).market_potential?.avgDealSize ?? '',
            conversionRate: (p as any).market_potential?.conversionRate ?? ''
          },
-        locations: (p as any).locations || [],
+        locations: (p as any).locations ?? [],
         businesses: personaBusinesses
       } as PersonaData;
     });

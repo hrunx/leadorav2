@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import logger from '../lib/logger';
 import { SearchService } from '../services/searchService';
 import type { Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
 
@@ -49,12 +50,29 @@ export function useRealTimeSearch(searchId: string | null) {
 
       // Load all data in parallel using SearchService (with proxy fallback)
       const progressPromise = (async () => {
-        const { data, error } = await supabase
-          .from('user_searches')
-          .select('phase, progress_pct')
-          .eq('id', searchId)
-          .single();
-        return error ? { phase: 'business_discovery', progress_pct: 0 } : data as any;
+        // Try proxy first to avoid browser CORS issues
+        try {
+          const r = await fetch(`/.netlify/functions/user-data-proxy?table=user_searches&search_id=${searchId}`, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+          });
+          if (r.ok) {
+            const arr = await r.json();
+            const row = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
+            if (row) return { phase: row.phase, progress_pct: row.progress_pct } as any;
+          }
+        } catch {}
+        // Fallback to direct Supabase
+        try {
+          const { data, error } = await supabase
+            .from('user_searches')
+            .select('phase, progress_pct')
+            .eq('id', searchId)
+            .single();
+          return error ? { phase: 'business_discovery', progress_pct: 0 } : (data as any);
+        } catch {
+          return { phase: 'business_discovery', progress_pct: 0 } as any;
+        }
       })();
 
       const [
@@ -119,9 +137,7 @@ export function useRealTimeSearch(searchId: string | null) {
       isLoading: true
     });
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`🔄 Setting up real-time subscriptions for search: ${searchId}`);
-    }
+    logger.debug(`🔄 Setting up real-time subscriptions for search: ${searchId}`);
 
     // Initial load
     loadSearchData(searchId);
@@ -135,7 +151,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'businesses',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        if (process.env.NODE_ENV !== 'production') console.log('📊 Business update received:', payload);
+        logger.debug('📊 Business update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
@@ -161,9 +177,7 @@ export function useRealTimeSearch(searchId: string | null) {
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') return;
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('Realtime subscription error: businesses');
-        }
+        if (status === 'CHANNEL_ERROR') { logger.warn('Realtime subscription error: businesses'); }
       });
 
     // Real-time subscription for business personas
@@ -175,7 +189,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'business_personas',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        console.log('👥 Business persona update received:', payload);
+        if (process.env.NODE_ENV !== 'production') console.log('👥 Business persona update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
@@ -190,7 +204,7 @@ export function useRealTimeSearch(searchId: string | null) {
         }
       })
       .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: business_personas');
+        if (status === 'CHANNEL_ERROR') logger.warn('Realtime subscription error: business_personas');
       });
 
     // Real-time subscription for DM personas
@@ -202,7 +216,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'decision_maker_personas',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        if (process.env.NODE_ENV !== 'production') console.log('🎯 DM persona update received:', payload);
+        logger.debug('🎯 DM persona update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
@@ -217,7 +231,7 @@ export function useRealTimeSearch(searchId: string | null) {
         }
       })
       .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: decision_maker_personas');
+        if (status === 'CHANNEL_ERROR') logger.warn('Realtime subscription error: decision_maker_personas');
       });
 
     // Real-time subscription for decision makers (progressive loading)
@@ -229,7 +243,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'decision_makers',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        if (process.env.NODE_ENV !== 'production') console.log('🧑‍💼 Decision maker update received:', payload);
+        logger.debug('🧑‍💼 Decision maker update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
@@ -251,7 +265,7 @@ export function useRealTimeSearch(searchId: string | null) {
         }
       })
       .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: decision_makers');
+        if (status === 'CHANNEL_ERROR') logger.warn('Realtime subscription error: decision_makers');
       });
 
     // Real-time subscription for market insights
@@ -263,7 +277,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'market_insights',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        if (process.env.NODE_ENV !== 'production') console.log('📈 Market insights update received:', payload);
+        logger.debug('📈 Market insights update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {
@@ -278,7 +292,7 @@ export function useRealTimeSearch(searchId: string | null) {
         }
       })
       .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: market_insights');
+        if (status === 'CHANNEL_ERROR') logger.warn('Realtime subscription error: market_insights');
       });
 
     // Real-time subscription for search progress
@@ -290,7 +304,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'user_searches',
         filter: `id=eq.${searchId}`
       }, (payload) => {
-        if (process.env.NODE_ENV !== 'production') console.log('⏳ Search progress update received:', payload);
+        logger.debug('⏳ Search progress update received:', payload);
         
         setData(prev => ({
           ...prev,
@@ -302,12 +316,12 @@ export function useRealTimeSearch(searchId: string | null) {
         }));
       })
       .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') console.warn('Realtime subscription error: user_searches');
+        if (status === 'CHANNEL_ERROR') logger.warn('Realtime subscription error: user_searches');
       });
 
     // Cleanup subscriptions
     return () => {
-      if (process.env.NODE_ENV !== 'production') console.log(`🧹 Cleaning up real-time subscriptions for search: ${searchId}`);
+      logger.debug(`🧹 Cleaning up real-time subscriptions for search: ${searchId}`);
       
       supabase.removeChannel(businessesChannel);
       supabase.removeChannel(businessPersonasChannel);
