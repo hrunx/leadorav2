@@ -1,4 +1,5 @@
 import { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
+import logger from '../lib/logger';
 import { useAuth } from './AuthContext';
 import { SearchService } from '../services/searchService';
 import { CampaignService } from '../services/campaignService';
@@ -114,7 +115,9 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       throw new Error('User not authenticated');
     }
     
-    console.log('Creating search for user:', authState.user.id, authState.user.email);
+    if (process.env.NODE_ENV !== 'production') {
+      logger.debug('Creating search for user:', authState.user.id, authState.user.email);
+    }
     
     // Check for demo user (multiple possible IDs)
     const isDemoUser = authState.user.id === 'demo-user' || 
@@ -122,12 +125,12 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
                       authState.user.email === 'demo@leadora.com';
     
     if (isDemoUser) {
-      console.log('Demo user detected, returning mock search ID');
+      logger.info('Demo user detected, returning mock search ID');
       return 'demo-search-id';
     }
 
     try {
-      console.log('Creating real search for user:', authState.user.id);
+      logger.debug('Creating real search for user:', authState.user.id);
       const search = await SearchService.createSearch(authState.user.id, {
         search_type: searchData.type,
         product_service: searchData.productService,
@@ -135,7 +138,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
         countries: searchData.countries
       });
 
-      console.log('Search created successfully:', search.id);
+      logger.info('Search created successfully:', search.id);
       dispatch({ type: 'ADD_SEARCH', payload: search });
       return search.id;
     } catch (error) {
@@ -143,7 +146,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       
       // If there's a network error, provide a fallback
       if (error.message?.includes('Load failed') || error.message?.includes('network')) {
-        console.log('Network error detected, creating fallback search ID');
+        logger.warn('Network error detected, creating fallback search ID');
         // Generate a temporary search ID and add to local state
         const fallbackId = (typeof crypto !== 'undefined' && (crypto as any).randomUUID)
           ? (crypto as any).randomUUID()

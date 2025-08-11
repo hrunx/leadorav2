@@ -59,13 +59,32 @@ export default function CampaignManagement() {
   const [businesses, setBusinesses] = useState<any[]>([]);
   const [decisionMakers, setDecisionMakers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [hasSearch, setHasSearch] = useState(false);
 
-  // Load data on component mount
-  useEffect(() => {
-    loadCampaignData();
-  }, [loadCampaignData]);
+  // Helper to build best-effort email addresses
+  const extractDomain = useCallback((company: string, website?: string | null) => {
+    if (website && typeof website === 'string') {
+      try {
+        const u = new URL(website.startsWith('http') ? website : `https://${website}`);
+        const host = u.hostname.replace(/^www\./, '');
+        return host;
+      } catch {}
+    }
+    const simplified = company.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    return `${simplified}.com`;
+  }, []);
+
+  const buildBusinessEmail = useCallback((business: any) => {
+    if (business.email && String(business.email).includes('@')) return business.email;
+    const domain = extractDomain(business.name, business.website);
+    return `contact@${domain}`;
+  }, [extractDomain]);
+
+  const buildDmEmail = useCallback((dm: any) => {
+    if (dm.email && String(dm.email).includes('@')) return dm.email;
+    const domain = extractDomain(dm.company, (dm as any).website);
+    const namePart = (dm.name || '').toLowerCase().replace(/[^a-z]+/g, '.').replace(/\.+/g, '.').replace(/^\.|\.$/g, '') || 'contact';
+    return `${namePart}@${domain}`;
+  }, [extractDomain]);
 
   const loadCampaignData = useCallback(async () => {
     setIsLoading(true);
@@ -76,16 +95,14 @@ export default function CampaignManagement() {
       if (isDemo) {
         setBusinesses(getStaticBusinesses());
         setDecisionMakers(getStaticDecisionMakers());
-        setHasSearch(true);
-      } else if (!currentSearch) {
+      } else if (!currentSearch || !authState.user) {
         setBusinesses([]);
         setDecisionMakers([]);
-        setHasSearch(false);
       } else {
         // Load real data from database
         const [businessData, dmData] = await Promise.all([
-          SearchService.generateBusinesses(currentSearch.id, authState.user?.id || '', false),
-          SearchService.generateDecisionMakers(currentSearch.id, authState.user?.id || '', false)
+          SearchService.getBusinesses(currentSearch.id),
+          SearchService.getDecisionMakers(currentSearch.id)
         ]);
         
         // Transform business data
@@ -93,7 +110,7 @@ export default function CampaignManagement() {
           id: business.id,
           name: business.name,
           persona: business.persona_type || 'Business',
-          email: business.email || `contact@${business.name.toLowerCase().replace(/\s+/g, '')}.com`
+          email: buildBusinessEmail(business)
         }));
 
         // Transform decision maker data
@@ -102,24 +119,27 @@ export default function CampaignManagement() {
           name: dm.name,
           title: dm.title,
           company: dm.company,
-          persona: dm.persona_type || dm.title,
+          persona: (dm as any).persona_type || dm.title,
           level: dm.level,
-          email: dm.email || `${dm.name.toLowerCase().replace(/\s+/g, '.')}@${dm.company.toLowerCase().replace(/\s+/g, '')}.com`
+          email: buildDmEmail(dm)
         }));
 
         setBusinesses(transformedBusinesses);
         setDecisionMakers(transformedDMs);
-        setHasSearch(true);
       }
     } catch (error) {
       console.error('Error loading campaign data:', error);
       setBusinesses([]);
       setDecisionMakers([]);
-      setHasSearch(false);
     } finally {
       setIsLoading(false);
     }
-  }, [getCurrentSearch, authState.user]);
+  }, [getCurrentSearch, authState.user, buildBusinessEmail, buildDmEmail]);
+
+  // Load data on component mount
+  useEffect(() => {
+    loadCampaignData();
+  }, [loadCampaignData]);
 
   const getStaticBusinesses = () => [
     { id: '1', name: 'TechCorp Solutions', persona: 'Enterprise Technology Leader', email: 'contact@techcorp.com' },

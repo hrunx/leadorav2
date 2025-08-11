@@ -6,7 +6,6 @@ export class SearchService {
   private static readonly functionsBase: string = '/.netlify/functions';
   // Lightweight in-memory caches to avoid spamming functions on dashboard load, scoped per user
   private static searchesCacheByUser: Map<string, { ts: number; data: any[] }> = new Map();
-  private static progressCache = new Map<string, { ts: number; data: any }>();
   private static readonly TTL_MS = 5000; // 5s cache TTL for dashboard views
   private static backfillInFlight = new Set<string>();
 
@@ -75,8 +74,8 @@ export class SearchService {
 
        let searches: any[] = [];
        try {
-         const proxyResp = await fetch(`${this.functionsBase}/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
-          method: 'GET', headers: { 'Accept': 'application/json' }
+          const proxyResp = await fetch(`${this.functionsBase}/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
+          method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit'
         });
         if (proxyResp.ok) {
           searches = await proxyResp.json();
@@ -121,7 +120,8 @@ export class SearchService {
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json'
-            }
+            },
+            credentials: 'omit'
           });
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
           return await response.json();
@@ -167,9 +167,9 @@ export class SearchService {
         } as any;
         // Update DB, but do not block
         void supabase.from('user_searches').update({ totals, updated_at: new Date().toISOString() }).eq('id', s.id);
-        // Also update in-memory cache copy if present
-        if (this.searchesCache) {
-          this.searchesCache.data = this.searchesCache.data.map(x => x.id === s.id ? { ...x, totals } : x);
+        // Also update in-memory cache entries if present (per-user caches)
+        for (const entry of this.searchesCacheByUser.values()) {
+          entry.data = entry.data.map(x => x.id === s.id ? { ...x, totals } : x);
         }
       } catch {
         // ignore errors; this is best-effort
@@ -189,7 +189,7 @@ export class SearchService {
     const queryUserId = (userId === 'demo-user' || !isUuid(userId)) ? DEMO_USER_ID : userId;
     const proxyUrl = `/.netlify/functions/user-data-proxy?table=decision_makers&user_id=${queryUserId}`;
     try {
-      const resp = await fetch(proxyUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      const resp = await fetch(proxyUrl, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (resp.ok) {
         const data = await resp.json();
         const arr = Array.isArray(data) ? data : [];
@@ -200,19 +200,7 @@ export class SearchService {
           return hasLinkedin || hasEmail || hasPhone;
         }).length;
       }
-      // Fallback to direct Supabase if proxy unavailable
-      const { data, error } = await supabase
-        .from('decision_makers')
-        .select('id, linkedin, email, phone')
-        .eq('user_id', userId);
-      if (error) throw error;
-      const arr = Array.isArray(data) ? data : [];
-      return arr.filter(dm => {
-        const hasLinkedin = typeof (dm as any).linkedin === 'string' && (dm as any).linkedin.trim() !== '';
-        const hasEmail = typeof (dm as any).email === 'string' && (dm as any).email.trim() !== '';
-        const hasPhone = typeof (dm as any).phone === 'string' && (dm as any).phone.trim() !== '';
-        return hasLinkedin || hasEmail || hasPhone;
-      }).length;
+      return 0;
     } catch (error) {
       console.error('Failed counting qualified leads:', error);
       return 0;
@@ -245,24 +233,14 @@ export class SearchService {
   static async getBusinessPersonas(searchId: string): Promise<BusinessPersona[]> {
     // Proxy-first to avoid CORS/RLS issues in browsers
     try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
         const arr = await response.json();
         const list = Array.isArray(arr) ? arr : [];
         return list as any;
       }
     } catch {}
-    // Fallback to direct anon Supabase if proxy unavailable
-    try {
-      const { data } = await supabase
-        .from('business_personas')
-        .select('*')
-        .eq('search_id', searchId)
-        .order('rank');
-      return Array.isArray(data) ? (data as any) : [];
-    } catch {
-      return [];
-    }
+    return [];
   }
 
   // Check if user should see demo data
@@ -322,27 +300,15 @@ export class SearchService {
   static async getBusinesses(searchId: string): Promise<Business[]> {
     // Proxy-first
     try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
         const arr = await response.json();
         const list = Array.isArray(arr) ? arr : [];
         return list as any;
-      } else if (response.status === 404) {
-        // Treat 404 (no rows) as empty array to avoid blocking UI
-        return [];
       }
-    } catch {}
-    // Fallback to direct anon Supabase
-    try {
-      const { data } = await supabase
-        .from('businesses')
-        .select('*')
-        .eq('search_id', searchId)
-        .order('match_score', { ascending: false });
-      return Array.isArray(data) ? (data as any) : [];
-    } catch {
       return [];
-    }
+    } catch {}
+    return [];
   }
 
   // Get decision maker personas for a search (agents generate them automatically)
@@ -383,24 +349,14 @@ export class SearchService {
   static async getDecisionMakerPersonas(searchId: string): Promise<DecisionMakerPersona[]> {
     // Proxy-first
     try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
         const arr = await response.json();
         const list = Array.isArray(arr) ? arr : [];
         return list as any;
       }
     } catch {}
-    // Fallback to direct anon Supabase
-    try {
-      const { data } = await supabase
-        .from('decision_maker_personas')
-        .select('*')
-        .eq('search_id', searchId)
-        .order('rank');
-      return Array.isArray(data) ? (data as any) : [];
-    } catch {
-      return [];
-    }
+    return [];
   }
 
   // Get decision makers for a search (agents generate them automatically via LinkedIn)
@@ -453,40 +409,14 @@ export class SearchService {
   static async getDecisionMakers(searchId: string): Promise<DecisionMaker[]> {
     // Proxy-first
     try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
         const arr = await response.json();
         const list = Array.isArray(arr) ? arr : [];
         return list as any;
       }
     } catch {}
-    // Fallback to direct anon Supabase
-    try {
-      const { data } = await supabase
-        .from('decision_makers')
-        .select(`
-        *,
-        business:business_id (
-          id,
-          name,
-          industry,
-          country,
-          city,
-          size,
-          revenue,
-          description,
-          rating,
-          address,
-          phone,
-          website
-        )
-      `)
-        .eq('search_id', searchId)
-        .order('influence', { ascending: false });
-      return Array.isArray(data) ? (data as any) : [];
-    } catch {
-      return [];
-    }
+    return [];
   }
 
   // Get market insights for a search (agents generate them automatically via Gemini)
@@ -529,61 +459,19 @@ export class SearchService {
   static async getMarketInsights(searchId: string): Promise<MarketInsight | null> {
     // Proxy-first
     try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
         const arr = await response.json();
         return (Array.isArray(arr) && arr.length > 0) ? (arr[0] as any) : null;
       }
     } catch {}
-    // Fallback to anon Supabase
-    try {
-      const { data } = await supabase
-        .from('market_insights')
-        .select('*')
-        .eq('search_id', searchId)
-        .limit(1);
-      return (Array.isArray(data) && data.length > 0) ? (data[0] as any) : null;
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   // Mock data generation methods (these would be replaced with actual AI generation)
-  private static generateMockBusinessPersonas(_searchData: any): any[] {
-    // Generate personas based on search data
-    const basePersonas = [
-      {
-         title: `Enterprise Technology Leader`,
-        match_score: 95,
-        demographics: {
-           industry: 'Technology',
-           companySize: '1000-5000 employees',
-           geography: 'Global',
-          revenue: '$100M-500M'
-        },
-        characteristics: {
-          painPoints: ['Digital transformation', 'Scalability challenges', 'Cost optimization'],
-          motivations: ['Innovation leadership', 'Competitive advantage', 'Operational efficiency'],
-          challenges: ['Budget constraints', 'Change management', 'Technical complexity']
-        },
-        behaviors: {
-          decisionMaking: 'Committee-based with 6-9 month evaluation',
-          buyingProcess: 'Strategic evaluation with multiple stakeholders',
-          preferredChannels: ['Direct sales', 'Industry conferences', 'Peer recommendations']
-        },
-        marketPotential: {
-          totalCompanies: 2500,
-          avgDealSize: '$850K',
-          conversionRate: '12%'
-        },
-        locations: [
-           { country: 'United States', cities: ['New York', 'San Francisco'], companies: 1200 }
-        ]
-      }
-    ];
-
-    return basePersonas;
-  }
+  // Note: _searchData retained intentionally for future tailoring; unused in current mocks
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Removed unused generateMockBusinessPersonas to silence lint warning
 
   private static generateMockBusinesses(personas: BusinessPersona[]): any[] {
     return personas.flatMap(persona => [
@@ -675,6 +563,7 @@ export class SearchService {
     ]);
   }
 
+  // Note: _searchData retained intentionally for future tailoring; unused in current mocks
   private static generateMockMarketInsights(_searchData: any): any {
     return {
       tam_data: { value: '$2.4B', growth: '+12%', description: 'Total Addressable Market' },

@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import logger from '../lib/logger';
 import { DEMO_USER_ID } from '../constants/demo';
 import type { EmailCampaign, CampaignRecipient } from '../lib/supabase';
 
@@ -42,19 +43,22 @@ export class CampaignService {
     } catch (error: any) {
       // Fallback to proxy if direct Supabase call fails (CORS issues)
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
-        console.log('CORS issue detected for campaigns, falling back to proxy...');
+        logger.warn('CORS issue detected for campaigns, falling back to proxy...');
         try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
           const response = await fetch(`/.netlify/functions/user-data-proxy?table=email_campaigns&user_id=${queryUserId}`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
-              'Accept': 'application/json'
+              'Accept': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
             }
           });
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
           return await response.json();
         } catch {
-          console.log('Proxy also failed for campaigns, returning empty array...');
+          logger.warn('Proxy also failed for campaigns, returning empty array...');
           return []; // Return empty array as final fallback
         }
       }

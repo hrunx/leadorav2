@@ -119,7 +119,7 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
 export async function serperPlaces(q: string, country: string, limit = 10) {
   return retryWithBackoff(async () => withLimiter(async () => {
     const gl = glFromCountry(country);
-    console.log(`Serper Places query: "${q}" in ${country} (gl: ${gl})`);
+    if (process.env.NODE_ENV !== 'production') console.log(`Serper Places query: "${q}" in ${country} (gl: ${gl})`);
     const cacheKey = `serper:places:${gl}:${limit}:${q}`;
     const cached = await getCache(cacheKey);
     if (cached) return cached.slice(0, limit);
@@ -150,7 +150,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
             rating: null,
             city: country
           }));
-          console.log(`Google CSE fallback produced ${placesFromCse.length} place-like results.`);
+          if (process.env.NODE_ENV !== 'production') console.log(`Google CSE fallback produced ${placesFromCse.length} place-like results.`);
           return placesFromCse;
         }
         // If fallback failed, return empty array gracefully
@@ -201,7 +201,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     const cap = places.length <= 1 && limit >= 5 ? 8 : limit;
     places = places.slice(0, cap);
     
-    console.log(`Found ${places.length} places for query: "${q}" in ${country}`);
+    if (process.env.NODE_ENV !== 'production') console.log(`Found ${places.length} places for query: "${q}" in ${country}`);
     await setCache(cacheKey, 'serper', places);
     return places;
   }));
@@ -210,7 +210,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
 export async function serperSearch(q: string, country: string, limit = 5): Promise<{ success: boolean; items: { title: string; link: string; snippet: string }[]; error?: string; status?: number }> {
   return retryWithBackoff(async () => withLimiter(async () => {
     const gl = glFromCountry(country);
-    console.log(`Serper Search query: "${q}" in ${country} (gl: ${gl})`);
+    if (process.env.NODE_ENV !== 'production') console.log(`Serper Search query: "${q}" in ${country} (gl: ${gl})`);
     const cacheKey = `serper:search:${gl}:${limit}:${q}`;
     const cached = await getCache(cacheKey);
     if (cached) return { success: true, items: cached.slice(0, limit) };
@@ -242,7 +242,7 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
       title: x.title, link: x.link, snippet: x.snippet
     }));
 
-    console.log(`Found ${results.length} search results for query: "${q}" in ${country}`);
+    if (process.env.NODE_ENV !== 'production') console.log(`Found ${results.length} search results for query: "${q}" in ${country}`);
     await setCache(cacheKey, 'serper', results);
     return { success: true, items: results };
   }));
@@ -268,7 +268,7 @@ async function googleCseSearch(q: string, gl: string, limit: number): Promise<{ 
     }
     const j = await r.json();
     const items = (j.items || []).map((x: any) => ({ title: x.title, link: x.link, snippet: x.snippet || '' }));
-    console.log(`Google CSE returned ${items.length} results.`);
+    if (process.env.NODE_ENV !== 'production') console.log(`Google CSE returned ${items.length} results.`);
     return { success: true, items };
   } catch (e: any) {
     console.error('Google CSE fallback failed:', e.message);

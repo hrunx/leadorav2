@@ -1,3 +1,5 @@
+import { fetchWithTimeoutRetry } from './util';
+
 export interface ContactEnrichment {
   email?: string;
   phone?: string;
@@ -16,7 +18,7 @@ export async function fetchContactEnrichment(name: string, company: string): Pro
   }
   const url = `https://api.hunter.io/v2/email-finder?full_name=${encodeURIComponent(name)}&company=${encodeURIComponent(company)}&api_key=${apiKey}`;
   try {
-    const res = await fetchWithTimeout(url, { method: 'GET' }, 8000);
+    const res = await fetchWithTimeoutRetry(url, { method: 'GET' }, 8000, 2, 800);
     if (!res.ok) {
       throw new Error(`Hunter API error: ${res.status}`);
     }
@@ -33,21 +35,5 @@ export async function fetchContactEnrichment(name: string, company: string): Pro
   } catch (err) {
     console.error('Contact enrichment failed', err);
     return { source, verification: { status: 'error' } };
-  }
-}
-
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timer);
-    return res;
-  } catch {
-    clearTimeout(timer);
-    // simple retry once after short delay
-    await new Promise(r => setTimeout(r, 500));
-    const res = await fetch(url, { ...options });
-    return res;
   }
 }
