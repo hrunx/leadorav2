@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Search, Users, Building, ArrowRight, Globe, Package, Factory, Heart, Briefcase, Car, Home, Plane, ShoppingBag, Cpu, Zap, Plus, X } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';

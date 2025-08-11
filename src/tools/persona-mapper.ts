@@ -57,6 +57,10 @@ async function withLimiter<T>(fn: () => Promise<T>): Promise<T> {
   });
 }
 
+// ---- Throttling and de-duplication for mapping routines ----
+const mappingLocks = new Set<string>();
+const mappingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 async function scoreBusinessToPersonasLLM(business: BusinessRow, personas: BusinessPersonaRow[]): Promise<{ personaId: string; score: number } | null> {
   if (!personas || personas.length === 0) return null;
   const prompt = `You are matching a business to the most relevant business persona. Return ONLY JSON: {"best": {"persona_id": "...", "score": 0-100}}.
@@ -80,17 +84,21 @@ Rules:
   const model = resolveModel('light');
   return withLimiter(async () => {
     try {
-      let text = await callOpenAIChatJSON({ model, system: 'You output ONLY valid JSON.', user: prompt, temperature: 0.2, maxTokens: 500, requireJsonObject: true, verbosity: 'low' });
+      const text = await callOpenAIChatJSON({ model, system: 'You output ONLY valid JSON.', user: prompt, temperature: 0.2, maxTokens: 500, requireJsonObject: true, verbosity: 'low' });
       let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
       const best = obj?.best;
       if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
-    } catch {}
+    } catch (e: any) {
+      console.warn('scoreBusinessToPersonasLLM (openai) failed:', e?.message || e);
+    }
     try {
       const text = await callGeminiText('gemini-2.0-flash', prompt);
       let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
       const best = obj?.best;
       if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
-    } catch {}
+    } catch (e: any) {
+      console.warn('scoreBusinessToPersonasLLM (gemini) failed:', e?.message || e);
+    }
     return null;
   });
 }
@@ -119,13 +127,17 @@ Rules:
       let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
       const best = obj?.best;
       if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
-    } catch {}
+    } catch (e: any) {
+      console.warn('scoreDMToPersonasLLM (openai) failed:', e?.message || e);
+    }
     try {
       const text = await callGeminiText('gemini-2.0-flash', prompt);
       let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
       const best = obj?.best;
       if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
-    } catch {}
+    } catch (e: any) {
+      console.warn('scoreDMToPersonasLLM (gemini) failed:', e?.message || e);
+    }
     return null;
   });
 }
@@ -237,6 +249,11 @@ function calculatePersonaMatchScore(business: any, persona: any): number {
  */
 export async function mapBusinessesToPersonas(searchId: string, businessId?: string) {
   try {
+    if (mappingLocks.has(searchId)) {
+      // Prevent concurrent re-entrant mapping cycles for the same search
+      return;
+    }
+    mappingLocks.add(searchId);
     console.log(`Starting persona mapping for search ${searchId}`);
 
     // Ensure business personas exist before mapping
@@ -247,7 +264,13 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
       .limit(1);
     if (!personaCheck || personaCheck.length === 0) {
       console.log('Business personas not ready yet. Deferring mapping by 5s.');
-      setTimeout(() => { mapBusinessesToPersonas(searchId, businessId).catch(()=>{}); }, 5000);
+      if (!mappingTimers.has(searchId)) {
+        const t = setTimeout(() => {
+          mappingTimers.delete(searchId);
+          mapBusinessesToPersonas(searchId, businessId).catch(()=>{});
+        }, 5000);
+        mappingTimers.set(searchId, t);
+      }
       return;
     }
 
@@ -314,6 +337,9 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     console.error('Error mapping businesses to personas:', error);
     throw error;
   }
+  finally {
+    mappingLocks.delete(searchId);
+  }
 }
 
 /**
@@ -372,53 +398,30 @@ export async function intelligentPersonaMapping(searchId: string) {
       return await mapBusinessesToPersonas(searchId); // Fallback to simple mapping
     }
     
-    // For now, use enhanced round-robin with industry/size matching
-    // TODO: Integrate with AI for semantic matching
-    const updates = businesses.map((business) => {
-      // Find best matching persona based on characteristics
-      let bestPersona = personas[0]; // Default to first persona
-      let bestScore = 0;
-      
-      personas.forEach(persona => {
-        let score = 0;
-        
-        // Match based on demographics if available
-        if (persona.demographics) {
-          if (persona.demographics.industry === business.industry) score += 30;
-          if (persona.demographics.companySize && business.size.includes(persona.demographics.companySize.split('-')[0])) score += 20;
+    // AI-first semantic matching with deterministic fallback per business
+    const updates = businesses.map(async (business) => {
+      let bestId: string | null = null;
+      let scoreNum = 0;
+      try {
+        const ai = await scoreBusinessToPersonasLLM(business as any as BusinessRow, personas as any as BusinessPersonaRow[]);
+        if (ai && ai.personaId) {
+          bestId = ai.personaId;
+          scoreNum = ai.score || 80;
         }
-        
-        // Match based on characteristics 
-        if (persona.characteristics) {
-          // Use deterministic scoring based on actual characteristics matching
-          const businessDesc = business.description?.toLowerCase() || '';
-          const personaChars = JSON.stringify(persona.characteristics).toLowerCase();
-          
-          // Look for keyword overlaps between business and persona
-          const commonWords = ['technology', 'software', 'service', 'manufacturing', 'retail', 'healthcare', 'finance'];
-          let matchCount = 0;
-          
-          for (const word of commonWords) {
-            if (businessDesc.includes(word) && personaChars.includes(word)) {
-              matchCount++;
-            }
-          }
-          
-          score += matchCount * 2; // Add 2 points per matching characteristic
-        }
-        
-        if (score > bestScore) {
-          bestScore = score;
-          bestPersona = persona;
-        }
-      });
-      
+      } catch (e: any) {
+        console.warn('intelligentPersonaMapping AI step failed:', e?.message || e);
+      }
+      if (!bestId) {
+        const best = findBestMatchingPersona(business, personas);
+        bestId = best.id;
+        scoreNum = calculatePersonaMatchScore(business, best);
+      }
       return supa
         .from('businesses')
         .update({
-          persona_id: bestPersona.id,
-          persona_type: bestPersona.title,
-          match_score: Math.min(business.match_score + bestScore / 10, 100)
+          persona_id: bestId,
+          persona_type: (personas.find(p => p.id === bestId)?.title) || 'mapped',
+          match_score: Math.min(scoreNum, 100)
         })
         .eq('id', business.id);
     });

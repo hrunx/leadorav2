@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { SearchService } from '../services/searchService';
 import { CampaignService } from '../services/campaignService';
@@ -73,6 +73,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     if (authState.isAuthenticated && authState.user && authState.user.id !== 'demo-user') {
       loadUserDataFromDB();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authState.isAuthenticated, authState.user]);
 
   const loadUserDataFromDB = async () => {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Building, MapPin, Users, DollarSign, Star, ArrowRight, Filter, Target, Plus, ExternalLink } from 'lucide-react';
+import { Building, MapPin, Users, DollarSign, Star, ArrowRight, Filter, Target, ExternalLink } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
@@ -38,6 +38,8 @@ export default function BusinessResults() {
   // Real-time data hook for progressive loading
   const realTimeData = useRealTimeSearch(currentSearch?.id || null);
 
+  // Internal visualization status
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [discoveryStatus, setDiscoveryStatus] = useState<'discovering' | 'completed'>('discovering');
 
   // UI state
@@ -82,7 +84,8 @@ export default function BusinessResults() {
 
   const hasSearch = !!currentSearch;
   // Show loader only during discovery phase; otherwise show empty state
-  const isLoading = !isDemo && realTimeData.progress.phase === 'business_discovery' && businesses.length === 0;
+  // Treat 404/empty proxy responses as non-blocking: only show spinner on very first load
+  const isLoading = !isDemo && realTimeData.isLoading;
 
   useEffect(() => {
     const completed = businesses.length > 0 || realTimeData.progress.phase === 'completed';
@@ -352,7 +355,7 @@ export default function BusinessResults() {
       const searchAge = Date.now() - new Date(currentSearch.created_at).getTime();
       const isRecentSearch = searchAge < 10 * 60 * 1000; // 10 minutes
       
-      if (isRecentSearch) {
+       if (isRecentSearch) {
         // Show processing message for recent searches with no results yet
         return (
           <div className="flex items-center justify-center min-h-96">

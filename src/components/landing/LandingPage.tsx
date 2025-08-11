@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, Users, Building, TrendingUp, CheckCircle, Star, ArrowRight, Zap, Globe, Target, BarChart3, Mail, Shield, Clock, Award, Brain, Cpu, Database, ChevronRight } from 'lucide-react';
+import React from 'react';
+import { Search, Users, CheckCircle, Star, ArrowRight, Zap, Globe, Target, BarChart3, Mail, Shield, Clock, Award, Brain, ChevronRight } from 'lucide-react';
 
 interface LandingPageProps {
   onGetStarted: () => void;
@@ -130,7 +130,6 @@ const stats = [
 ];
 
 export default function LandingPage({ onGetStarted, onSignIn, onViewDemo }: LandingPageProps) {
-  const [selectedPlan, setSelectedPlan] = useState('Professional');
 
   return (
     <div className="min-h-screen bg-white">

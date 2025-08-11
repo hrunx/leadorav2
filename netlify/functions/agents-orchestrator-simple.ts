@@ -1,9 +1,6 @@
 import type { Handler } from '@netlify/functions';
-
-// Direct imports without the complex orchestration layer
-const { createClient } = require('@supabase/supabase-js');
-const OpenAI = require('openai');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+import { createClient } from '@supabase/supabase-js';
+// Removed unused AI client imports
 
 // Initialize clients directly in function
 const supa = createClient(
@@ -12,12 +9,7 @@ const supa = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
-const deepseek = new OpenAI({
-  baseURL: 'https://api.deepseek.com/v1',
-  apiKey: process.env.DEEPSEEK_API_KEY!,
-});
-
-const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+// Optional clients (remove entirely to avoid unused warnings)
 
 // Utility functions
 const updateSearchStatus = async (search_id: string, status: string) => {

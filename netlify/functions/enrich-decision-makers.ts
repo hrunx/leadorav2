@@ -73,7 +73,7 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
         response_format: { type: 'json_object' }
       });
       responseText = res.choices?.[0]?.message?.content || '';
-    } catch (e) {
+    } catch {
       const g = gemini.getGenerativeModel({ model: 'gemini-1.5-pro' });
       const result = await g.generateContent(prompt);
       responseText = result.response.text();

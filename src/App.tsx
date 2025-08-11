@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/dashboard/Dashboard';
 import SearchSelection from './components/modules/SearchSelection';
@@ -18,7 +18,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { UserDataProvider, useUserData } from './context/UserDataContext';
 import { AppProvider, useAppContext } from './context/AppContext';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser as isDemoUserUtil } from './constants/demo';
+import { isDemoUser as isDemoUserUtil } from './constants/demo';
 
 function AppContent() {
   const { state: authState, login } = useAuth();

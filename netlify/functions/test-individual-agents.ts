@@ -101,7 +101,7 @@ export const handler: Handler = async (event) => {
     if (test_type === 'exec-business-personas') {
       // Test just the exec function import and call
       try {
-        const { execBusinessPersonas } = await import('../../src/orchestration/exec-business-personas.js')
+        await import('../../src/orchestration/exec-business-personas.js')
           .catch(() => import('../../src/orchestration/exec-business-personas'));
         
         console.log('execBusinessPersonas imported successfully');
@@ -131,7 +131,7 @@ export const handler: Handler = async (event) => {
 
     if (test_type === 'exec-dm-personas') {
       try {
-        const { execDMPersonas } = await import('../../src/orchestration/exec-dm-personas.js')
+        await import('../../src/orchestration/exec-dm-personas.js')
           .catch(() => import('../../src/orchestration/exec-dm-personas'));
         console.log('execDMPersonas imported successfully');
         return { statusCode: 200, headers: cors, body: JSON.stringify({ success: true, test: 'exec-dm-personas', message: 'DM personas import OK' }) };
@@ -142,7 +142,7 @@ export const handler: Handler = async (event) => {
 
     if (test_type === 'exec-business-discovery') {
       try {
-        const { execBusinessDiscovery } = await import('../../src/orchestration/exec-business-discovery.js')
+        await import('../../src/orchestration/exec-business-discovery.js')
           .catch(() => import('../../src/orchestration/exec-business-discovery'));
         console.log('execBusinessDiscovery imported successfully');
         return { statusCode: 200, headers: cors, body: JSON.stringify({ success: true, test: 'exec-business-discovery', message: 'Business discovery import OK' }) };
@@ -153,7 +153,7 @@ export const handler: Handler = async (event) => {
 
     if (test_type === 'exec-market-research') {
       try {
-        const { execMarketResearchParallel } = await import('../../src/orchestration/exec-market-research-parallel.js')
+        await import('../../src/orchestration/exec-market-research-parallel.js')
           .catch(() => import('../../src/orchestration/exec-market-research-parallel'));
         console.log('execMarketResearchParallel imported successfully');
         return { statusCode: 200, headers: cors, body: JSON.stringify({ success: true, test: 'exec-market-research', message: 'Market research import OK' }) };

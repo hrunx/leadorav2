@@ -82,7 +82,7 @@ Use ONLY valid JSON. Use these sources when relevant (do not quote text, just us
     });
 
   } catch (error: any) {
-    console.error('Market research failed:', error.message);
+    console.error('Market research failed:', error?.message || String(error));
     
     // Log failed API usage (provider: openai)
     await logApiUsage({
@@ -92,11 +92,7 @@ Use ONLY valid JSON. Use these sources when relevant (do not quote text, just us
       endpoint: 'chat.completions',
       status: 500,
       ms: Date.now() - startTime,
-      request: { 
-        model: resolveModel('primary'),
-        product: searchData.product_service,
-        error: error.message
-      },
+      request: { model: resolveModel('primary'), product: searchData.product_service },
       response: { error: error.message }
     });
     
@@ -117,7 +113,7 @@ async function parseMarketAnalysis(analysis: string, _sources: any[]): Promise<a
       // If no JSON found, create structured data from the text analysis
       insights = await generateStructuredInsights(analysis);
     }
-  } catch (e) {
+  } catch {
     console.log('JSON parsing failed, generating structured insights from text');
     insights = await generateStructuredInsights(analysis);
   }

@@ -50,7 +50,7 @@ export class CampaignService {
           });
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
           return await response.json();
-        } catch (proxyError) {
+        } catch {
           console.log('Proxy also failed for campaigns, returning empty array...');
           return []; // Return empty array as final fallback
         }
@@ -114,7 +114,7 @@ export class CampaignService {
           });
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
           return await response.json();
-        } catch (proxyError) {
+        } catch {
           console.log('Proxy also failed for campaign_recipients, returning empty array...');
           return [];
         }

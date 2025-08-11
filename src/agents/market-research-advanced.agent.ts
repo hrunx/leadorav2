@@ -1,10 +1,10 @@
 // @ts-nocheck
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { serperSearch } from '../tools/serper';
-import { logApiUsage } from '../tools/db.write';
+// import { logApiUsage } from '../tools/db.write';
 import { glToCountryName } from '../tools/util';
 
-const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+  const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 // Tool for web search to gather market data
 const webSearchTool = {
@@ -87,7 +87,7 @@ const trendAnalysisTool = {
 
 // Real web search function using Serper
 async function performWebSearch(query: string, focus: string, countryCode: string): Promise<any[]> {
-  const startTime = Date.now();
+  // const startTime = Date.now();
   try {
     // Convert country code to proper country name for search query
     const countryName = glToCountryName(countryCode);

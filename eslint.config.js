@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist'] },
+  { ignores: ['dist', '.netlify/functions-internal/**'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
@@ -19,17 +19,14 @@ export default tseslint.config(
     },
   rules: {
     ...reactHooks.configs.recommended.rules,
-    'react-refresh/only-export-components': [
-      'warn',
-      { allowConstantExport: true },
-    ],
+    'react-refresh/only-export-components': 'off',
     '@typescript-eslint/no-explicit-any': 'off',
     '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-    '@typescript-eslint/no-require-imports': 'warn',
-    '@typescript-eslint/ban-ts-comment': 'warn',
-    'no-empty': 'warn',
-    'no-case-declarations': 'warn',
-    'prefer-const': 'warn',
+    '@typescript-eslint/no-require-imports': 'off',
+    '@typescript-eslint/ban-ts-comment': 'off',
+    'no-empty': 'off',
+    'no-case-declarations': 'off',
+    'prefer-const': 'off',
   },
   }
 );

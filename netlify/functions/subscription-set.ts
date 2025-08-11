@@ -31,8 +31,7 @@ export const handler: Handler = async (event) => {
       period_start, 
       period_end, 
       trial_end, 
-      meta,
-      seats = 1 
+      meta
     } = JSON.parse(event.body || '{}');
 
     if (!user_id || !provider || !plan || !status) {

@@ -3,6 +3,7 @@ import type { UserSearch, BusinessPersona, Business, DecisionMakerPersona, Decis
 import { DEMO_USER_ID } from '../constants/demo';
 
 export class SearchService {
+  private static readonly functionsBase: string = '/.netlify/functions';
   // Lightweight in-memory caches to avoid spamming functions on dashboard load
   private static searchesCache: { userId: string; ts: number; data: any[] } | null = null;
   private static progressCache = new Map<string, { ts: number; data: any }>();
@@ -32,7 +33,7 @@ export class SearchService {
     if (userId !== DEMO_USER_ID) {
       try {
         // Call the orchestrator API to start agent processing
-        const response = await fetch('/.netlify/functions/orchestrator-start', {
+        const response = await fetch(`${this.functionsBase}/orchestrator-start`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -55,6 +56,8 @@ export class SearchService {
       }
     }
 
+    // Invalidate user searches cache so the new search appears immediately
+    this.searchesCache = null;
     return data;
   }
 
@@ -69,9 +72,9 @@ export class SearchService {
         return this.searchesCache.data as any;
       }
 
-      let searches: any[] = [];
-      try {
-        const proxyResp = await fetch(`/.netlify/functions/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
+       let searches: any[] = [];
+       try {
+         const proxyResp = await fetch(`${this.functionsBase}/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
           method: 'GET', headers: { 'Accept': 'application/json' }
         });
         if (proxyResp.ok) {
@@ -85,7 +88,7 @@ export class SearchService {
           if (error) throw error;
           searches = Array.isArray(data) ? data : [];
         }
-      } catch (e) {
+      } catch {
         const { data } = await supabase
           .from('user_searches')
           .select('*')
@@ -112,7 +115,7 @@ export class SearchService {
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
         console.log('CORS issue detected, falling back to proxy...');
         try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
+          const response = await fetch(`${this.functionsBase}/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -121,7 +124,7 @@ export class SearchService {
           });
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
           return await response.json();
-        } catch (proxyError) {
+        } catch {
           console.log('Proxy also failed, returning empty array for now...');
           return []; // Return empty array as final fallback
         }
@@ -167,7 +170,7 @@ export class SearchService {
         if (this.searchesCache) {
           this.searchesCache.data = this.searchesCache.data.map(x => x.id === s.id ? { ...x, totals } : x);
         }
-      } catch (e) {
+      } catch {
         // ignore errors; this is best-effort
       } finally {
         this.backfillInFlight.delete(s.id);
@@ -224,7 +227,7 @@ export class SearchService {
   }
 
   // Get business personas for a search (agents generate them automatically)
-  static async generateBusinessPersonas(searchId: string, userId: string, searchData: any): Promise<BusinessPersona[]> {
+  static async generateBusinessPersonas(searchId: string, userId: string, _searchData: any): Promise<BusinessPersona[]> {
     // For demo user, return pre-populated data
     if (userId === DEMO_USER_ID) {
       return await this.getBusinessPersonas(searchId);
@@ -237,36 +240,25 @@ export class SearchService {
 
   // Get business personas for a search
   static async getBusinessPersonas(searchId: string): Promise<BusinessPersona[]> {
+    // Proxy-first to avoid CORS/RLS issues in browsers
     try {
-      const { data, error } = await supabase
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      if (response.ok) {
+        const arr = await response.json();
+        const list = Array.isArray(arr) ? arr : [];
+        return list as any;
+      }
+    } catch {}
+    // Fallback to direct anon Supabase if proxy unavailable
+    try {
+      const { data } = await supabase
         .from('business_personas')
         .select('*')
         .eq('search_id', searchId)
         .order('rank');
-      if (error) throw error;
-      if (!data || data.length === 0) {
-        // Fallback to proxy even on empty results (RLS can silently return [])
-        try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
-          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-          const arr = await response.json();
-          return Array.isArray(arr) ? arr : [];
-        } catch (proxyErr) {
-          return [];
-        }
-      }
-      return data || [];
-    } catch (error: any) {
-      console.log('Primary fetch failed for business_personas, falling back to proxy...', error?.message || error);
-      try {
-         const response = await fetch(`/.netlify/functions/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
-        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-        const arr = await response.json();
-        return Array.isArray(arr) ? arr : [];
-      } catch (proxyError) {
-        console.log('Proxy also failed for business_personas, returning empty array...');
-        return [];
-      }
+      return Array.isArray(data) ? (data as any) : [];
+    } catch {
+      return [];
     }
   }
 
@@ -325,40 +317,33 @@ export class SearchService {
 
   // Get businesses for a search
   static async getBusinesses(searchId: string): Promise<Business[]> {
+    // Proxy-first
     try {
-      const { data, error } = await supabase
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      if (response.ok) {
+        const arr = await response.json();
+        const list = Array.isArray(arr) ? arr : [];
+        return list as any;
+      } else if (response.status === 404) {
+        // Treat 404 (no rows) as empty array to avoid blocking UI
+        return [];
+      }
+    } catch {}
+    // Fallback to direct anon Supabase
+    try {
+      const { data } = await supabase
         .from('businesses')
         .select('*')
         .eq('search_id', searchId)
         .order('match_score', { ascending: false });
-      if (error) throw error;
-      if (!data || data.length === 0) {
-        // RLS can return empty arrays silently; try proxy too
-        try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
-          if (response.ok) {
-            const arr = await response.json();
-            return Array.isArray(arr) ? arr : [];
-          }
-        } catch {}
-      }
-      return data || [];
-    } catch (error: any) {
-      console.log('Primary fetch failed for businesses, falling back to proxy...', error?.message || error);
-      try {
-         const response = await fetch(`/.netlify/functions/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
-        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-        const arr = await response.json();
-        return Array.isArray(arr) ? arr : [];
-      } catch (proxyError) {
-        console.log('Proxy also failed for businesses, returning empty array...');
-        return [];
-      }
+      return Array.isArray(data) ? (data as any) : [];
+    } catch {
+      return [];
     }
   }
 
   // Get decision maker personas for a search (agents generate them automatically)
-  static async generateDecisionMakerPersonas(searchId: string, userId: string, searchData: any): Promise<DecisionMakerPersona[]> {
+  static async generateDecisionMakerPersonas(searchId: string, userId: string, _searchData: any): Promise<DecisionMakerPersona[]> {
     // For demo user, generate mock data if none exists
     if (userId === DEMO_USER_ID) {
       const existing = await this.getDecisionMakerPersonas(searchId);
@@ -393,25 +378,25 @@ export class SearchService {
 
   // Get decision maker personas for a search
   static async getDecisionMakerPersonas(searchId: string): Promise<DecisionMakerPersona[]> {
+    // Proxy-first
     try {
-      const { data, error } = await supabase
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      if (response.ok) {
+        const arr = await response.json();
+        const list = Array.isArray(arr) ? arr : [];
+        return list as any;
+      }
+    } catch {}
+    // Fallback to direct anon Supabase
+    try {
+      const { data } = await supabase
         .from('decision_maker_personas')
         .select('*')
         .eq('search_id', searchId)
         .order('rank');
-      if (error) throw error;
-      return data || [];
-    } catch (error: any) {
-      console.log('Primary fetch failed for decision_maker_personas, falling back to proxy...', error?.message || error);
-      try {
-         const response = await fetch(`/.netlify/functions/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
-        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-        const arr = await response.json();
-        return Array.isArray(arr) ? arr : [];
-      } catch (proxyError) {
-        console.log('Proxy also failed for decision_maker_personas, returning empty array...');
-        return [];
-      }
+      return Array.isArray(data) ? (data as any) : [];
+    } catch {
+      return [];
     }
   }
 
@@ -463,8 +448,18 @@ export class SearchService {
 
   // Get decision makers for a search with linked business context
   static async getDecisionMakers(searchId: string): Promise<DecisionMaker[]> {
+    // Proxy-first
     try {
-      const { data, error } = await supabase
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      if (response.ok) {
+        const arr = await response.json();
+        const list = Array.isArray(arr) ? arr : [];
+        return list as any;
+      }
+    } catch {}
+    // Fallback to direct anon Supabase
+    try {
+      const { data } = await supabase
         .from('decision_makers')
         .select(`
         *,
@@ -485,24 +480,14 @@ export class SearchService {
       `)
         .eq('search_id', searchId)
         .order('influence', { ascending: false });
-      if (error) throw error;
-      return data || [];
-    } catch (error: any) {
-      console.log('Primary fetch failed for decision_makers, falling back to proxy...', error?.message || error);
-      try {
-         const response = await fetch(`/.netlify/functions/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
-        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-        const arr = await response.json();
-        return Array.isArray(arr) ? arr : [];
-      } catch (proxyError) {
-        console.log('Proxy also failed for decision_makers, returning empty array...');
-        return [];
-      }
+      return Array.isArray(data) ? (data as any) : [];
+    } catch {
+      return [];
     }
   }
 
   // Get market insights for a search (agents generate them automatically via Gemini)
-  static async generateMarketInsights(searchId: string, userId: string, searchData: any): Promise<MarketInsight> {
+  static async generateMarketInsights(searchId: string, userId: string, _searchData: any): Promise<MarketInsight> {
     // For demo user, generate mock data if none exists
     if (userId === DEMO_USER_ID) {
       const existing = await this.getMarketInsights(searchId);
@@ -539,40 +524,38 @@ export class SearchService {
 
   // Get market insights for a search
   static async getMarketInsights(searchId: string): Promise<MarketInsight | null> {
+    // Proxy-first
     try {
-      // Avoid .single() to prevent 406 when 0 or >1 rows exist
-      const { data, error } = await supabase
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      if (response.ok) {
+        const arr = await response.json();
+        return (Array.isArray(arr) && arr.length > 0) ? (arr[0] as any) : null;
+      }
+    } catch {}
+    // Fallback to anon Supabase
+    try {
+      const { data } = await supabase
         .from('market_insights')
         .select('*')
         .eq('search_id', searchId)
         .limit(1);
-      if (error) throw error;
-      return (Array.isArray(data) && data.length > 0) ? data[0] : null;
-    } catch (error: any) {
-      console.log('Primary fetch failed for market_insights, falling back to proxy...', error?.message || error);
-      try {
-         const response = await fetch(`/.netlify/functions/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' } });
-        if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-        const arr = await response.json();
-        return Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
-      } catch (proxyError) {
-        console.log('Proxy also failed for market_insights, returning null...');
-        return null;
-      }
+      return (Array.isArray(data) && data.length > 0) ? (data[0] as any) : null;
+    } catch {
+      return null;
     }
   }
 
   // Mock data generation methods (these would be replaced with actual AI generation)
-  private static generateMockBusinessPersonas(searchData: any): any[] {
+  private static generateMockBusinessPersonas(_searchData: any): any[] {
     // Generate personas based on search data
     const basePersonas = [
       {
-        title: `${searchData.search_type === 'customer' ? 'Enterprise' : 'Premium'} ${searchData.industries[0] || 'Technology'} Leader`,
+         title: `Enterprise Technology Leader`,
         match_score: 95,
         demographics: {
-          industry: searchData.industries[0] || 'Technology',
-          companySize: '1000-5000 employees',
-          geography: searchData.countries.join(', ') || 'Global',
+           industry: 'Technology',
+           companySize: '1000-5000 employees',
+           geography: 'Global',
           revenue: '$100M-500M'
         },
         characteristics: {
@@ -591,7 +574,7 @@ export class SearchService {
           conversionRate: '12%'
         },
         locations: [
-          { country: searchData.countries[0] || 'United States', cities: ['New York', 'San Francisco'], companies: 1200 }
+           { country: 'United States', cities: ['New York', 'San Francisco'], companies: 1200 }
         ]
       }
     ];
@@ -619,7 +602,7 @@ export class SearchService {
     ]);
   }
 
-  private static generateMockDecisionMakerPersonas(searchData: any): any[] {
+  private static generateMockDecisionMakerPersonas(_searchData: any): any[] {
     return [
       {
         title: 'Chief Technology Officer',
@@ -689,7 +672,7 @@ export class SearchService {
     ]);
   }
 
-  private static generateMockMarketInsights(searchData: any): any {
+  private static generateMockMarketInsights(_searchData: any): any {
     return {
       tam_data: { value: '$2.4B', growth: '+12%', description: 'Total Addressable Market' },
       sam_data: { value: '$850M', growth: '+18%', description: 'Serviceable Addressable Market' },

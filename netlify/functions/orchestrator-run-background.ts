@@ -2,10 +2,12 @@ import { Handler } from '@netlify/functions';
 
 // small utilities here instead of deep import chains to avoid cold-start bloat
 import { createClient } from '@supabase/supabase-js';
-import OpenAI from 'openai';
+// Removed unused OpenAI import
 
-const supa = createClient(process.env.VITE_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const SUPABASE_URL_BG = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY_BG = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY!;
+const supa = createClient(SUPABASE_URL_BG, SUPABASE_SERVICE_ROLE_KEY_BG, { auth: { persistSession: false } });
+// Remove unused client instance to avoid warnings
 
 const sleep = (ms:number)=>new Promise(r=>setTimeout(r,ms));
 const withTimeout = <T>(p:Promise<T>, ms:number, label='op') =>

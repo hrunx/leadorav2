@@ -3,8 +3,27 @@ import { setDefaultOpenAIClient } from '@openai/agents';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+// Resolve envs with server-friendly fallbacks
+function getEnv(key: string): string | undefined {
+  const value = process.env[key];
+  if (typeof value === 'string' && value.trim() !== '') return value;
+  return undefined;
+}
+
+function requireOneOf(keys: string[]): string {
+  for (const k of keys) {
+    const v = getEnv(k);
+    if (v) return v;
+  }
+  throw new Error(`Missing required environment variables: one of ${keys.join(' or ')}`);
+}
+
 // Orchestration (OpenAI Mini for planning)
-ensureEnv(['OPENAI_API_KEY','VITE_SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','GEMINI_API_KEY','VITE_SUPABASE_ANON_KEY']);
+ensureEnv(['OPENAI_API_KEY','GEMINI_API_KEY']);
+// Validate DeepSeek API key if DeepSeek usage is enabled in code paths
+if (process.env.DEEPSEEK_API_KEY === undefined || String(process.env.DEEPSEEK_API_KEY).trim() === '') {
+  console.warn('DEEPSEEK_API_KEY is not set. DeepSeek calls will fail if invoked.');
+}
 export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 // Bridge type mismatch between openai and agents-openai by casting
 setDefaultOpenAIClient(openai as unknown as any);
@@ -15,22 +34,24 @@ export const deepseek = new OpenAI({
   baseURL: 'https://api.deepseek.com/v1',
 });
 
+const SUPABASE_URL = requireOneOf(['SUPABASE_URL','VITE_SUPABASE_URL']);
+const SUPABASE_SERVICE_ROLE_KEY = requireOneOf(['SUPABASE_SERVICE_ROLE_KEY','VITE_SUPABASE_SERVICE_ROLE_KEY']);
 export const supa = createClient(
-  process.env.VITE_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { 
-    auth: { 
-      autoRefreshToken: false, 
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+  {
+    auth: {
+      autoRefreshToken: false,
       persistSession: false,
-      storageKey: 'agents-auth' // Different storage key to avoid conflicts
-    } 
+      storageKey: 'agents-auth'
+    }
   }
 );
 
 export const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 function ensureEnv(keys: string[]) {
-  const missing = keys.filter(k => !process.env[k] || String(process.env[k]).trim() === '');
+  const missing = keys.filter(k => !getEnv(k));
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }

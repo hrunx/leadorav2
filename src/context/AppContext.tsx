@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, ReactNode } from 'react';
+import { createContext, useContext, useReducer, ReactNode } from 'react';
 import type { Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
 
 interface SearchData {

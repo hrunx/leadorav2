@@ -26,11 +26,11 @@ export const handler: Handler = async (event) => {
     console.log(`Starting orchestration debug for search ${search_id}, user ${user_id}`);
 
     // Test dynamic imports one by one
-    let importResults = {};
+    const importResults: Record<string, string> = {};
 
     try {
       console.log('Testing execBusinessPersonas import...');
-      const { execBusinessPersonas } = await import('../../src/orchestration/exec-business-personas.js').catch(() => import('../../src/orchestration/exec-business-personas'));
+      await import('../../src/orchestration/exec-business-personas.js').catch(() => import('../../src/orchestration/exec-business-personas'));
       importResults['execBusinessPersonas'] = 'success';
       console.log('✓ execBusinessPersonas imported successfully');
     } catch (e) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Search, Mail, Lock, Eye, EyeOff, User, Building, Briefcase, ArrowRight, Shield } from 'lucide-react';
 import { useOtpSignup } from '../../hooks/useOtpSignup';
 

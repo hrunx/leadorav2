@@ -151,18 +151,6 @@ OUTPUT JSON SCHEMA EXACTLY:
         }
       }
     text = (text || '').trim();
-    
-    // Log successful API usage to OpenAI
-    await logApiUsage({
-      user_id: search.user_id,
-      search_id: search.id,
-        provider: providerUsed,
-        endpoint: 'market_research',
-      status: 200,
-      ms: Date.now() - startTime,
-        request: { model: modelMini, sources_candidate_count: sources.length },
-        response: { text_length: text.length }
-    });
 
       // Try to extract JSON using utility; fallback to direct parse due to response_format
       let json: any = null;
@@ -173,7 +161,18 @@ OUTPUT JSON SCHEMA EXACTLY:
       }
       let data: any = {};
       if (!json) {
-        console.error(`[MarketResearch] Gemini returned empty or unparseable output for search ${search.id}. Inserting placeholder insights.`);
+        console.error(`[MarketResearch] Market research returned empty or unparseable output for search ${search.id}. Inserting placeholder insights.`);
+        // Log failure (no valid model output)
+        await logApiUsage({
+          user_id: search.user_id,
+          search_id: search.id,
+          provider: providerUsed,
+          endpoint: 'market_research',
+          status: 502,
+          ms: Date.now() - startTime,
+          request: { model: modelMini, sources_candidate_count: sources.length },
+          response: { error: 'empty_or_unparseable_output' }
+        });
         const placeholder = {
           search_id: search.id,
           user_id: search.user_id,
@@ -185,13 +184,25 @@ OUTPUT JSON SCHEMA EXACTLY:
           opportunities: {},
           sources: sources.map(s => s.url),
           analysis_summary: 'Market research failed: no data',
-          research_methodology: 'Gemini returned empty or unparseable output.'
+          research_methodology: 'Model returned empty or unparseable output.'
         };
         await insertMarketInsights(placeholder);
         await markSearchCompleted(search.id);
         return;
       }
       data = json;
+
+      // Log successful API usage after we confirm we have parsable JSON
+      await logApiUsage({
+        user_id: search.user_id,
+        search_id: search.id,
+        provider: providerUsed,
+        endpoint: 'market_research',
+        status: 200,
+        ms: Date.now() - startTime,
+        request: { model: modelMini, sources_candidate_count: sources.length },
+        response: { text_length: text.length }
+      });
 
       const row = {
         search_id: search.id,
@@ -216,7 +227,7 @@ OUTPUT JSON SCHEMA EXACTLY:
     await logApiUsage({
       user_id: search.user_id,
       search_id: search.id,
-      provider: 'openai',
+      provider: providerUsed,
       endpoint: 'market_research',
       status: 500,
       ms: Date.now() - startTime,

@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { User, Building, Mail, Phone, MapPin, Briefcase, Save, Edit, Camera, Shield, Bell, CreditCard, Crown, CheckCircle, Clock, Calendar, TrendingUp } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, Building, Save, Edit, Camera, Shield, CreditCard, Crown, CheckCircle, Clock } from 'lucide-react';
 import { useProfile } from '../../hooks/useProfile';
 import { useSubscription } from '../../hooks/useSubscription';
 import { useAuth } from '../../context/AuthContext';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
+import { DEMO_USER_ID, DEMO_USER_EMAIL } from '../../constants/demo';
 
 export default function ProfilePage() {
   const { state: authState } = useAuth();
@@ -14,15 +14,18 @@ export default function ProfilePage() {
     return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
   };
   
+  // Keep demo detection available for future; suppress unused warning
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
 
   // Only call hooks for real users to avoid auth errors
   const { profile, loading: profileLoading, error: profileError, updateProfile } = useProfile();
-  const { subscription, loading: subLoading, isActive, isTrialing, currentPlan, planLimits, trialDaysLeft, daysUntilExpiry } = useSubscription();
+  const { subscription, loading: subLoading, isActive, isTrialing, currentPlan, planLimits, trialDaysLeft } = useSubscription();
   
   const [activeTab, setActiveTab] = useState('profile');
 
   // Demo subscription data for demo users
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const demoSubscription = {
     id: 'demo-sub',
     user_id: 'demo-user',
@@ -45,10 +48,7 @@ export default function ProfilePage() {
     phone: '',
   });
 
-  // Use demo data for subscription if demo user
-  const currentSubscription = useMemo(() => {
-    return isDemo ? demoSubscription : subscription;
-  }, [isDemo, subscription]);
+  // Use demo data for subscription if demo user (kept for future UI usage)
 
   useEffect(() => {
     if (profile) {

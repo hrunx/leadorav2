@@ -6,14 +6,18 @@ const getSupabaseClient = () => {
   if (typeof window !== 'undefined') {
     throw new Error('db.write.ts must not be imported/used in the browser');
   }
+  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+  if (!SUPABASE_URL) throw new Error('supabaseUrl is required. Set SUPABASE_URL or VITE_SUPABASE_URL');
+  if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('supabaseKey is required. Set SUPABASE_SERVICE_ROLE_KEY or VITE_SUPABASE_SERVICE_ROLE_KEY');
   return createClient(
-    process.env.VITE_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { 
-      auth: { 
-        autoRefreshToken: false, 
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY,
+    {
+      auth: {
+        autoRefreshToken: false,
         persistSession: false
-      } 
+      }
     }
   );
 };
@@ -68,7 +72,30 @@ export const insertBusinessPersonas = async (rows: any[]) => {
 // Patch insertBusinesses to guarantee returned objects always include country and industry
 // Add a type/interface for the business row for type safety
 // If Supabase omits these fields, explicitly add them from the input rows before returning
-export const insertBusinesses = async (rows: any[]) => {
+// Stronger typing for business insert and return rows
+type BusinessInsertRow = {
+  search_id: string;
+  user_id: string;
+  name: string;
+  industry: string;
+  country: string;
+  address?: string;
+  city?: string;
+  phone?: string;
+  website?: string;
+  rating?: number | null;
+  size?: string;
+  revenue?: string;
+  description?: string;
+  match_score?: number;
+  persona_id?: string | null;
+  persona_type?: string;
+  relevant_departments?: string[];
+  key_products?: string[];
+  recent_activity?: string[];
+};
+
+export const insertBusinesses = async (rows: BusinessInsertRow[]) => {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('businesses').insert(rows).select('*');
   if (error) throw error; 
@@ -76,7 +103,16 @@ export const insertBusinesses = async (rows: any[]) => {
   if (search_id) {
     try { await updateSearchTotals(search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
   }
-  return data!;
+  // Ensure returned objects include mandatory fields promised by callers
+  const ensured = (data || []).map((ret, idx) => {
+    const src = rows[idx] || rows[0];
+    return {
+      ...ret,
+      country: ret.country ?? src.country,
+      industry: ret.industry ?? src.industry,
+    };
+  });
+  return ensured as typeof data;
 };
 
 export const insertDMPersonas = async (rows: any[]) => {

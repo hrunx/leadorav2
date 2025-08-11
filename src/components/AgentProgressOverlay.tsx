@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Search, Users, Building, UserCheck, TrendingUp, CheckCircle, Loader, AlertCircle } from 'lucide-react';
 
 interface AgentProgressOverlayProps {
@@ -52,7 +52,7 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
     { key: 'completed', label: 'Complete', icon: CheckCircle, color: 'text-emerald-500' }
   ];
 
-  const pollProgress = async () => {
+  const pollProgress = useCallback(async () => {
     try {
       const response = await fetch('/.netlify/functions/check-progress', {
         method: 'POST',
@@ -105,7 +105,7 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
     } catch (error) {
       console.error('Error polling progress:', error);
     }
-  };
+  }, [onEarlyNavigation, onComplete, firstDataSeen, hasNavigatedEarly, searchId]);
 
   useEffect(() => {
     if (isVisible && searchId) {
@@ -113,7 +113,7 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
       const interval = setInterval(pollProgress, 3000);
       return () => clearInterval(interval);
     }
-  }, [isVisible, searchId]);
+  }, [isVisible, searchId, pollProgress]);
 
   if (!isVisible) return null;
 
@@ -159,8 +159,8 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
             const Icon = phase.icon;
             const isCompleted = index < currentPhaseIndex;
             const isCurrent = index === currentPhaseIndex;
-            const isPending = index > currentPhaseIndex;
-            
+            // const isPending = index > currentPhaseIndex;
+
             return (
               <div key={phase.key} className={`flex items-center p-4 rounded-lg border-2 transition-all duration-300 ${
                 isCompleted ? 'bg-green-50 border-green-200' :
