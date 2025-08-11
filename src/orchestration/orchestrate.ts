@@ -82,9 +82,15 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
       }
     });
 
-    // Mark as completed
-    await updateSearchProgress(search_id, 100, 'completed', 'completed');
-    updateFn('PROGRESS', { phase: 'completed', progress: 100 });
+    // Mark as completed only if at least one task succeeded; otherwise mark failed
+    const anySuccess = results.some(r => r.status === 'fulfilled');
+    if (anySuccess) {
+      await updateSearchProgress(search_id, 100, 'completed', 'completed');
+      updateFn('PROGRESS', { phase: 'completed', progress: 100 });
+    } else {
+      await updateSearchProgress(search_id, 0, 'failed', 'failed');
+      updateFn('ERROR', { search_id, message: 'All parallel tasks failed' });
+    }
     
     console.log(`🎉 Optimized orchestration completed successfully for search ${search_id}`);
     return { success: true, search_id, results: results.map(r => r.status) };
@@ -94,7 +100,7 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
     
     // Update search status to reflect failure
     try {
-      await updateSearchProgress(search_id, 0, 'failed', 'completed');
+      await updateSearchProgress(search_id, 0, 'failed', 'failed');
       updateFn('ERROR', { search_id, message: (error?.message || String(error)) });
     } catch (updateError) {
       console.error('Failed to update search progress on error:', updateError);

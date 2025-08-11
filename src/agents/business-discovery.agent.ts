@@ -53,12 +53,8 @@ const serperPlacesTool = tool({
       return { places };
     } catch (error: any) {
       const endTime = Date.now();
-      // Parse error status code from error message
-      let status = 500;
-      if (error.message?.includes('404')) status = 404;
-      else if (error.message?.includes('401')) status = 401;
-      else if (error.message?.includes('403')) status = 403;
-      else if (error.message?.includes('429')) status = 429;
+      // Use structured status if available on the error; fallback to 500
+      const status = typeof error?.status === 'number' ? error.status : 500;
 
       // Log failed API usage with precise error details
       try {
@@ -76,7 +72,7 @@ const serperPlacesTool = tool({
         console.warn('Failed to log API usage:', logError);
       }
 
-      console.error(`Serper Places API Error (${status}):`, error.message);
+      console.error(`Serper Places API Error (${status}):`, error.message || error);
       throw error;
     }
   }

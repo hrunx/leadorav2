@@ -18,7 +18,8 @@ async function recordProgress(search_id: string) {
   const progress = dmProgress[search_id];
   if (!progress) return;
   progress.processed += 1;
-  const pct = Math.round((progress.processed / progress.total) * 100);
+  const denominator = progress.total || 1; // guard against zero to avoid NaN/Infinity
+  const pct = Math.round((progress.processed / denominator) * 100);
   await updateSearchProgress(search_id, pct, 'decision_makers');
   if (progress.processed >= progress.total) {
     delete dmProgress[search_id];
@@ -48,7 +49,7 @@ export async function triggerInstantDMDiscovery(
 
     // Process batch in parallel for speed
     const batchPromises = batch.map(async (business) => {
-      await processBusinessForDM(search_id, user_id, business);
+      await processBusinessForDM(search_id, user_id, business, searchData?.product_service);
     });
 
     // Wait for batch to complete before starting next batch
@@ -70,13 +71,14 @@ export async function triggerInstantDMDiscovery(
 export async function processBusinessForDM(
   search_id: string,
   user_id: string,
-  business: Business
+  business: Business,
+  product_service?: string
 ): Promise<boolean> {
   try {
     console.log(`⚡ Processing single business for instant DM discovery: ${business.name}`);
     
-    // Load search data to get product/service context
-    const searchData = await loadSearch(search_id);
+    // Avoid redundant DB lookups by accepting product_service from caller when available
+    const productService = product_service ?? (await loadSearch(search_id))?.product_service;
     
     await runDMDiscoveryForBusiness({
       search_id,
@@ -85,7 +87,7 @@ export async function processBusinessForDM(
       business_name: business.name,
       company_country: business.country,
       industry: business.industry,
-      product_service: searchData?.product_service
+      product_service: productService
     });
     await recordProgress(search_id);
     return true;

@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { Mail, Users, Building, Filter, Send, Eye, Edit, Trash2, Plus, Target, UserCheck, CheckCircle, Circle, Search, Calendar, BarChart3, Upload, Image, Paperclip, Monitor } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Mail, Users, Building, Filter, Send, Eye, Edit, Trash2, Plus, CheckCircle, Circle, Image, Paperclip, Monitor } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
-import { useDemoMode } from '../../hooks/useDemoMode';
+//
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
+import { DEMO_USER_ID, DEMO_USER_EMAIL } from '../../constants/demo';
 
 interface EmailTemplate {
   id: string;
@@ -42,9 +42,7 @@ export default function CampaignManagement() {
   const { getCurrentSearch } = useUserData();
   const { state: authState } = useAuth();
   // Simple demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
+  const isDemoUser = (userId?: string | null, userEmail?: string | null) => userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
   const [activeTab, setActiveTab] = useState('create');
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
   const [selectedBusinesses, setSelectedBusinesses] = useState<string[]>([]);
@@ -61,14 +59,15 @@ export default function CampaignManagement() {
   const [businesses, setBusinesses] = useState<any[]>([]);
   const [decisionMakers, setDecisionMakers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [hasSearch, setHasSearch] = useState(false);
 
   // Load data on component mount
   useEffect(() => {
     loadCampaignData();
-  }, []);
+  }, [loadCampaignData]);
 
-  const loadCampaignData = async () => {
+  const loadCampaignData = useCallback(async () => {
     setIsLoading(true);
     try {
       const currentSearch = getCurrentSearch();
@@ -120,7 +119,7 @@ export default function CampaignManagement() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [getCurrentSearch, authState.user]);
 
   const getStaticBusinesses = () => [
     { id: '1', name: 'TechCorp Solutions', persona: 'Enterprise Technology Leader', email: 'contact@techcorp.com' },

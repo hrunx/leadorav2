@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { X, ArrowRight, ArrowLeft } from 'lucide-react';
 
 interface OnboardingTourProps {

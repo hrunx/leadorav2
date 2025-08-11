@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Loader, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface BackgroundProgressBarProps {
@@ -36,7 +36,7 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({
     market_insights: 0
   });
 
-  const pollProgress = async () => {
+  const pollProgress = useCallback(async () => {
     try {
       const response = await fetch('/.netlify/functions/check-progress', {
         method: 'POST',
@@ -58,7 +58,7 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({
     } catch (error) {
       console.error('Error polling progress:', error);
     }
-  };
+  }, [onComplete, searchId]);
 
   useEffect(() => {
     if (isVisible && searchId) {
@@ -66,7 +66,7 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({
       const interval = setInterval(pollProgress, 5000);
       return () => clearInterval(interval);
     }
-  }, [isVisible, searchId]);
+  }, [isVisible, searchId, pollProgress]);
 
   if (!isVisible || !progress) return null;
 

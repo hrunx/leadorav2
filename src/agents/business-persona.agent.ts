@@ -184,7 +184,7 @@ CRITICAL: Call storeBusinessPersonas tool ONCE with complete data. Do not retry.
   model: resolveModel('primary')
 });
 
-// --- Helper: Validate persona realism ---
+  // --- Helper: Validate persona realism ---
 function isRealisticPersona(persona: Persona): boolean {
   // Check for non-empty, non-default, non-generic values in all required fields
   if (!persona) return false;
@@ -319,7 +319,7 @@ CRITICAL: Each persona must have:
       const arr = tryParsePersonas(text);
       const accepted = acceptPersonas(arr);
       if (accepted.length === 3) personas = accepted;
-    } catch (e) {}
+    } catch {}
     if (!personas.length) {
       // 2) Gemini fallback
       try {
@@ -327,7 +327,7 @@ CRITICAL: Each persona must have:
         const arr = tryParsePersonas(text);
         const accepted = acceptPersonas(arr);
         if (accepted.length === 3) personas = accepted;
-      } catch (e) {}
+      } catch {}
     }
     if (!personas.length) {
       // 3) DeepSeek fallback
@@ -336,7 +336,7 @@ CRITICAL: Each persona must have:
         const arr = tryParsePersonas(text);
         const accepted = acceptPersonas(arr);
         if (accepted.length === 3) personas = accepted;
-      } catch (e) {}
+      } catch {}
     }
 
     // If we got personas but titles are generic or duplicated, force a refinement pass with stricter instructions
@@ -359,6 +359,14 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
           personas = personas.map((p, i) => ({ ...p, title: String(newTitles[i]) }));
         }
       } catch {}
+    }
+
+    if (personas.length) {
+      // Validate realism before persisting to avoid low-quality data
+      const allRealistic = personas.every(p => isRealisticPersona(p));
+      if (!allRealistic) {
+        personas = [];
+      }
     }
 
     if (personas.length) {
@@ -430,7 +438,7 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       await insertBusinessPersonas(rows);
       await updateSearchProgress(search.id, 20, 'business_personas');
     }
-    await updateSearchProgress(search.id, 20, 'business_personas');
+    // Ensure we only update progress once at the end of the routine
     console.log(`Completed business persona generation for search ${search.id}`);
   } catch (error) {
     console.error(`Business persona generation failed for search ${search.id}:`, error);

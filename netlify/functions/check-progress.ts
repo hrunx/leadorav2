@@ -1,11 +1,13 @@
 import type { Handler } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supa = createClient(
-  process.env.VITE_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
+function getSupa(): SupabaseClient | null {
+  const url = process.env.VITE_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !serviceKey) return null;
+  return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+const supa = getSupa();
 
 // UUID validation regex
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,12 +59,25 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Get search progress
-    const { data: search, error: searchError } = await supa
-      .from('user_searches')
-      .select('phase, progress_pct, status, error, updated_at')
-      .eq('id', search_id)
-      .single();
+    // Get search progress (via Supabase if available, else via proxy)
+    let search: any = null;
+    let searchError: any = null;
+    if (supa) {
+      const { data, error } = await supa
+        .from('user_searches')
+        .select('phase, progress_pct, status, error, updated_at')
+        .eq('id', search_id)
+        .single();
+      search = data; searchError = error;
+    } else {
+      try {
+        const resp = await fetch(`${process.env.URL || 'http://localhost:8888'}/.netlify/functions/user-data-proxy?table=user_searches&search_id=${search_id}`, { headers: { Accept: 'application/json' } });
+        if (resp.ok) {
+          const arr = await resp.json();
+          search = Array.isArray(arr) && arr.length ? arr[0] : null;
+        }
+      } catch {}
+    }
 
     // Handle case where search doesn't exist (fallback/offline search)
     if (searchError) {
@@ -89,35 +104,69 @@ export const handler: Handler = async (event) => {
     }
 
     // Get recent API logs (with error handling)
-    const { data: logs } = await supa
-      .from('api_usage_logs')
-      .select('provider, endpoint, status, ms, created_at')
-      .eq('search_id', search_id)
-      .order('created_at', { ascending: false })
-      .limit(10);
+    let logs: any[] = [];
+    if (supa) {
+      const { data } = await supa
+        .from('api_usage_logs')
+        .select('provider, endpoint, status, ms, created_at')
+        .eq('search_id', search_id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      logs = data || [];
+    }
 
     // Get data counts (with error handling)
-    const [businessPersonas, businesses, dmPersonas, dms, dmsPending, dmsDone, marketInsights] = await Promise.all([
-      supa.from('business_personas').select('id').eq('search_id', search_id),
-      supa.from('businesses').select('id').eq('search_id', search_id),
-      supa.from('decision_maker_personas').select('id').eq('search_id', search_id),
-      supa.from('decision_makers').select('id').eq('search_id', search_id),
-      supa.from('decision_makers').select('id').eq('search_id', search_id).eq('enrichment_status', 'pending'),
-      supa.from('decision_makers').select('id').eq('search_id', search_id).eq('enrichment_status', 'done'),
-      supa.from('market_insights').select('id').eq('search_id', search_id)
-    ]);
+    async function countViaProxy(table: string, extra: string = ''): Promise<number> {
+      try {
+        const u = `${process.env.URL || 'http://localhost:8888'}/.netlify/functions/user-data-proxy?table=${table}&search_id=${search_id}${extra}`;
+        const r = await fetch(u, { headers: { Accept: 'application/json' } });
+        if (r.ok) {
+          const arr = await r.json();
+          return Array.isArray(arr) ? arr.length : 0;
+        }
+      } catch {}
+      return 0;
+    }
+
+    const [businessPersonasCount, businessesCount, dmPersonasCount, dmsCount, dmsPendingCount, dmsDoneCount, marketInsightsCount] = supa
+      ? await Promise.all([
+          supa.from('business_personas').select('id').eq('search_id', search_id),
+          supa.from('businesses').select('id').eq('search_id', search_id),
+          supa.from('decision_maker_personas').select('id').eq('search_id', search_id),
+          supa.from('decision_makers').select('id').eq('search_id', search_id),
+          supa.from('decision_makers').select('id').eq('search_id', search_id).eq('enrichment_status', 'pending'),
+          supa.from('decision_makers').select('id').eq('search_id', search_id).eq('enrichment_status', 'done'),
+          supa.from('market_insights').select('id').eq('search_id', search_id)
+        ]).then(([bp, biz, dmp, dm, dmpend, dmdone, mi]) => [
+          bp.data?.length || 0,
+          biz.data?.length || 0,
+          dmp.data?.length || 0,
+          dm.data?.length || 0,
+          dmpend.data?.length || 0,
+          dmdone.data?.length || 0,
+          mi.data?.length || 0,
+        ])
+      : await Promise.all([
+          countViaProxy('business_personas'),
+          countViaProxy('businesses'),
+          countViaProxy('decision_maker_personas'),
+          countViaProxy('decision_makers'),
+          countViaProxy('decision_makers', '&enrichment_status=eq.pending'),
+          countViaProxy('decision_makers', '&enrichment_status=eq.done'),
+          countViaProxy('market_insights'),
+        ]);
 
     const body = JSON.stringify({
         search_id,
         progress: search,
         data_counts: {
-          business_personas: businessPersonas.data?.length || 0,
-          businesses: businesses.data?.length || 0,
-          dm_personas: dmPersonas.data?.length || 0,
-          decision_makers: dms.data?.length || 0,
-          decision_makers_pending: dmsPending.data?.length || 0,
-          decision_makers_done: dmsDone.data?.length || 0,
-          market_insights: marketInsights.data?.length || 0
+          business_personas: businessPersonasCount,
+          businesses: businessesCount,
+          dm_personas: dmPersonasCount,
+          decision_makers: dmsCount,
+          decision_makers_pending: dmsPendingCount,
+          decision_makers_done: dmsDoneCount,
+          market_insights: marketInsightsCount
         },
         recent_api_calls: logs
       });

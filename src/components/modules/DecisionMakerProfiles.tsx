@@ -199,7 +199,7 @@ export default function DecisionMakerProfiles() {
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'insights' }));
   };
 
-  const rerunEnrichment = async (employee: DecisionMaker) => {
+  const rerunEnrichment = async (_employee: DecisionMaker) => {
     try {
       setEnriching(true);
       let enrichUrl = '/.netlify/functions/enrich-decision-makers';
@@ -259,7 +259,7 @@ export default function DecisionMakerProfiles() {
           <div className="space-y-4">
             <h2 className="text-xl font-semibold text-gray-900">Decision Maker Employees</h2>
             
-            {realTimeData.getDecisionMakersForPersona(selectedPersona?.id || '').map((employee: any) => (
+                {realTimeData.getDecisionMakersForPersona(selectedPersona?.id || '').map((employee: any) => (
               <div
                 key={employee.id}
                 onClick={() => setSelectedEmployee(employee)}
@@ -583,8 +583,8 @@ export default function DecisionMakerProfiles() {
                 {expandedPersonas.includes(persona.id) && (
                   <div className="px-6 pb-4 bg-gray-50">
                     <div className="space-y-3">
-                      {persona.employees.map((employee: any) => (
-                        <div key={employee.id} className="bg-white rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
+                      {persona.employees.map((employee: any, _idx: number) => (
+                        <div key={employee.id || `${persona.id}-${_idx}`} className="bg-white rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <h4 className="font-medium text-gray-900">{employee.name}</h4>

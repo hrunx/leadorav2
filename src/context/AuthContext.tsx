@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface User {
@@ -149,7 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return true;
       }
 
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
@@ -164,7 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (userData: RegisterData): Promise<boolean> => {
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email: userData.email,
         password: userData.password,
         options: {

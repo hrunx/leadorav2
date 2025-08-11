@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser, DEMO_USER_PROFILE } from '../constants/demo';
+import { isDemoUser, DEMO_USER_PROFILE } from '../constants/demo';
 
 export interface AppUser {
   id: string;

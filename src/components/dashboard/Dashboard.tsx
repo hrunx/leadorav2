@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Users, Building, Mail, TrendingUp, Calendar, ArrowRight, Plus, Eye, Play, BarChart3, Target, Globe, Zap } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Search, Users, Building, Mail, TrendingUp, ArrowRight, Plus, Eye, BarChart3, Target, Globe, Zap } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useUserData } from '../../context/UserDataContext';
 import { SearchService } from '../../services/searchService';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
+import { DEMO_USER_ID, DEMO_USER_EMAIL } from '../../constants/demo';
 
 interface DashboardProps {
   onStartNewSearch: () => void;
@@ -15,7 +15,6 @@ interface DashboardProps {
 export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCampaign }: DashboardProps) {
   const { state: authState } = useAuth();
   const { state: userData } = useUserData();
-  const [activeTab, setActiveTab] = useState('overview');
   const [realStats, setRealStats] = useState({
     totalLeads: 0,
     responseRate: 0,
@@ -33,13 +32,7 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
   
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
 
-  useEffect(() => {
-    if (!isDemo) {
-      calculateRealStats();
-    }
-  }, [userData, isDemo]);
-
-  const calculateRealStats = async () => {
+  const calculateRealStats = useCallback(async () => {
     // Leads = decision makers with linkedin or email or phone
     const totalLeads = await SearchService.countQualifiedLeads(authState.user?.id || '');
 
@@ -55,7 +48,13 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
     const responseRate = totalSent > 0 ? Math.round((totalResponses / totalSent) * 100) : 0;
 
     setRealStats({ totalLeads, responseRate, responseRateChange: 0 });
-  };
+  }, [authState.user?.id, userData.activeCampaigns]);
+
+  useEffect(() => {
+    if (!isDemo) {
+      calculateRealStats();
+    }
+  }, [userData, isDemo, calculateRealStats]);
 
   const getDemoStats = () => [
     {

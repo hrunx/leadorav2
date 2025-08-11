@@ -56,12 +56,12 @@ export function useRealTimeSearch(searchId: string | null) {
         marketInsights,
         { data: searchProgress }
       ] = await Promise.all([
-        SearchService.getBusinesses(searchId),
-        SearchService.getBusinessPersonas(searchId),
-        SearchService.getDecisionMakerPersonas(searchId),
-        SearchService.getDecisionMakers(searchId),
-        SearchService.getMarketInsights(searchId),
-        supabase.from('user_searches').select('phase, progress_pct').eq('id', searchId).single()
+        SearchService.getBusinesses(searchId).catch(() => []),
+        SearchService.getBusinessPersonas(searchId).catch(() => []),
+        SearchService.getDecisionMakerPersonas(searchId).catch(() => []),
+        SearchService.getDecisionMakers(searchId).catch(() => []),
+        SearchService.getMarketInsights(searchId).catch(() => null),
+        supabase.from('user_searches').select('phase, progress_pct').eq('id', searchId).single().catch(() => ({ data: { phase: 'business_discovery', progress_pct: 0 } }))
       ]);
 
       setData({
@@ -71,7 +71,7 @@ export function useRealTimeSearch(searchId: string | null) {
         decisionMakers: decisionMakers || [],
         marketInsights: marketInsights ? [marketInsights] : [],
         progress: {
-          phase: searchProgress?.phase || 'idle',
+          phase: searchProgress?.phase || 'business_discovery',
           progress_pct: searchProgress?.progress_pct || 0,
           businesses_count: (businesses || []).length,
           personas_count: (businessPersonas || []).length + (dmPersonas || []).length,

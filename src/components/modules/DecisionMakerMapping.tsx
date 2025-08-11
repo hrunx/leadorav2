@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Building, User, Crown, Shield, Users, Plus, Save, ArrowRight, Target, TrendingUp, Filter, UserCheck, Mail, Phone, Linkedin, MapPin, Calendar, Briefcase, Award, MessageSquare, Search } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Building, User, Crown, Shield, Users, Save, ArrowRight, Target, Filter, UserCheck, Mail, Phone, Linkedin, MapPin, Calendar, Briefcase, MessageSquare, Search } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
-import { useDemoMode } from '../../hooks/useDemoMode';
+//
 import { supabase } from '../../lib/supabase';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL, isDemoUser } from '../../constants/demo';
+import { DEMO_USER_ID, DEMO_USER_EMAIL } from '../../constants/demo';
 
-interface DecisionMaker {
+interface UIDecisionMaker {
   id: string;
   name: string;
   title: string;
@@ -48,10 +48,10 @@ interface DecisionMaker {
     name: string;
     industry: string;
     country: string;
-    city: string;
-    size: string;
-    revenue: string;
-    description: string;
+    city?: string;
+    size?: string;
+    revenue?: string;
+    description?: string;
     rating?: number;
     address?: string;
     phone?: string;
@@ -64,12 +64,10 @@ export default function DecisionMakerMapping() {
   const { getCurrentSearch } = useUserData();
   const { state: authState } = useAuth();
   // Simple demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
+  const isDemoUser = useCallback((userId?: string | null, userEmail?: string | null) => userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL, []);
   const [filterPersona, setFilterPersona] = useState('');
-  const [selectedEmployee, setSelectedEmployee] = useState<DecisionMaker | null>(null);
-  const [decisionMakers, setDecisionMakers] = useState<DecisionMaker[]>([]);
+  const [selectedEmployee, setSelectedEmployee] = useState<UIDecisionMaker | null>(null);
+  const [decisionMakers, setDecisionMakers] = useState<UIDecisionMaker[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasSearch, setHasSearch] = useState(false);
   const subscriptionRef = useRef<any>(null);
@@ -86,10 +84,7 @@ export default function DecisionMakerMapping() {
   }, [state.selectedDecisionMakerPersonas]);
   */
 
-  // Load data on component mount
-  useEffect(() => {
-    loadDecisionMakers();
-  }, [getCurrentSearch, authState.user]);
+  // Load data on component mount (declared after loadDecisionMakers below)
 
   // Setup realtime subscription for decision maker updates
   useEffect(() => {
@@ -135,7 +130,7 @@ export default function DecisionMakerMapping() {
           const newDM = payload.new as any;
           const enrichment = newDM.enrichment || {};
           
-          const transformedDM: DecisionMaker = {
+          const transformedDM: UIDecisionMaker = {
             id: newDM.id,
             name: newDM.name,
             title: newDM.title,
@@ -231,7 +226,7 @@ export default function DecisionMakerMapping() {
     };
   }, [getCurrentSearch, authState.user, isDemoUser]);
 
-  const loadDecisionMakers = async () => {
+  const loadDecisionMakers = useCallback(async () => {
     setIsLoading(true);
     try {
       const currentSearch = getCurrentSearch();
@@ -246,7 +241,7 @@ export default function DecisionMakerMapping() {
       } else {
         // Load real data from database using SearchService
         const dmData = await SearchService.getDecisionMakers(currentSearch.id);
-        const transformedData = dmData.map(dm => {
+        const transformedData: UIDecisionMaker[] = dmData.map((dm: any) => {
           // Handle enrichment data if available
           const enrichment = dm.enrichment || {};
           
@@ -298,9 +293,14 @@ export default function DecisionMakerMapping() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [getCurrentSearch, authState.user, isDemoUser]);
 
-  const getStaticDecisionMakers = (): DecisionMaker[] => [
+  // Load data on component mount (after loadDecisionMakers is declared)
+  useEffect(() => {
+    loadDecisionMakers();
+  }, [getCurrentSearch, authState.user, loadDecisionMakers]);
+
+  const getStaticDecisionMakers = (): UIDecisionMaker[] => [
     {
       id: '1',
       name: 'Sarah Johnson',
@@ -640,7 +640,7 @@ export default function DecisionMakerMapping() {
     return !filterPersona || dm.personaType === filterPersona;
   });
 
-  const calculateMatchScore = (decisionMaker: DecisionMaker): number => {
+  const calculateMatchScore = (decisionMaker: UIDecisionMaker): number => {
     // Calculate match based on level, influence, and pain points alignment
     const levelMatch = decisionMaker.level === 'executive' ? 100 : decisionMaker.level === 'director' ? 90 : 75;
     const influenceMatch = decisionMaker.influence;
@@ -661,21 +661,11 @@ export default function DecisionMakerMapping() {
     }
   };
 
-  const getLevelColor = (level: string) => {
-    switch (level) {
-      case 'executive':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'director':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'manager':
-        return 'bg-green-100 text-green-800 border-green-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
+  // removed unused getLevelColor
 
   const saveDecisionMakers = () => {
-    updateDecisionMakers(decisionMakers);
+    // Cast UI shape to backend DecisionMaker or adjust as needed; here we forward minimal fields
+    updateDecisionMakers(decisionMakers as any);
   };
 
   const handleProceedToInsights = () => {
@@ -785,9 +775,9 @@ export default function DecisionMakerMapping() {
         <div className="space-y-6">
           <h2 className="text-xl font-semibold text-gray-900">Decision Makers</h2>
           
-          {filteredDecisionMakers
-            .sort((a, b) => b.influence - a.influence)
-            .map((dm, index) => {
+            {filteredDecisionMakers
+              .sort((a, b) => b.influence - a.influence)
+              .map((dm) => {
               const matchScore = calculateMatchScore(dm);
               return (
               <div
@@ -860,9 +850,9 @@ export default function DecisionMakerMapping() {
                 </div>
                 
                 <div className="flex flex-wrap gap-2">
-                  {dm.painPoints.slice(0, 2).map((point, idx) => (
-                    <span
-                      key={idx}
+                    {dm.painPoints.slice(0, 2).map((point) => (
+                      <span
+                        key={`${dm.id}-${point}`}
                       className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full"
                     >
                       {point}

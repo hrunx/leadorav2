@@ -1,9 +1,11 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY!;
 const supa = createClient(
-  process.env.VITE_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
   { auth: { persistSession: false } }
 );
 
@@ -31,7 +33,7 @@ export const handler: Handler = async (event) => {
     // 1. Test Database Connection
     console.log('📊 Testing database connection...');
     try {
-      const { data, error } = await supa.from('app_users').select('id').limit(1);
+      const { error } = await supa.from('app_users').select('id').limit(1);
       if (!error) {
         testResults.database = true;
         console.log('✅ Database connection successful');
@@ -57,7 +59,7 @@ export const handler: Handler = async (event) => {
         progress_pct: 0
       };
 
-      const { data: search, error: searchError } = await supa
+       const { data: search, error: searchError } = await supa
         .from('user_searches')
         .insert(testSearch)
         .select('id')
@@ -69,7 +71,7 @@ export const handler: Handler = async (event) => {
         console.log('✅ Test search created:', search.id);
 
         // Test orchestrator start (fire-and-forget background)
-        const response = await fetch(`${process.env.URL}/.netlify/functions/orchestrator-start`, {
+        const response = await fetch(`${process.env.URL || 'http://localhost:8888'}/.netlify/functions/orchestrator-start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -79,9 +81,22 @@ export const handler: Handler = async (event) => {
         });
 
         if (response.ok) {
-          const result = await response.json();
-          console.log('✅ Orchestrator started successfully:', result);
-          testResults.orchestration = true;
+          // Poll for orchestrator progress/phase for up to 30 seconds
+          const deadline = Date.now() + 30000;
+          let progressed = false;
+          while (Date.now() < deadline) {
+            const { data: progressRow } = await supa
+              .from('user_searches')
+              .select('phase, progress_pct')
+              .eq('id', search.id)
+              .single();
+            if (progressRow && (progressRow.phase !== 'starting' || (progressRow.progress_pct ?? 0) > 0)) {
+              progressed = true;
+              break;
+            }
+            await new Promise(r => setTimeout(r, 1000));
+          }
+          testResults.orchestration = progressed;
         } else {
           console.log('❌ Orchestrator failed:', response.status);
         }
@@ -144,8 +159,8 @@ export const handler: Handler = async (event) => {
         'api_usage_logs'
       ];
 
-      for (const table of tables) {
-        const { data, error } = await supa.from(table).select('*').limit(1);
+       for (const table of tables) {
+        const { error } = await supa.from(table).select('*').limit(1);
         if (!error) {
           console.log(`✅ Table ${table} accessible`);
         } else {
@@ -160,18 +175,8 @@ export const handler: Handler = async (event) => {
     // 6. Test Individual Agents
     console.log('🧠 Testing individual agents...');
     try {
-      // Test market research function
-      const { executeAdvancedMarketResearch } = await import('../../src/agents/market-research-advanced.agent');
-      
-      const testData = {
-        product_service: 'AI-powered CRM software',
-        industries: ['Technology'],
-        countries: ['United States'],
-        search_id: 'test-123',
-        user_id: 'test-user'
-      };
-
       // This is just a connection test, not a full execution
+      await import('../../src/agents/market-research-advanced.agent');
       console.log('✅ Market research agent importable');
       testResults.agents = true;
     } catch (e: any) {

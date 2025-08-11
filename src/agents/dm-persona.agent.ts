@@ -167,6 +167,7 @@ CRITICAL: Call storeDMPersonas tool ONCE with complete data. Do not retry.`
 });
 
 // --- Helper: Validate DM persona realism ---
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function isRealisticDMPersona(persona: DMPersona): boolean {
   if (!persona) return false;
   const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim() && !['unknown', 'n/a', 'default', 'none'].includes(v.trim().toLowerCase());
@@ -280,14 +281,14 @@ CRITICAL: Each persona must have:
       });
       const accepted = acceptPersonas(tryParsePersonas(text));
       if (accepted.length === 3) personas = accepted;
-    } catch (e) {}
+    } catch {}
     if (!personas.length) {
       // 2) Gemini fallback
       try {
         const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
         const accepted = acceptPersonas(tryParsePersonas(text));
         if (accepted.length === 3) personas = accepted;
-      } catch (e) {}
+      } catch {}
     }
     if (!personas.length) {
       // 3) DeepSeek fallback
@@ -295,7 +296,7 @@ CRITICAL: Each persona must have:
         const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
         const accepted = acceptPersonas(tryParsePersonas(text));
         if (accepted.length === 3) personas = accepted;
-      } catch (e) {}
+      } catch {}
     }
     if (personas.length) {
       const rows = personas.slice(0, 3).map((p: DMPersona) => ({
