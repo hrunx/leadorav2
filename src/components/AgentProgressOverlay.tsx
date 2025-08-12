@@ -78,7 +78,16 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
             default: return rawPhase;
           }
         })();
-        setCurrentPhase(normalizedPhase);
+        // Derive a safe UI phase from data counts to avoid stale/misaligned labels
+        const derivedPhase = (() => {
+          if (data.data_counts.market_insights > 0) return 'market_research';
+          if (data.data_counts.decision_makers > 0) return 'decision_makers';
+          if (data.data_counts.businesses > 0) return 'business_discovery';
+          if (data.data_counts.dm_personas >= 3) return 'dm_personas';
+          if (data.data_counts.business_personas >= 3) return 'business_personas';
+          return normalizedPhase;
+        })();
+        setCurrentPhase(derivedPhase);
         // Auto-dismiss overlay when first rows are visible to switch user to live screens quickly
         const anyVisible = (data.data_counts.business_personas > 0 && data.data_counts.dm_personas > 0) || data.data_counts.businesses > 0;
         if (!firstDataSeen && !hasNavigatedEarly && anyVisible && onEarlyNavigation) {
@@ -127,17 +136,17 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
   const currentPhaseIndex = getCurrentPhaseIndex();
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full mx-4 animate-in fade-in duration-300">
+    <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 w-full max-w-xl sm:max-w-2xl max-h-[90vh] overflow-hidden animate-in fade-in duration-300">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Search className="w-8 h-8 text-white animate-pulse" />
+          <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Search className="w-6 h-6 sm:w-8 sm:h-8 text-white animate-pulse" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">AI Agents Working</h2>
-          <p className="text-gray-600">Our AI agents are analyzing your market and finding leads</p>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">AI Agents Working</h2>
+          <p className="text-sm sm:text-base text-gray-600">Our AI agents are analyzing your market and finding leads</p>
           {firstDataSeen && (
-            <p className="text-blue-600 text-sm mt-1">Live results are loading in the background…</p>
+            <p className="text-blue-600 text-xs sm:text-sm mt-1">Live results are loading in the background…</p>
           )}
         </div>
 
@@ -156,7 +165,7 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
         </div>
 
         {/* Phases */}
-        <div className="space-y-4 mb-8">
+        <div className="space-y-3 sm:space-y-4 mb-6 sm:mb-8 overflow-y-auto pr-1" style={{ maxHeight: '42vh' }}>
           {phases.map((phase, index) => {
             const Icon = phase.icon;
             const isCompleted = index < currentPhaseIndex;
@@ -164,27 +173,27 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
             // const isPending = index > currentPhaseIndex;
 
             return (
-              <div key={phase.key} className={`flex items-center p-4 rounded-lg border-2 transition-all duration-300 ${
+              <div key={phase.key} className={`flex items-center p-3 sm:p-4 rounded-lg border-2 transition-all duration-300 ${
                 isCompleted ? 'bg-green-50 border-green-200' :
                 isCurrent ? 'bg-blue-50 border-blue-200 shadow-md' :
                 'bg-gray-50 border-gray-200'
               }`}>
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center mr-4 ${
+                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center mr-3 sm:mr-4 ${
                   isCompleted ? 'bg-green-500 text-white' :
                   isCurrent ? 'bg-blue-500 text-white' :
                   'bg-gray-300 text-gray-500'
                 }`}>
                   {isCompleted ? (
-                    <CheckCircle className="w-5 h-5" />
+                    <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
                   ) : isCurrent ? (
-                    <Loader className="w-5 h-5 animate-spin" />
+                    <Loader className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                   ) : (
-                    <Icon className="w-5 h-5" />
+                    <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                   )}
                 </div>
                 
                 <div className="flex-1">
-                  <h3 className={`font-semibold ${
+                  <h3 className={`text-sm sm:text-base font-semibold ${
                     isCompleted ? 'text-green-700' :
                     isCurrent ? 'text-blue-700' :
                     'text-gray-500'
@@ -194,27 +203,27 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
                   
                   {/* Show data counts for relevant phases */}
                   {phase.key === 'business_personas' && dataCounts.business_personas > 0 && (
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="text-xs sm:text-sm text-gray-600 mt-1">
                       {dataCounts.business_personas} business personas
                     </p>
                   )}
                   {phase.key === 'dm_personas' && dataCounts.dm_personas > 0 && (
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="text-xs sm:text-sm text-gray-600 mt-1">
                       {dataCounts.dm_personas} decision maker personas
                     </p>
                   )}
                   {phase.key === 'business_discovery' && dataCounts.businesses > 0 && (
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="text-xs sm:text-sm text-gray-600 mt-1">
                       {dataCounts.businesses} businesses found
                     </p>
                   )}
                   {phase.key === 'decision_makers' && dataCounts.decision_makers > 0 && (
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="text-xs sm:text-sm text-gray-600 mt-1">
                       {dataCounts.decision_makers} decision makers mapped
                     </p>
                   )}
                   {phase.key === 'market_research' && dataCounts.market_insights > 0 && (
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="text-xs sm:text-sm text-gray-600 mt-1">
                       Market insights generated
                     </p>
                   )}
@@ -223,9 +232,9 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
                 {isCurrent && (
                   <div className="ml-4">
                     <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                     </div>
                   </div>
                 )}
@@ -247,7 +256,7 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
 
         {/* Footer */}
         <div className="text-center">
-          <p className="text-sm text-gray-500">
+          <p className="text-xs sm:text-sm text-gray-500">
             {currentPhase === 'completed' ? 
               'Analysis complete! Redirecting to results...' :
               currentPhase === 'failed' ?
