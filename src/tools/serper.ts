@@ -173,6 +173,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     // For KSA and some markets, addresses often omit country; allow items with empty address but strong ccTLD.
     const countryName = glToCountryName(gl).toLowerCase();
     const ccTld = `.${gl}`;
+    const preFilterCount = places.length;
     places = places.filter((pl: any) => {
       const addr = (pl.address || '').toLowerCase();
       const city = (pl.city || '').toLowerCase();
@@ -184,6 +185,18 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
       // Allow if either clear country signal or ccTLD. Keep US as relaxed.
       return hasCountrySignal || hasCcTld || gl === 'us';
     });
+    // If over-filtered (dropped most results), fallback to top N original unfiltered
+    if (places.length < Math.min(3, limit) && preFilterCount > places.length) {
+      const relaxed = (data.places || []).slice(0, Math.max(limit, 5)).map((p: any) => ({
+        name: p.title || 'Unknown Business',
+        address: p.address || '',
+        phone: p.phoneNumber || '',
+        website: p.website || '',
+        rating: p.rating || null,
+        city: (p.address?.split(',')?.[0] || country)
+      }));
+      places = relaxed.slice(0, Math.max(limit, 5));
+    }
     // After filtering, cap to requested limit, but if only 1 remains and we requested 5+, allow up to 8 to improve UX
     const cap = places.length <= 1 && limit >= 5 ? 8 : limit;
     places = places.slice(0, cap);

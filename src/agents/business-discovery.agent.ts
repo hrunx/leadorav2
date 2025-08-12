@@ -291,7 +291,46 @@ export async function runBusinessDiscovery(search: {
   logger.info('Starting business discovery', { search_id: search.id, industries, countries });
     
     await run(BusinessDiscoveryAgent, [{ role: 'user', content: msg }]);
-    
+    // Deterministic safety: if fewer than 3 businesses were inserted, run a lighter relaxed retry
+    try {
+      const { data: countData } = await (await import('./clients')).supa
+        .from('businesses')
+        .select('id', { count: 'exact', head: true } as any)
+        .eq('search_id', search.id);
+      const count = (countData as any)?.length ?? 0;
+      if (count < 3) {
+        const firstCountry = search.countries[0] || '';
+        const gl = countryToGL(firstCountry || countries);
+        const relaxedQuery = `${search.product_service} ${firstCountry || countries}`.trim();
+        const places = await (await import('../tools/serper')).serperPlaces(relaxedQuery, firstCountry || countries, 8).catch(() => []);
+        if (Array.isArray(places) && places.length) {
+          const rows = places.slice(0, 5).map((p: any) => buildBusinessData({
+            search_id: search.id,
+            user_id: search.user_id,
+            persona_id: null,
+            name: p.name,
+            industry: search.industries[0] || 'General',
+            country: firstCountry || countries,
+            address: p.address || '',
+            city: p.city || (p.address?.split(',')?.[0] || firstCountry || countries),
+            phone: p.phone || undefined,
+            website: p.website || undefined,
+            rating: p.rating ?? undefined,
+            size: 'Unknown',
+            revenue: 'Unknown',
+            description: 'Business discovered via relaxed search',
+            match_score: 75,
+            persona_type: 'business_candidate',
+            relevant_departments: [],
+            key_products: [],
+            recent_activity: []
+          }));
+          if (rows.length) {
+            await insertBusinesses(rows as any);
+          }
+        }
+      }
+    } catch {}
     await updateSearchProgress(search.id, 50, 'business_discovery');
   logger.info('Completed business discovery', { search_id: search.id });
   } catch (error) {

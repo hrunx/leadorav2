@@ -210,7 +210,7 @@ CRITICAL: Each persona must have:
     };
 
     const sanitizePersona = (p: any, index: number): DMPersona => ({
-      title: String(p?.title || `Decision Maker ${index+1}`),
+      title: String(p?.title || `${search.industries[0] || 'Industry'} ${['Executive','Director','Manager'][index] || 'Leader'}`),
       rank: typeof p?.rank === 'number' ? p.rank : index + 1,
       match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
       demographics: {

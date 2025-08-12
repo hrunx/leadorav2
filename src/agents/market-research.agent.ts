@@ -21,10 +21,10 @@ export async function runMarketResearch(search: {
     const industriesStr = (search.industries || []).join(' ');
     const baseQuery = `${search.product_service} ${industriesStr}`.trim();
     const queryTemplates = [
-      `${baseQuery} market size TAM SAM SOM 2024 2025 report`,
-      `${baseQuery} industry report competitors top players`,
-      `${baseQuery} growth rate CAGR by country regulation policy 2024`,
-      `${baseQuery} adoption trends demand forecast 2025`
+      `${baseQuery} market size report`,
+      `${baseQuery} competitors top players`,
+      `${baseQuery} growth rate CAGR`,
+      `${baseQuery} trends forecast`
     ];
     const webFindings = (
       await Promise.all(
@@ -45,7 +45,7 @@ export async function runMarketResearch(search: {
       if (!url || seen.has(url)) return false;
       seen.add(url);
       return true;
-    }).slice(0, 12);
+    }).slice(0, 8);
 
     const sourcesForPrompt = sources.map(s => `- ${s.title} (${s.url})`).join('\n');
 
