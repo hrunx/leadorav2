@@ -485,10 +485,10 @@ async function runDeterministicDMDiscovery(params: {
 }) {
   const { search_id, user_id, business_id, business_name, company_country, product_service } = params;
   const personas = await loadDMPersonas(search_id);
-  const titles = Array.isArray(personas)
-    ? personas.slice(0, 3).map((p: any) => String(p.title || '').trim()).filter(Boolean)
-    : [];
-  const baseTitles = titles.length ? titles : ['Head of', 'Director', 'VP'];
+      const titles = Array.isArray(personas)
+        ? personas.slice(0, 3).map((p: any) => String(p.title || '').trim()).filter(Boolean)
+        : [];
+      const baseTitles = titles.length ? titles : ['Head of', 'Director', 'VP'];
   const suffix = (product_service || '').trim();
   const queries = baseTitles.map(t => `"${business_name}" site:linkedin.com/in/ ${t}${suffix ? ` ${suffix}` : ''}`);
 
@@ -519,7 +519,34 @@ async function runDeterministicDMDiscovery(params: {
     await new Promise(r => setTimeout(r, 200));
   }
 
-  if (allEmployees.length === 0) return;
+  if (allEmployees.length === 0) {
+    // Secondary broadening: generic title + country queries to catch more profiles
+    const genericQueries = baseTitles.map(t => `site:linkedin.com/in/ ${t}${suffix ? ` ${suffix}` : ''} ${company_country}`);
+    for (const q of genericQueries) {
+      const r = await serperSearch(q, company_country, 10);
+      if (r && r.success && Array.isArray(r.items)) {
+        const emps = r.items
+          .filter((item: SerperItem) => item.link?.includes('linkedin.com/in/'))
+          .map((item: SerperItem): Employee => ({
+            name: extractNameFromLinkedInTitle(item.title || ''),
+            title: extractTitleFromLinkedInTitle(item.title || ''),
+            company: business_name,
+            linkedin: item.link!,
+            email: null,
+            phone: null,
+            bio: item.snippet || '',
+            location: company_country || 'Unknown',
+            enrichment_status: 'pending'
+          }));
+        for (const emp of emps) {
+          if (!existing.has(emp.linkedin)) allEmployees.push(emp);
+        }
+      }
+      await new Promise(r => setTimeout(r, 150));
+      if (allEmployees.length >= 5) break; // cap
+    }
+    if (allEmployees.length === 0) return;
+  }
   
   // If company-specific queries yielded nothing, broaden to generic title + country
   if (allEmployees.length === 0) {
