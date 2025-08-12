@@ -65,9 +65,9 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
       })
     ];
 
-    // Update progress to show parallel processing has started
-    await updateSearchProgress(search_id, 20, 'business_discovery', 'in_progress');
-    updateFn('PROGRESS', { phase: 'business_discovery', progress: 20 });
+    // Initialize only; do not force a specific phase to avoid racing agents
+    await updateSearchProgress(search_id, 20, 'starting', 'in_progress');
+    updateFn('PROGRESS', { phase: 'starting', progress: 20 });
 
     // Wait for all tasks to complete (or fail)
     logger.debug('Waiting for all parallel tasks to complete', { search_id });

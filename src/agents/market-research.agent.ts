@@ -162,8 +162,8 @@ OUTPUT JSON SCHEMA EXACTLY:
       }
       let data: any = {};
       if (!json) {
-        logger.error('[MarketResearch] Empty or unparseable output; inserting placeholder', { search_id: search.id });
-        // Log failure (no valid model output)
+        logger.error('[MarketResearch] Empty or unparseable output; aborting without placeholder', { search_id: search.id });
+        // Log failure and propagate; do not insert placeholders
         await logApiUsage({
           user_id: search.user_id,
           search_id: search.id,
@@ -174,22 +174,7 @@ OUTPUT JSON SCHEMA EXACTLY:
           request: { model: modelMini, sources_candidate_count: sources.length },
           response: { error: 'empty_or_unparseable_output' }
         });
-        const placeholder = {
-          search_id: search.id,
-          user_id: search.user_id,
-          tam_data: { value: 'N/A', growth: 'N/A', description: 'No data', calculation: 'No data' },
-          sam_data: { value: 'N/A', growth: 'N/A', description: 'No data', calculation: 'No data' },
-          som_data: { value: 'N/A', growth: 'N/A', description: 'No data', calculation: 'No data' },
-          competitor_data: [],
-          trends: [],
-          opportunities: {},
-          sources: sources.map(s => s.url),
-          analysis_summary: 'Market research failed: no data',
-          research_methodology: 'Model returned empty or unparseable output.'
-        };
-        await insertMarketInsights(placeholder);
-        await markSearchCompleted(search.id);
-        return;
+        throw new Error('Market research output unparseable');
       }
       data = json;
 
@@ -235,6 +220,7 @@ OUTPUT JSON SCHEMA EXACTLY:
       request: { model: modelMini },
       response: { error: error.message }
     });
+    // Propagate failure; the orchestrator will keep overall status consistent
     throw error;
   }
   } catch (error) {

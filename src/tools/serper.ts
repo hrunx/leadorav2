@@ -35,6 +35,7 @@ const supa = (process.env.VITE_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE
 
 // type CacheEntry = { response: any; ttl_at: string };
 const memCache = new Map<string, { value:any; ttl:number }>();
+const MAX_CACHE_ENTRIES = Number(process.env.SERPER_CACHE_MAX || 500);
 const now = () => Date.now();
 const DEFAULT_TTL_MS = Number(process.env.SERPER_CACHE_TTL_MS || 6*60*60*1000); // 6h
 
@@ -62,6 +63,11 @@ async function setCache(cache_key: string, source: 'serper', response: any, ttlM
   try {
     const expires = new Date(now() + ttlMs).toISOString();
     memCache.set(cache_key, { value: response, ttl: now() + ttlMs });
+    // Evict oldest when exceeding max entries
+    if (memCache.size > MAX_CACHE_ENTRIES) {
+      const oldestKey = Array.from(memCache.entries()).sort((a, b) => a[1].ttl - b[1].ttl)[0]?.[0];
+      if (oldestKey) memCache.delete(oldestKey);
+    }
     if (!supa) return;
     await supa.from('response_cache').insert({
       cache_key,
