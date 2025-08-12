@@ -4,6 +4,7 @@ import { resolveModel, supa as sharedSupa } from './clients';
 import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
 import { mapDMToPersona } from '../tools/util';
+import logger from '../lib/logger';
 import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
 
 interface Employee {
@@ -121,7 +122,7 @@ const linkedinSearchTool = tool({
 
           // No hard cap; accept as many as returned from the single search
         } catch (searchError) {
-          console.warn(`LinkedIn search failed for query: ${query}`, searchError);
+          logger.warn('LinkedIn search failed', { query, error: (searchError as any)?.message || searchError });
         }
       }
       
@@ -140,7 +141,7 @@ const linkedinSearchTool = tool({
           response: { employees_found: allEmployees.length }
         });
       } catch (logError) {
-        console.warn('Failed to log LinkedIn search usage:', logError);
+        logger.warn('Failed to log LinkedIn search usage', { error: (logError as any)?.message || logError });
       }
       
       // Remove duplicates based on LinkedIn URL
@@ -166,7 +167,7 @@ const linkedinSearchTool = tool({
           response: { error: (error as any)?.message || String(error) }
         });
       } catch (logError: any) {
-        console.warn('Failed to log LinkedIn search error:', logError);
+        logger.warn('Failed to log LinkedIn search error', { error: (logError as any)?.message || logError });
       }
       
       throw error;
@@ -308,7 +309,7 @@ const storeDMsTool = tool({
       throw new Error('One or more decision makers are missing required fields or contain placeholders.');
     }
 
-    console.log(`💼 Storing ${validRows.length} decision makers with smart persona mapping for business ${business_id}`);
+  logger.info('Storing decision makers with persona mapping', { count: validRows.length, business_id });
     const inserted = await insertDecisionMakersBasic(validRows);
 
     // Deduplicate and harden enrichment trigger in storeDMsTool: Only trigger enrichment once, always catch errors, and never block DM storage on enrichment. Add comments for clarity.
@@ -323,7 +324,7 @@ const storeDMsTool = tool({
       setTimeout(() => {
         waitForPersonas(search_id)
           .then(() => mapDecisionMakersToPersonas(search_id))
-          .catch(err => console.error('Deferred DM persona mapping failed:', err));
+          .catch(err => logger.warn('Deferred DM persona mapping failed', { error: (err as any)?.message || err }));
       }, 10000);
     }
 
@@ -334,10 +335,10 @@ const storeDMsTool = tool({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_id })
       }).catch(err => {
-        console.error('Failed to trigger enrichment:', err);
+        logger.warn('Failed to trigger enrichment', { error: (err as any)?.message || err });
       });
     } catch (err) {
-      console.error('Failed to trigger enrichment:', err);
+      logger.warn('Failed to trigger enrichment', { error: (err as any)?.message || err });
     }
 
     return inserted;
@@ -392,7 +393,7 @@ export async function runDMDiscoveryForBusiness(params: {
   // Wait less but proceed; mapping to DM personas will happen after persona generation completes
   const personas = await waitForPersonas(params.search_id, 20000, 2000); // 20s timeout
   if (personas.length === 0) {
-    console.warn(`⚠️ Proceeding with DM discovery for ${params.business_name} without personas (they may still be generating)`);
+  logger.warn('Proceeding with DM discovery without personas', { business_name: params.business_name });
   }
 
   const message = `Find LinkedIn employees for this company immediately:
@@ -417,7 +418,7 @@ Search LinkedIn for executives and decision makers who would be involved in purc
       // Post-run guard: if no DMs were inserted for this business, run deterministic fallback
       const dmCount = await countDMsForBusiness(params.search_id, params.business_id);
       if (dmCount === 0) {
-        console.warn(`No DMs stored by agent for business ${params.business_id}. Running deterministic fallback...`);
+        logger.warn('No DMs stored by agent; running deterministic fallback', { business_id: params.business_id });
         await runDeterministicDMDiscovery(params);
       }
       // Do not attempt persona mapping here; a separate mapping step will run after personas are generated
@@ -450,12 +451,12 @@ async function waitForPersonas(search_id: string, timeoutMs = 60000, delayMs = 2
   while (Date.now() - start < timeoutMs) {
     const personas = await loadDMPersonas(search_id);
     if (personas && personas.length > 0) {
-      console.log(`✅ Found ${personas.length} DM personas for search ${search_id}`);
+  logger.info('Found DM personas', { count: personas.length, search_id });
       return personas;
     }
     await new Promise(resolve => setTimeout(resolve, delayMs));
   }
-  console.warn(`⚠️ DM personas not ready for search ${search_id} after ${Math.round(timeoutMs / 1000)}s, proceeding anyway`);
+  logger.warn('DM personas not ready after timeout, proceeding', { search_id, timeout_s: Math.round(timeoutMs / 1000) });
   return [];
 }
 

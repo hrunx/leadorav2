@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import logger from '../lib/logger';
 import { supabase } from '../lib/supabase';
 import { isDemoUser as isDemoUserUtil } from '../constants/demo';
 
@@ -25,8 +26,8 @@ export function useDemoMode() {
           .single();
 
         setIsDemoMode(profile?.is_demo_user || false);
-      } catch (error) {
-        console.error('Error checking demo mode:', error);
+      } catch (error: any) {
+        logger.error('Error checking demo mode', { error: error?.message || String(error) });
         setIsDemoMode(false);
       } finally {
         setLoading(false);
@@ -49,8 +50,8 @@ export function useDemoMode() {
     try {
       await supabase.rpc('enter_demo_mode', { user_email: userEmail });
       setIsDemoMode(true);
-    } catch (error) {
-      console.error('Error entering demo mode:', error);
+    } catch (error: any) {
+      logger.error('Error entering demo mode', { error: error?.message || String(error) });
     }
   };
 
@@ -58,8 +59,8 @@ export function useDemoMode() {
     try {
       await supabase.rpc('exit_demo_mode', { user_email: userEmail });
       setIsDemoMode(false);
-    } catch (error) {
-      console.error('Error exiting demo mode:', error);
+    } catch (error: any) {
+      logger.error('Error exiting demo mode', { error: error?.message || String(error) });
     }
   };
 

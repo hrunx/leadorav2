@@ -180,11 +180,12 @@ export const handler: Handler = async (event) => {
       body: JSON.stringify(data || [])
     };
   } catch (error: any) {
-    console.error('Error fetching user data:', error);
+    const errMsg = String(error?.message || error);
+    const warnHeaders = { 'X-Proxy-Error': 'fetch_failed', 'X-Proxy-Error-Message': errMsg.slice(0, 200) };
     // Normalize network errors to empty response to avoid UI CORS noise
     return {
       statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Proxy-Error': 'fetch_failed' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', ...warnHeaders },
       body: JSON.stringify([])
     };
   }

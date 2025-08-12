@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import logger from '../lib/logger';
 import { randomUUID } from 'crypto';
 
 // Create a memoized client for Netlify functions/server usage only
@@ -67,7 +68,7 @@ export const insertBusinessPersonas = async (rows: any[]) => {
   if (error) throw error;
   const search_id = rows?.[0]?.search_id as string | undefined;
   if (search_id) {
-    try { await updateSearchTotals(search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
+    try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   }
   return data!;
 };
@@ -104,7 +105,7 @@ export const insertBusinesses = async (rows: BusinessInsertRow[]) => {
   if (error) throw error; 
   const search_id = rows?.[0]?.search_id as string | undefined;
   if (search_id) {
-    try { await updateSearchTotals(search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
+    try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   }
   // Ensure returned objects include mandatory fields promised by callers
   const ensured = (data || []).map((ret, idx) => {
@@ -124,7 +125,7 @@ export const insertDMPersonas = async (rows: any[]) => {
   if (error) throw error; 
   const search_id = rows?.[0]?.search_id as string | undefined;
   if (search_id) {
-    try { await updateSearchTotals(search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
+    try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   }
   return data!;
 };
@@ -145,7 +146,7 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
   if (error) throw error; 
   const search_id = basicRows?.[0]?.search_id as string | undefined;
   if (search_id) {
-    try { await updateSearchTotals(search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
+    try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   }
   return data!;
 };
@@ -168,7 +169,7 @@ export const insertMarketInsights = async (row: {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('market_insights').insert(row).select('id').single();
   if (error) throw error;
-  try { await updateSearchTotals(row.search_id); } catch (e) { console.warn('updateSearchTotals failed:', e); }
+  try { await updateSearchTotals(row.search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   return data!;
 };
 
@@ -291,16 +292,16 @@ export const logApiUsage = async (params: {
             request: params.request || {},
             response: params.response || {}
           });
-        } catch (e) {
-          console.error('Failed to log API usage after FK retry:', e);
+        } catch (e: any) {
+          logger.error('Failed to log API usage after FK retry', { error: e?.message || e });
         }
       } else {
-        console.error('Failed to log API usage:', error);
+        logger.error('Failed to log API usage', { error });
       }
       // Don't throw - API logging shouldn't break the main flow
     }
-  } catch (error) {
-    console.error('Failed to log API usage:', error);
+  } catch (error: any) {
+    logger.error('Failed to log API usage', { error: error?.message || error });
     // Don't throw - API logging shouldn't break the main flow
   }
 };

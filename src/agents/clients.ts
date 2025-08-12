@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import logger from '../lib/logger';
 import { setDefaultOpenAIClient } from '@openai/agents';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -19,10 +20,10 @@ function requireOneOf(keys: string[]): string {
 }
 
 // Orchestration (OpenAI Mini for planning)
-ensureEnv(['OPENAI_API_KEY','GEMINI_API_KEY']);
+ensureEnv(['OPENAI_API_KEY']); // Gemini no longer mandatory
 // Validate DeepSeek API key if DeepSeek usage is enabled in code paths
 if (process.env.DEEPSEEK_API_KEY === undefined || String(process.env.DEEPSEEK_API_KEY).trim() === '') {
-  console.warn('DEEPSEEK_API_KEY is not set. DeepSeek calls will fail if invoked.');
+  logger.warn('DEEPSEEK_API_KEY is not set. DeepSeek calls will fail if invoked.');
 }
 export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 // Bridge type mismatch between openai and agents-openai by casting
@@ -47,7 +48,9 @@ export const supa = createClient(
   }
 );
 
-export const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+export const gemini = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== '')
+  ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+  : new GoogleGenerativeAI(''); // Safe placeholder; callers should guard
 
 function ensureEnv(keys: string[]) {
   const missing = keys.filter(k => !getEnv(k));

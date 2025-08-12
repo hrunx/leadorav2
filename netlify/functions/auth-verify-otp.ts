@@ -1,4 +1,5 @@
 import { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
@@ -135,7 +136,7 @@ export const handler: Handler = async (event) => {
 
       if (createErr) throw createErr;
 
-      console.log(`User created via OTP signup: ${email}`);
+      logger.info('User created via OTP signup', { email });
       return { 
         statusCode: 200, 
         headers, 
@@ -144,7 +145,7 @@ export const handler: Handler = async (event) => {
     }
 
     // signin OTP success
-    console.log(`OTP signin verified for: ${email}`);
+    logger.info('OTP signin verified', { email });
     return { 
       statusCode: 200, 
       headers, 
@@ -152,7 +153,7 @@ export const handler: Handler = async (event) => {
     };
 
   } catch (e: any) {
-    console.error('OTP verification error:', e);
+    logger.error('OTP verification error', { error: e });
     return { 
       statusCode: 500, 
       headers, 

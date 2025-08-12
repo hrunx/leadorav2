@@ -98,40 +98,27 @@ function glFromCountry(country: string): string {
   return m.get(key) || 'us';
 }
 
-// Timeout utility for fetch requests
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 8000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    throw error;
-  }
-}
+import logger from '../lib/logger';
+import { fetchWithTimeoutRetry } from './util';
+
+// Deprecated inline timeout function removed; we use fetchWithTimeoutRetry exclusively
 
 export async function serperPlaces(q: string, country: string, limit = 10) {
   return retryWithBackoff(async () => withLimiter(async () => {
     const gl = glFromCountry(country);
-    if (process.env.NODE_ENV !== 'production') console.log(`Serper Places query: "${q}" in ${country} (gl: ${gl})`);
+    logger.debug('Serper Places query', { q, country, gl });
     const cacheKey = `serper:places:${gl}:${limit}:${q}`;
     const cached = await getCache(cacheKey);
     if (cached) return cached.slice(0, limit);
     
     // Validate SERPER_KEY early to avoid runtime crash messages
     requireEnv('SERPER_KEY');
-    const r = await fetchWithTimeout('https://google.serper.dev/places', {
+    const r = await fetchWithTimeoutRetry('https://google.serper.dev/places', {
       method: 'POST',
       headers: { 'X-API-KEY': process.env.SERPER_KEY!, 'Content-Type': 'application/json' },
       // request a bit more and trim after filtering
       body: JSON.stringify({ q, gl, num: Math.min(Math.max(limit, 10), 15) })
-    });
+    }, 10000, 1, 800);
     
     if (!r.ok) {
       const text = await r.text();
@@ -139,7 +126,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
       const isQuota = r.status === 400 && text && text.toLowerCase().includes('not enough credits');
       const isAuthRate = r.status === 401 || r.status === 403 || r.status === 429;
       if (isQuota || isAuthRate) {
-        console.warn(`Serper error ${r.status} for /places. Attempting Google CSE fallback. Query="${q}"`);
+        logger.warn('Serper /places error, attempting Google CSE fallback', { status: r.status, q });
         const fallback = await googleCseSearch(q, gl, Math.min(limit, 10));
         if (fallback.success && fallback.items.length > 0) {
           const placesFromCse = fallback.items.slice(0, limit).map((x: any) => ({
@@ -150,11 +137,11 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
             rating: null,
             city: country
           }));
-          if (process.env.NODE_ENV !== 'production') console.log(`Google CSE fallback produced ${placesFromCse.length} place-like results.`);
+          logger.debug('Google CSE fallback produced places', { count: placesFromCse.length });
           return placesFromCse;
         }
         // If fallback failed, return empty array gracefully
-        console.warn('Google CSE fallback returned no results for places.');
+        logger.warn('Google CSE fallback returned no results for places');
         return [];
       }
       throw new Error(`SERPER /places ${r.status}: ${text || 'no body'}`);
@@ -201,7 +188,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     const cap = places.length <= 1 && limit >= 5 ? 8 : limit;
     places = places.slice(0, cap);
     
-    if (process.env.NODE_ENV !== 'production') console.log(`Found ${places.length} places for query: "${q}" in ${country}`);
+    logger.debug('Serper Places results', { count: places.length, q, country });
     await setCache(cacheKey, 'serper', places);
     return places;
   }));
@@ -210,18 +197,18 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
 export async function serperSearch(q: string, country: string, limit = 5): Promise<{ success: boolean; items: { title: string; link: string; snippet: string }[]; error?: string; status?: number }> {
   return retryWithBackoff(async () => withLimiter(async () => {
     const gl = glFromCountry(country);
-    if (process.env.NODE_ENV !== 'production') console.log(`Serper Search query: "${q}" in ${country} (gl: ${gl})`);
+    logger.debug('Serper Search query', { q, country, gl });
     const cacheKey = `serper:search:${gl}:${limit}:${q}`;
     const cached = await getCache(cacheKey);
     if (cached) return { success: true, items: cached.slice(0, limit) };
 
     // Validate SERPER_KEY early to avoid runtime crash messages
     requireEnv('SERPER_KEY');
-    const r = await fetchWithTimeout('https://google.serper.dev/search', {
+    const r = await fetchWithTimeoutRetry('https://google.serper.dev/search', {
       method: 'POST',
       headers: { 'X-API-KEY': process.env.SERPER_KEY!, 'Content-Type': 'application/json' },
       body: JSON.stringify({ q, gl, num: Math.min(limit, 10) })
-    });
+    }, 10000, 1, 800);
 
     if (!r.ok) {
       const text = await r.text();
@@ -229,7 +216,7 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
       const isQuota = r.status === 400 && text && text.toLowerCase().includes('not enough credits');
       const isAuthRate = r.status === 401 || r.status === 403 || r.status === 429;
       if (isQuota || isAuthRate) {
-        console.warn(`Serper error ${r.status} for /search. Attempting Google CSE fallback. Query="${q}"`);
+        logger.warn('Serper /search error, attempting Google CSE fallback', { status: r.status, q });
         const fallback = await googleCseSearch(q, gl, Math.min(limit, 10));
         if (fallback.success) return fallback;
         return { success: false, items: [], error: isQuota ? 'serper_quota_exceeded' : `serper_error_${r.status}`, status: r.status };
@@ -242,7 +229,7 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
       title: x.title, link: x.link, snippet: x.snippet
     }));
 
-    if (process.env.NODE_ENV !== 'production') console.log(`Found ${results.length} search results for query: "${q}" in ${country}`);
+    logger.debug('Serper Search results', { count: results.length, q, country });
     await setCache(cacheKey, 'serper', results);
     return { success: true, items: results };
   }));
@@ -254,24 +241,24 @@ async function googleCseSearch(q: string, gl: string, limit: number): Promise<{ 
     const key = process.env.GOOGLE_CSE_KEY || process.env.GOOGLE_API_KEY;
     const cx = process.env.GOOGLE_CSE_CX || (process.env as any).Google_CSE_CX || process.env.GOOGLE_SEARCH_ENGINE_ID;
     if (!key || !cx) {
-      console.warn('Google CSE fallback unavailable: missing GOOGLE_CSE_KEY or GOOGLE_CSE_CX');
+      logger.warn('Google CSE fallback unavailable: missing GOOGLE_CSE_KEY or GOOGLE_CSE_CX');
       return { success: false, items: [], error: 'cse_missing_keys' };
     }
     const params = new URLSearchParams({ key, cx, q, num: String(Math.min(limit, 10)) });
     if (gl) params.append('gl', gl);
     const url = `https://www.googleapis.com/customsearch/v1?${params.toString()}`;
-    const r = await fetchWithTimeout(url, { method: 'GET' }, 10000);
+    const r = await fetchWithTimeoutRetry(url, { method: 'GET' }, 10000, 1, 800);
     if (!r.ok) {
       const text = await r.text();
-      console.warn(`Google CSE error ${r.status}: ${text}`);
+      logger.warn('Google CSE error', { status: r.status, text });
       return { success: false, items: [], error: `cse_error_${r.status}`, status: r.status };
     }
     const j = await r.json();
     const items = (j.items || []).map((x: any) => ({ title: x.title, link: x.link, snippet: x.snippet || '' }));
-    if (process.env.NODE_ENV !== 'production') console.log(`Google CSE returned ${items.length} results.`);
+    logger.debug('Google CSE returned results', { count: items.length });
     return { success: true, items };
   } catch (e: any) {
-    console.error('Google CSE fallback failed:', e.message);
+    logger.error('Google CSE fallback failed', { error: e.message });
     return { success: false, items: [], error: e.message };
   }
 }

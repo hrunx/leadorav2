@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 import { createClient } from '@supabase/supabase-js';
 // Removed unused AI client imports
 
@@ -51,7 +52,7 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    console.log(`Starting orchestration for search ${search_id}, user ${user_id}`);
+    logger.info('Starting orchestration (simple)', { search_id, user_id });
     
     // Check if search exists
     const search = await loadSearch(search_id);
@@ -68,10 +69,10 @@ export const handler: Handler = async (event) => {
 
     // For now, let's just simulate the process and mark as completed
     // This proves the function works before adding the complex agent logic
-    console.log('Search found:', search.product_service, search.industries, search.countries);
+    logger.debug('Search found', { product_service: search.product_service, industries: search.industries, countries: search.countries });
     
     // Simulate some work
-    console.log('Simulating agent work...');
+    logger.info('Simulating agent work...');
     
     // Mark as completed
     await updateSearchStatus(search_id, 'completed');
@@ -92,7 +93,7 @@ export const handler: Handler = async (event) => {
       })
     };
   } catch (error: any) {
-    console.error('Agent orchestration failed:', error);
+    logger.error('Agent orchestration failed', { error });
     
     // Update search status to failed
     try {
@@ -101,7 +102,7 @@ export const handler: Handler = async (event) => {
         await updateSearchStatus(search_id, 'in_progress'); // Keep as in_progress for now since schema only has 'in_progress' and 'completed'
       }
     } catch (updateError) {
-      console.error('Failed to update search status:', updateError);
+      logger.error('Failed to update search status', { error: updateError });
     }
     
     return {

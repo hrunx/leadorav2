@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 
 export const handler: Handler = async (event) => {
   const origin = event.headers.origin || event.headers.Origin || '';
@@ -11,8 +12,8 @@ export const handler: Handler = async (event) => {
   };
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   try {
-    console.log('Simple test function called');
-    console.log('Environment check:', {
+  logger.info('Simple test function called');
+  logger.debug('Environment check', {
       VITE_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL,
       SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       DEEPSEEK_API_KEY: !!process.env.DEEPSEEK_API_KEY,
@@ -30,7 +31,7 @@ export const handler: Handler = async (event) => {
       })
     };
   } catch (error: any) {
-    console.error('Simple test failed:', error);
+  logger.error('Simple test failed', { error });
     return {
       statusCode: 500,
       headers: cors,

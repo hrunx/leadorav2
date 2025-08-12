@@ -1,4 +1,5 @@
 import { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
@@ -88,7 +89,7 @@ export const handler: Handler = async (event) => {
 
     if (error) throw error;
 
-    console.log(`Subscription updated for user ${user_id}: ${plan} (${status})`);
+    logger.info('Subscription updated', { user_id, plan, status });
     return { 
       statusCode: 200, 
       headers, 
@@ -96,7 +97,7 @@ export const handler: Handler = async (event) => {
     };
 
   } catch (e: any) {
-    console.error('Subscription update error:', e);
+    logger.error('Subscription update error', { error: e });
     return { 
       statusCode: 500, 
       headers, 

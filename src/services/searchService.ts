@@ -7,6 +7,7 @@ export class SearchService {
   // Lightweight in-memory caches to avoid spamming functions on dashboard load, scoped per user
   private static searchesCacheByUser: Map<string, { ts: number; data: any[] }> = new Map();
   private static readonly TTL_MS = 5000; // 5s cache TTL for dashboard views
+  private static readonly MAX_CACHE_ENTRIES = 50;
   private static backfillInFlight = new Set<string>();
 
   // Create a new search and trigger agent orchestration
@@ -44,13 +45,13 @@ export class SearchService {
         });
 
         if (!response.ok) {
-          console.error('Failed to trigger agent orchestration:', response.status);
+          import('../lib/logger').then(({ default: logger }) => logger.warn('Failed to trigger agent orchestration', { status: response.status, search_id: data.id })).catch(()=>{});
         } else {
           const result = await response.json();
-          console.log(`Background agent orchestration started for search ${data.id}:`, result);
+          import('../lib/logger').then(({ default: logger }) => logger.info('Background agent orchestration started', { search_id: data.id, result })).catch(()=>{});
         }
       } catch (error) {
-        console.error('Error triggering agent orchestration:', error);
+        import('../lib/logger').then(({ default: logger }) => logger.error('Error triggering agent orchestration', { error: (error as any)?.message || error })).catch(()=>{});
         // Don't fail the search creation if orchestration fails
       }
     }
@@ -74,8 +75,10 @@ export class SearchService {
 
        let searches: any[] = [];
        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
           const proxyResp = await fetch(`${this.functionsBase}/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
-          method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit'
+          method: 'GET', headers: { 'Accept': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, credentials: 'omit'
         });
         if (proxyResp.ok) {
           searches = await proxyResp.json();
@@ -109,11 +112,17 @@ export class SearchService {
       void this.backfillMissingTotals(normalized);
 
       this.searchesCacheByUser.set(targetUserId, { ts: Date.now(), data: normalized });
+      // Evict oldest if cache grows too large
+      if (this.searchesCacheByUser.size > this.MAX_CACHE_ENTRIES) {
+        const oldestKey = Array.from(this.searchesCacheByUser.entries())
+          .sort((a, b) => a[1].ts - b[1].ts)[0]?.[0];
+        if (oldestKey) this.searchesCacheByUser.delete(oldestKey);
+      }
       return normalized as any;
     } catch (error: any) {
       // Fallback to proxy if direct Supabase call fails (CORS issues)
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
-        console.log('CORS issue detected, falling back to proxy...');
+        import('../lib/logger').then(({ default: logger }) => logger.warn('CORS issue detected, falling back to proxy...')).catch(()=>{});
         try {
           const response = await fetch(`${this.functionsBase}/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
             method: 'GET',
@@ -126,7 +135,7 @@ export class SearchService {
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
           return await response.json();
         } catch {
-          console.log('Proxy also failed, returning empty array for now...');
+          import('../lib/logger').then(({ default: logger }) => logger.warn('Proxy also failed for user searches; returning empty')).catch(()=>{});
           return []; // Return empty array as final fallback
         }
       }
@@ -189,7 +198,9 @@ export class SearchService {
     const queryUserId = (userId === 'demo-user' || !isUuid(userId)) ? DEMO_USER_ID : userId;
     const proxyUrl = `/.netlify/functions/user-data-proxy?table=decision_makers&user_id=${queryUserId}`;
     try {
-      const resp = await fetch(proxyUrl, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const resp = await fetch(proxyUrl, { method: 'GET', headers: { 'Accept': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, credentials: 'omit' });
       if (resp.ok) {
         const data = await resp.json();
         const arr = Array.isArray(data) ? data : [];
@@ -202,7 +213,7 @@ export class SearchService {
       }
       return 0;
     } catch (error) {
-      console.error('Failed counting qualified leads:', error);
+      import('../lib/logger').then(({ default: logger }) => logger.warn('Failed counting qualified leads', { error: (error as any)?.message || error })).catch(()=>{});
       return 0;
     }
   }
@@ -239,7 +250,13 @@ export class SearchService {
         const list = Array.isArray(arr) ? arr : [];
         return list as any;
       }
-    } catch {}
+    } catch (e) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('getBusinessPersonas proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
+      try {
+        const { data } = await supabase.from('business_personas').select('*').eq('search_id', searchId).order('rank');
+        return (Array.isArray(data) ? data : []) as any;
+      } catch {}
+    }
     return [];
   }
 
@@ -307,7 +324,13 @@ export class SearchService {
         return list as any;
       }
       return [];
-    } catch {}
+    } catch (e) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('getBusinesses proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
+      try {
+        const { data } = await supabase.from('businesses').select('*').eq('search_id', searchId).order('match_score', { ascending: false });
+        return (Array.isArray(data) ? data : []) as any;
+      } catch {}
+    }
     return [];
   }
 
@@ -355,7 +378,13 @@ export class SearchService {
         const list = Array.isArray(arr) ? arr : [];
         return list as any;
       }
-    } catch {}
+    } catch (e) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('getDecisionMakerPersonas proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
+      try {
+        const { data } = await supabase.from('decision_maker_personas').select('*').eq('search_id', searchId).order('rank');
+        return (Array.isArray(data) ? data : []) as any;
+      } catch {}
+    }
     return [];
   }
 
@@ -415,7 +444,13 @@ export class SearchService {
         const list = Array.isArray(arr) ? arr : [];
         return list as any;
       }
-    } catch {}
+    } catch (e) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('getDecisionMakers proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
+      try {
+        const { data } = await supabase.from('decision_makers').select('*').eq('search_id', searchId).order('influence', { ascending: false });
+        return (Array.isArray(data) ? data : []) as any;
+      } catch {}
+    }
     return [];
   }
 
@@ -464,14 +499,19 @@ export class SearchService {
         const arr = await response.json();
         return (Array.isArray(arr) && arr.length > 0) ? (arr[0] as any) : null;
       }
-    } catch {}
+    } catch (e) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('getMarketInsights proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
+      try {
+        const { data } = await supabase.from('market_insights').select('*').eq('search_id', searchId).limit(1).maybeSingle();
+        return (data as any) || null;
+      } catch {}
+    }
     return null;
   }
 
   // Mock data generation methods (these would be replaced with actual AI generation)
   // Note: _searchData retained intentionally for future tailoring; unused in current mocks
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  // Removed unused generateMockBusinessPersonas to silence lint warning
+  // Removed unused generateMockBusinessPersonas
 
   private static generateMockBusinesses(personas: BusinessPersona[]): any[] {
     return personas.flatMap(persona => [

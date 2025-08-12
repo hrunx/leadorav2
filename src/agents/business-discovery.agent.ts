@@ -1,5 +1,6 @@
 import { Agent, tool, run } from '@openai/agents';
 import { serperPlaces } from '../tools/serper';
+import logger from '../lib/logger';
 import { resolveModel } from './clients';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 
@@ -47,7 +48,7 @@ const serperPlacesTool = tool({
           response: { count: places.length, endTime }
         });
       } catch (logError) {
-        console.warn('Failed to log API usage:', logError);
+      logger.warn('Failed to log API usage', { error: (logError as any)?.message || logError });
       }
 
       return { places };
@@ -69,10 +70,10 @@ const serperPlacesTool = tool({
           response: { error: error.message, full_error: error.toString(), endTime }
         });
       } catch (logError) {
-        console.warn('Failed to log API usage:', logError);
+      logger.warn('Failed to log API usage', { error: (logError as any)?.message || logError });
       }
 
-      console.error(`Serper Places API Error (${status}):`, error.message || error);
+      logger.error('Serper Places API Error', { status, error: error.message || error });
       throw error;
     }
   }
@@ -150,12 +151,12 @@ const storeBusinessesTool = tool({
       key_products: b.key_products || [],
       recent_activity: b.recent_activity || []
     }));
-    console.log(`Inserting ${rows.length} businesses for search ${search_id}`);
+  logger.info('Inserting businesses', { count: rows.length, search_id });
     const insertedBusinesses = await insertBusinesses(rows);
     // Only increment the running DM discovery total with this batch if there are new businesses
     // Do not initialize here; we'll initialize within the batch trigger call to avoid double-counting
     // 🚀 PERSONA MAPPING (fire-and-forget)
-    void mapBusinessesToPersonas(search_id).catch(err => console.warn('Persona mapping failed:', err));
+  void mapBusinessesToPersonas(search_id).catch(err => logger.warn('Persona mapping failed', { error: err?.message || err }));
 
     // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately
     // Initialize progress once for all inserted businesses
@@ -180,7 +181,7 @@ const storeBusinessesTool = tool({
     // Fallback: trigger batch discovery only for businesses not processed individually
     const pendingBusinesses = insertedBusinesses.filter(b => !succeededIds.has(b.id));
     if (pendingBusinesses.length > 0) {
-      console.log(`🎯 (Fallback) Triggering instant DM discovery for ${pendingBusinesses.length} businesses`);
+      logger.debug('Triggering instant DM discovery (fallback)', { count: pendingBusinesses.length, search_id });
       await triggerInstantDMDiscovery(
         search_id,
         user_id,
@@ -264,7 +265,7 @@ export async function runBusinessDiscovery(search: {
     
     const countries = search.countries.join(', ');
     const industries = search.industries.join(', ');
-    console.log(`Processing business discovery with a single precise places query (max 10 results)`);
+  logger.debug('Processing business discovery with a single precise places query', { limit: 10 });
 
     // Build one precise discovery query from the first country to cap results to 10 places total
     const firstCountry = search.countries[0] || '';
@@ -287,14 +288,14 @@ export async function runBusinessDiscovery(search: {
  
  NOTE: If serperPlaces returns 0 places, relax the query slightly (remove industry words) and try once more, then store results immediately if found.`;
     
-    console.log(`Starting business discovery for search ${search.id} | Industries: ${industries} | Countries: ${countries}`);
+  logger.info('Starting business discovery', { search_id: search.id, industries, countries });
     
     await run(BusinessDiscoveryAgent, [{ role: 'user', content: msg }]);
     
     await updateSearchProgress(search.id, 50, 'business_discovery');
-    console.log(`Completed business discovery for search ${search.id}`);
+  logger.info('Completed business discovery', { search_id: search.id });
   } catch (error) {
-    console.error(`Business discovery failed for search ${search.id}:`, error);
+  logger.error('Business discovery failed', { search_id: search.id, error: (error as any)?.message || error });
     throw error;
   }
 }

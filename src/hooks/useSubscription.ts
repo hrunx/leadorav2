@@ -130,7 +130,7 @@ export function useSubscription() {
           setSubscription(data?.[0] ?? null);
         }
       } catch (e: any) {
-        console.error('Subscription loading error:', e);
+    import('../lib/logger').then(({ default: logger }) => logger.error('Subscription loading error', { error: (e as any)?.message || e })).catch(()=>{});
         if (mounted) {
           setError(e.message);
         }

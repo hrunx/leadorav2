@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 
 export const handler: Handler = async (event) => {
   const origin = event.headers.origin || event.headers.Origin || '';
@@ -13,7 +14,7 @@ export const handler: Handler = async (event) => {
   try {
     const { test_type } = JSON.parse(event.body || '{}');
     
-    console.log(`Testing individual agent: ${test_type}`);
+  logger.info('Testing individual agent', { test_type });
     
     if (test_type === 'serper-direct') {
       // Test Serper directly
@@ -104,7 +105,7 @@ export const handler: Handler = async (event) => {
         await import('../../src/orchestration/exec-business-personas.js')
           .catch(() => import('../../src/orchestration/exec-business-personas'));
         
-        console.log('execBusinessPersonas imported successfully');
+        logger.info('execBusinessPersonas imported successfully');
         
         // Import OK ← heavy execution skipped to avoid 30-s timeout in Netlify-CLI test runner
          return {
@@ -133,7 +134,7 @@ export const handler: Handler = async (event) => {
       try {
         await import('../../src/orchestration/exec-dm-personas.js')
           .catch(() => import('../../src/orchestration/exec-dm-personas'));
-        console.log('execDMPersonas imported successfully');
+        logger.info('execDMPersonas imported successfully');
         return { statusCode: 200, headers: cors, body: JSON.stringify({ success: true, test: 'exec-dm-personas', message: 'DM personas import OK' }) };
       } catch (error: any) {
         return { statusCode: 200, body: JSON.stringify({ success: false, test: 'exec-dm-personas', error: error.message, stack: error.stack }) };
@@ -144,7 +145,7 @@ export const handler: Handler = async (event) => {
       try {
         await import('../../src/orchestration/exec-business-discovery.js')
           .catch(() => import('../../src/orchestration/exec-business-discovery'));
-        console.log('execBusinessDiscovery imported successfully');
+        logger.info('execBusinessDiscovery imported successfully');
         return { statusCode: 200, headers: cors, body: JSON.stringify({ success: true, test: 'exec-business-discovery', message: 'Business discovery import OK' }) };
       } catch (error: any) {
         return { statusCode: 200, body: JSON.stringify({ success: false, test: 'exec-business-discovery', error: error.message, stack: error.stack }) };
@@ -155,7 +156,7 @@ export const handler: Handler = async (event) => {
       try {
         await import('../../src/orchestration/exec-market-research-parallel.js')
           .catch(() => import('../../src/orchestration/exec-market-research-parallel'));
-        console.log('execMarketResearchParallel imported successfully');
+        logger.info('execMarketResearchParallel imported successfully');
         return { statusCode: 200, headers: cors, body: JSON.stringify({ success: true, test: 'exec-market-research', message: 'Market research import OK' }) };
       } catch (error: any) {
         return { statusCode: 200, body: JSON.stringify({ success: false, test: 'exec-market-research', error: error.message, stack: error.stack }) };

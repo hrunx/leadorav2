@@ -384,11 +384,11 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       }));
       await insertBusinessPersonas(rows);
       await updateSearchProgress(search.id, 20, 'business_personas');
-      console.log(`Completed business persona generation for search ${search.id}`);
+      import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
       return;
     }
     if (!personas.length) {
-      console.error(`[BusinessPersona] All attempts failed for search ${search.id}. Inserting 3 deterministic fallback personas.`);
+      import('../lib/logger').then(({ default: logger }) => logger.error('[BusinessPersona] All attempts failed, inserting deterministic personas', { search_id: search.id })).catch(()=>{});
       const [industryA] = search.industries.length ? search.industries : ['General'];
       const [countryA] = search.countries.length ? search.countries : ['Global'];
       const fallback: Persona[] = [
@@ -439,9 +439,9 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       await updateSearchProgress(search.id, 20, 'business_personas');
     }
     // Ensure we only update progress once at the end of the routine
-    console.log(`Completed business persona generation for search ${search.id}`);
+    import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
   } catch (error) {
-    console.error(`Business persona generation failed for search ${search.id}:`, error);
+    import('../lib/logger').then(({ default: logger }) => logger.error('Business persona generation failed', { search_id: search.id, error: (error as any)?.message || error })).catch(()=>{});
     throw error;
   }
 }

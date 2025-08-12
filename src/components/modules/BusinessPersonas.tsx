@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import logger from '../../lib/logger';
 import { Target, Users, Building, ArrowRight, Star, TrendingUp, DollarSign, ChevronDown, ChevronUp, Eye, Search, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
@@ -156,10 +157,11 @@ export default function BusinessPersonas() {
   // Real-time progress logging
   useEffect(() => {
     if (!isDemo && currentSearch) {
-      console.log(`👥 Business Personas real-time data for ${currentSearch.id}:`, {
+      logger.debug('Business Personas real-time data', {
+        search_id: currentSearch.id,
         phase: realTimeData.progress.phase,
-        businessPersonas: realTimeData.businessPersonas.length,
-        isLoading: realTimeData.isLoading
+        business_personas: realTimeData.businessPersonas.length,
+        is_loading: realTimeData.isLoading
       });
     }
   }, [realTimeData, currentSearch, isDemo]);

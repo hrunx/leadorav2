@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 
 export const handler: Handler = async (event) => {
   const origin = event.headers.origin || event.headers.Origin || '';
@@ -23,30 +24,30 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    console.log(`Starting orchestration debug for search ${search_id}, user ${user_id}`);
+    logger.info('Starting orchestration debug', { search_id, user_id });
 
     // Test dynamic imports one by one
     const importResults: Record<string, string> = {};
 
     try {
-      console.log('Testing execBusinessPersonas import...');
+      logger.info('Testing execBusinessPersonas import...');
       await import('../../src/orchestration/exec-business-personas.js').catch(() => import('../../src/orchestration/exec-business-personas'));
       importResults['execBusinessPersonas'] = 'success';
-      console.log('✓ execBusinessPersonas imported successfully');
+      logger.info('✓ execBusinessPersonas imported successfully');
     } catch (e) {
       importResults['execBusinessPersonas'] = `error: ${e.message}`;
-      console.error('✗ execBusinessPersonas import failed:', e);
+      logger.error('✗ execBusinessPersonas import failed', { error: e });
     }
 
     try {
-      console.log('Testing updateSearchProgress import...');
+      logger.info('Testing updateSearchProgress import...');
       const { updateSearchProgress } = await import('../../src/tools/db.write.js').catch(() => import('../../src/tools/db.write'));
       importResults['updateSearchProgress'] = 'success';
       await updateSearchProgress?.(search_id, 5, 'debug_test');
-      console.log('✓ updateSearchProgress imported and called successfully');
+      logger.info('✓ updateSearchProgress imported and called successfully');
     } catch (e) {
       importResults['updateSearchProgress'] = `error: ${e.message}`;
-      console.error('✗ updateSearchProgress failed:', e);
+      logger.error('✗ updateSearchProgress failed', { error: e });
     }
 
     // Test environment variables
@@ -72,7 +73,7 @@ export const handler: Handler = async (event) => {
       })
     };
   } catch (err: any) {
-    console.error('Debug orchestration failed:', err);
+  logger.error('Debug orchestration failed', { error: err });
 
     return {
       statusCode: 500,

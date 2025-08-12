@@ -1,4 +1,5 @@
 import { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
+import logger from '../lib/logger';
 import { supabase } from '../lib/supabase';
 import { DEMO_USER_EMAIL } from '../constants/demo';
 
@@ -157,8 +158,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
       return true;
-    } catch (error) {
-      console.error('Login error:', error);
+    } catch (error: any) {
+      logger.error('Login error', { error: error?.message || String(error) });
       return false;
     }
   };
@@ -183,8 +184,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
       return true;
-    } catch (error) {
-      console.error('Registration error:', error);
+    } catch (error: any) {
+      logger.error('Registration error', { error: error?.message || String(error) });
       return false;
     }
   };
@@ -206,8 +207,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'UPDATE_PROFILE', payload: updatedUser });
       }
       return true;
-    } catch (error) {
-      console.error('Profile update error:', error);
+    } catch (error: any) {
+      logger.error('Profile update error', { error: error?.message || String(error) });
       return false;
     }
   };
