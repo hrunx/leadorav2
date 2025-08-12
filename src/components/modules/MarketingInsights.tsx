@@ -37,6 +37,7 @@ export default function MarketingInsights() {
     : (marketRow ? { tam: (marketRow as any).tam_data, sam: (marketRow as any).sam_data, som: (marketRow as any).som_data } : null);
 
   const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || !realTimeData.progress.market_insights_ready;
+  const hasError = !isDemo && (!isLoading) && !marketRow && realTimeData.progress.phase !== 'completed' && realTimeData.progress.phase !== 'idle';
   const hasSearch = isDemo ? !!demoMarketData : !!currentSearch;
   const [competitorData, setCompetitorData] = useState<any[]>([]);
   const [trends, setTrends] = useState<any[]>([]);
@@ -125,6 +126,25 @@ export default function MarketingInsights() {
           <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <h3 className="text-lg font-semibold text-gray-900">Generating market insights...</h3>
           <p className="text-gray-600">AI agents are analyzing market data and competitive intelligence</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="text-center max-w-md">
+          <BarChart3 className="w-24 h-24 text-red-300 mx-auto mb-6" />
+          <h3 className="text-2xl font-semibold text-gray-900 mb-2">Market Research Unavailable</h3>
+          <p className="text-gray-600 mb-6">We couldn't complete the market analysis. Please retry.</p>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('retryMarketResearch'))}
+            className="inline-flex items-center space-x-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            <span>Retry Market Research</span>
+            <ArrowRight className="w-5 h-5" />
+          </button>
         </div>
       </div>
     );
