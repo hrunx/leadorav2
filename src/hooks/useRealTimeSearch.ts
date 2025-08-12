@@ -69,9 +69,10 @@ export function useRealTimeSearch(searchId: string | null) {
             .select('phase, progress_pct')
             .eq('id', searchId)
             .single();
-          return error ? { phase: 'business_discovery', progress_pct: 0 } : (data as any);
+          if (error) return null as any;
+          return data as any;
         } catch {
-          return { phase: 'business_discovery', progress_pct: 0 } as any;
+          return null as any;
         }
       })();
 
@@ -98,8 +99,8 @@ export function useRealTimeSearch(searchId: string | null) {
         decisionMakers: decisionMakers || [],
         marketInsights: marketInsights ? [marketInsights] : [],
         progress: {
-          phase: searchProgress?.phase || 'business_discovery',
-          progress_pct: searchProgress?.progress_pct || 0,
+          phase: searchProgress?.phase || data.progress.phase,
+          progress_pct: (typeof searchProgress?.progress_pct === 'number' ? searchProgress.progress_pct : data.progress.progress_pct),
           businesses_count: (businesses || []).length,
           personas_count: (businessPersonas || []).length + (dmPersonas || []).length,
           decision_makers_count: (decisionMakers || []).length,

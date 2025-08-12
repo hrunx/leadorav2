@@ -214,11 +214,29 @@ export async function updateSearchProgress(
 ) {
   const normPhase = normalizePhase(phase);
   const supa = getSupabaseClient();
+  // Monotonic progress: never decrease percentage; do not regress phase order
+  const { data: current } = await supa
+    .from('user_searches')
+    .select('progress_pct, phase')
+    .eq('id', search_id)
+    .single();
+  let nextPct = progress_pct;
+  let nextPhase = normPhase;
+  if (current) {
+    nextPct = Math.max(Number(current.progress_pct || 0), progress_pct);
+    // Preserve later phase if already advanced
+    const order = ['starting','business_personas','dm_personas','business_discovery','decision_makers','market_research','completed','failed'];
+    const curIdx = order.indexOf(normalizePhase(current.phase || 'starting'));
+    const newIdx = order.indexOf(normPhase);
+    if (curIdx > -1 && newIdx > -1 && curIdx > newIdx) {
+      nextPhase = normalizePhase(current.phase || 'starting');
+    }
+  }
   const { error } = await supa
     .from('user_searches')
     .update({
-      progress_pct,
-      phase: normPhase,
+      progress_pct: nextPct,
+      phase: nextPhase,
       status, // status column is independent of check constraint
       updated_at: new Date().toISOString(),
     })
