@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
@@ -20,7 +21,7 @@ export const handler: Handler = async (event) => {
   };
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   try {
-    console.log('🧪 Starting comprehensive system test...');
+  logger.info('🧪 Starting comprehensive system test...');
     
     const testResults = {
       database: false,
@@ -31,21 +32,21 @@ export const handler: Handler = async (event) => {
     };
 
     // 1. Test Database Connection
-    console.log('📊 Testing database connection...');
+    logger.info('📊 Testing database connection...');
     try {
       const { error } = await supa.from('app_users').select('id').limit(1);
       if (!error) {
         testResults.database = true;
-        console.log('✅ Database connection successful');
+        logger.info('✅ Database connection successful');
       } else {
-        console.log('❌ Database error:', error.message);
+        logger.error('❌ Database error', { error: error.message });
       }
     } catch (e: any) {
-      console.log('❌ Database connection failed:', e.message);
+      logger.error('❌ Database connection failed', { error: e.message });
     }
 
     // 2. Test Agent Orchestration
-    console.log('🤖 Testing agent orchestration...');
+    logger.info('🤖 Testing agent orchestration...');
     try {
       // Create a test search
       const testSearch = {
@@ -66,9 +67,9 @@ export const handler: Handler = async (event) => {
         .single();
 
       if (searchError) {
-        console.log('❌ Search creation failed:', searchError.message);
+        logger.error('❌ Search creation failed', { error: searchError.message });
       } else {
-        console.log('✅ Test search created:', search.id);
+        logger.info('✅ Test search created', { search_id: search.id });
 
         // Test orchestrator start (fire-and-forget background)
         const response = await fetch(`${process.env.URL || 'http://localhost:8888'}/.netlify/functions/orchestrator-start`, {
@@ -98,15 +99,15 @@ export const handler: Handler = async (event) => {
           }
           testResults.orchestration = progressed;
         } else {
-          console.log('❌ Orchestrator failed:', response.status);
+          logger.error('❌ Orchestrator failed', { status: response.status });
         }
       }
     } catch (e: any) {
-      console.log('❌ Agent orchestration test failed:', e.message);
+      logger.error('❌ Agent orchestration test failed', { error: e.message });
     }
 
     // 3. Test API Endpoints
-    console.log('🔗 Testing API endpoints...');
+    logger.info('🔗 Testing API endpoints...');
     try {
        const endpoints = [
          '/.netlify/functions/check-progress',
@@ -118,17 +119,17 @@ export const handler: Handler = async (event) => {
         try {
           const response = await fetch(`${process.env.URL}${endpoint}`);
           if (response.ok) {
-            console.log(`✅ ${endpoint} working`);
+              logger.info(`✅ ${endpoint} working`);
           } else {
-            console.log(`❌ ${endpoint} failed:`, response.status);
+              logger.error(`❌ ${endpoint} failed`, { status: response.status });
           }
         } catch (e: any) {
-          console.log(`❌ ${endpoint} error:`, e.message);
+            logger.error(`❌ ${endpoint} error`, { error: e.message });
         }
       }
       testResults.api_endpoints = true;
     } catch (e: any) {
-      console.log('❌ API endpoint testing failed:', e.message);
+      logger.error('❌ API endpoint testing failed', { error: e.message });
     }
 
     // 4. Test Data Flow (poll until personas appear)
@@ -141,13 +142,13 @@ export const handler: Handler = async (event) => {
         if ((bp && bp.length) || (dmp && dmp.length)) { gotAny = true; break; }
         await new Promise(r => setTimeout(r, 1000));
       }
-      if (gotAny) console.log('✅ Personas started streaming'); else console.log('⚠️ Personas did not appear within timeout (still acceptable in CI)');
+      if (gotAny) logger.info('✅ Personas started streaming'); else logger.warn('⚠️ Personas did not appear within timeout (still acceptable in CI)');
     } catch (e:any) {
-      console.log('❌ Data flow polling failed:', e.message);
+      logger.error('❌ Data flow polling failed', { error: e.message });
     }
 
     // 5. Test Data Schema
-    console.log('📋 Testing data schema...');
+    logger.info('📋 Testing data schema...');
     try {
       const tables = [
         'user_searches',
@@ -162,25 +163,25 @@ export const handler: Handler = async (event) => {
        for (const table of tables) {
         const { error } = await supa.from(table).select('*').limit(1);
         if (!error) {
-          console.log(`✅ Table ${table} accessible`);
+            logger.info(`✅ Table ${table} accessible`);
         } else {
-          console.log(`❌ Table ${table} error:`, error.message);
+            logger.error(`❌ Table ${table} error`, { error: error.message });
         }
       }
       testResults.data_flow = true;
     } catch (e: any) {
-      console.log('❌ Schema testing failed:', e.message);
+      logger.error('❌ Schema testing failed', { error: e.message });
     }
 
     // 6. Test Individual Agents
-    console.log('🧠 Testing individual agents...');
+    logger.info('🧠 Testing individual agents...');
     try {
       // This is just a connection test, not a full execution
       await import('../../src/agents/market-research-advanced.agent');
-      console.log('✅ Market research agent importable');
+      logger.info('✅ Market research agent importable');
       testResults.agents = true;
     } catch (e: any) {
-      console.log('❌ Agent testing failed:', e.message);
+      logger.error('❌ Agent testing failed', { error: e.message });
     }
 
     // Generate Test Report
@@ -215,14 +216,14 @@ export const handler: Handler = async (event) => {
       (report.recommendations as string[]).push('Check database schema and permissions');
     }
 
-    console.log('📊 SYSTEM TEST COMPLETE');
-    console.log(`Status: ${report.status}`);
-    console.log(`Pass Rate: ${report.pass_rate}`);
+  logger.info('📊 SYSTEM TEST COMPLETE');
+  logger.info(`Status: ${report.status}`);
+  logger.info(`Pass Rate: ${report.pass_rate}`);
 
     return { statusCode: 200, headers: { 'Content-Type': 'application/json', ...cors }, body: JSON.stringify(report, null, 2) };
 
   } catch (error: any) {
-    console.error('🚨 System test failed:', error);
+  logger.error('🚨 System test failed', { error });
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'System test failed', message: error.message, timestamp: new Date().toISOString() }) };
   }
 };

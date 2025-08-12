@@ -16,8 +16,8 @@ export const supabase = createClient(
   supabaseAnonKey,
   {
     auth: {
-      persistSession: typeof window !== 'undefined',
-      autoRefreshToken: typeof window !== 'undefined',
+      persistSession: typeof window !== 'undefined' && import.meta.env.MODE !== 'development',
+      autoRefreshToken: typeof window !== 'undefined' && import.meta.env.MODE !== 'development',
       storage: typeof window !== 'undefined' ? window.localStorage : undefined
     },
     global: {

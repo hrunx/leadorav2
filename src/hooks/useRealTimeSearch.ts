@@ -109,8 +109,8 @@ export function useRealTimeSearch(searchId: string | null) {
       });
       hasLoadedOnceRef.current = true;
 
-    } catch (error) {
-      console.error('Error loading search data:', error);
+    } catch (error: any) {
+      logger.warn('Error loading search data', { error: error?.message || String(error) });
       setData(prev => ({ ...prev, isLoading: false }));
     }
   }, []);
@@ -189,7 +189,7 @@ export function useRealTimeSearch(searchId: string | null) {
         table: 'business_personas',
         filter: `search_id=eq.${searchId}`
       }, (payload) => {
-        if (process.env.NODE_ENV !== 'production') console.log('👥 Business persona update received:', payload);
+        logger.debug('👥 Business persona update received:', payload);
         
         if (payload.eventType === 'INSERT') {
           setData(prev => {

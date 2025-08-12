@@ -1,4 +1,5 @@
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
+import logger from '../lib/logger';
 import { insertMarketInsights, updateSearchProgress, markSearchCompleted, logApiUsage } from '../tools/db.write';
 import { extractJson } from '../tools/json';
 import { serperSearch } from '../tools/serper';
@@ -13,7 +14,7 @@ export async function runMarketResearch(search: {
 }) {
   try {
     await updateSearchProgress(search.id, 90, 'market_research', 'in_progress');
-    console.log(`Starting market research for search ${search.id}`);
+    logger.info('Starting market research', { search_id: search.id });
     
     // Prefetch strong external sources per country and industry to ground the analysis
     const countries = (search.countries || []).slice(0, 3);
@@ -130,7 +131,7 @@ OUTPUT JSON SCHEMA EXACTLY:
         });
         providerUsed = 'openai';
       } catch (e) {
-        console.warn('[MarketResearch] gpt-5-mini failed:', (e as any).message);
+        logger.warn('[MarketResearch] gpt-5-mini failed', { error: (e as any)?.message });
       }
       // 2) Gemini 2.0 Flash
       if (!text) {
@@ -138,7 +139,7 @@ OUTPUT JSON SCHEMA EXACTLY:
           text = await callGeminiText('gemini-2.0-flash', prompt);
           providerUsed = 'gemini';
         } catch (e) {
-          console.warn('[MarketResearch] gemini-2.0-flash failed:', (e as any).message);
+          logger.warn('[MarketResearch] gemini-2.0-flash failed', { error: (e as any)?.message });
         }
       }
       // 3) DeepSeek
@@ -147,7 +148,7 @@ OUTPUT JSON SCHEMA EXACTLY:
           text = await callDeepseekChatJSON({ user: prompt, temperature: 0.4, maxTokens: 3500 });
           providerUsed = 'deepseek';
         } catch (e) {
-          console.warn('[MarketResearch] deepseek failed:', (e as any).message);
+          logger.warn('[MarketResearch] deepseek failed', { error: (e as any)?.message });
         }
       }
     text = (text || '').trim();
@@ -161,7 +162,7 @@ OUTPUT JSON SCHEMA EXACTLY:
       }
       let data: any = {};
       if (!json) {
-        console.error(`[MarketResearch] Market research returned empty or unparseable output for search ${search.id}. Inserting placeholder insights.`);
+        logger.error('[MarketResearch] Empty or unparseable output; inserting placeholder', { search_id: search.id });
         // Log failure (no valid model output)
         await logApiUsage({
           user_id: search.user_id,
@@ -220,7 +221,7 @@ OUTPUT JSON SCHEMA EXACTLY:
 
     await insertMarketInsights(row);
     await markSearchCompleted(search.id);
-    console.log(`Completed market research for search ${search.id}`);
+    logger.info('Completed market research', { search_id: search.id });
     
   } catch (error: any) {
     // Log failed API usage
@@ -237,7 +238,7 @@ OUTPUT JSON SCHEMA EXACTLY:
     throw error;
   }
   } catch (error) {
-    console.error(`Market research failed for search ${search.id}:`, error);
+    logger.error('Market research failed', { search_id: search.id, error: (error as any)?.message || error });
     throw error;
   }
 }

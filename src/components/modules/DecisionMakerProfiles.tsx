@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import logger from '../../lib/logger';
 import { User, Crown, Shield, Users, Mail, Phone, Linkedin, ArrowRight, Building, Eye, X, Target, TrendingUp, Plus, RefreshCw } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
@@ -145,7 +146,8 @@ export default function DecisionMakerProfiles() {
   // Real-time progress logging
   useEffect(() => {
     if (!isDemo && currentSearch) {
-      console.log(`🎯 DM Real-time data for ${currentSearch.id}:`, {
+      logger.debug('DM Real-time data', {
+        search_id: currentSearch.id,
         phase: realTimeData.progress.phase,
         dm_personas: realTimeData.dmPersonas.length,
         decision_makers: realTimeData.progress.decision_makers_count,
@@ -213,8 +215,8 @@ export default function DecisionMakerProfiles() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_id: currentSearch?.id })
       });
-    } catch (e) {
-      console.error('Failed to trigger enrichment:', e);
+    } catch (e: any) {
+      logger.warn('Failed to trigger enrichment', { error: e?.message || String(e) });
     } finally {
       setEnriching(false);
     }

@@ -1,80 +1,97 @@
-## Leadora – Progressive Lead Generation (Dev Guide)
+## Leadora – The first commercial multi‑agent, product/service‑specific lead generation platform (GPT‑5 powered)
 
-### Overview
-Leadora runs multi-agent lead generation with progressive UI updates:
-- Business personas (3) and DM personas (3) appear fast.
-- Business discovery (5 places) and DM discovery run in the background.
-- Market research runs in parallel and uses DB cache of personas/companies/DMs.
-- All data persists in Supabase; Netlify Functions power all backend steps.
+Leadora is a production‑grade, zero‑console, fully serverless multi‑agent system that discovers ideal customer profiles, maps decision makers, enriches contacts, and generates investor‑grade market insights for any product or service.
 
-### Tech Stack
+### Why this is one‑of‑a‑kind
+- Multi‑agent orchestration runs all discovery and analysis agents in parallel for speed and resilience.
+- Product/service‑specific personas and decision‑maker mapping tailor the entire pipeline to your GTM.
+- Market research agent produces structured TAM/SAM/SOM, competitive landscape, and trends—ready for pitch decks.
+- Robust fallbacks and caching keep results flowing even under API limits (Serper → Google CSE fallback, in‑memory and DB cache).
+- Strict zero‑console policy; safe, redactable structured logging only, keeping production noise and PII out of logs.
+
+### Core features
+- Business Personas (3) and Decision‑Maker Personas (3) generated instantly for your product/service and target industries.
+- Business Discovery (Serper Places/Search + CSE fallback), country‑aware, with conservative filtering.
+- Decision‑Maker Discovery + server‑side Contact Enrichment (email/phone) with graceful backoff.
+- Market Research (GPT‑5 primary) with multi‑country web references, structured JSON output (TAM/SAM/SOM, competitors, trends).
+- Real‑time UI progress via SSE and Supabase listeners; data persists in Supabase (RLS compatible).
+
+### Architecture
 - Frontend: Vite + React + TypeScript + Tailwind
-- Realtime: Supabase subscriptions + polling fallback
 - Backend: Netlify Functions (TypeScript)
-- Agents/LLMs: OpenAI GPT‑5 (nano/mini), Gemini 2.0 Flash, DeepSeek
-- External: Serper API (Google Places/Search)
+- Agents/LLMs: GPT‑5 (primary), Gemini 2.0, DeepSeek (optional)
+- Data: Supabase (DB + Realtime)
+- Discovery: Serper API (Google Places/Search) with Google CSE fallback
 
-### Quick Start
+#### Orchestration flow
+1) `orchestrator-start` triggers background `orchestrator-run-background`.
+2) `src/orchestration/orchestrate.ts` launches 4 agents in parallel:
+   - Business Personas
+   - Decision‑Maker Personas
+   - Business Discovery
+   - Market Research
+3) `check-progress` reports phase and percentage; UI subscribes to realtime inserts.
+4) `user-data-proxy` provides safe browser → DB access for read flows (RLS‑aware) and smooth CORS.
+
+### What we implemented in this version
+- Zero‑console policy across the entire app and all functions; centralized logger emits no runtime console.
+- Serper client hardened (timeouts, backoff, DB cache, CSE fallback), with country‑aware filtering and KSA/ZA mapping fixes.
+- Persona mapper fully typed; best‑match persona selection with strict parsing and safer scoring.
+- Realtime/search services unified: proper Authorization headers, proxy fallback, cache scoping, error headers.
+- Orchestrator parallelization and progress updates; robust error handling and completion semantics.
+- Market Research JSON extraction with fallback to structured parsing when AI returns free text.
+- Contact enrichment gated server‑side only; no secrets shipped to the client.
+- All lint, typecheck, and production build steps green; bundle kept within reasonable size with clear chunking guidance.
+
+### Quick start (local)
 1) Install deps
-```
+```bash
 npm ci
 ```
-2) Dev server (Netlify dev with functions proxy)
-```
+2) Run dev with Netlify functions
+```bash
 npm run dev
 ```
 3) Lint & Type Check
-```
+```bash
 npm run lint -- --fix
-npx tsc -p tsconfig.json --noEmit
+npm run typecheck
 ```
 
-### Required Env Vars
-Set in Netlify/CI or local `.env` (do not commit secrets):
-- VITE_SUPABASE_URL
-- SUPABASE_SERVICE_ROLE_KEY
-- OPENAI_API_KEY
-- GEMINI_API_KEY
-- DEEPSEEK_API_KEY
-- SERPER_KEY
-- Optional: GOOGLE_CSE_KEY, GOOGLE_CSE_CX (fallback search)
-- Optional model overrides:
-  - OPENAI_PRIMARY_MODEL (default: gpt-5)
-  - OPENAI_LIGHT_MODEL (default: gpt-5-mini)
-  - OPENAI_ULTRA_LIGHT_MODEL (default: gpt-5-nano)
+### Required environment variables (configure in Netlify UI or CI)
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SERPER_KEY`
+- Optional LLMs: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`
+- Optional CSE fallback: `GOOGLE_CSE_KEY`, `GOOGLE_CSE_CX`
+- Optional email proxy for OTPs: `EMAIL_API_URL`, `EMAIL_API_KEY`
 
-### Netlify Functions
-- `.netlify/functions/*` includes orchestrators, enrichment, progress, and proxies
-- Start orchestration via `/.netlify/functions/orchestrator-start`
-- Check progress via `/.netlify/functions/check-progress`
-- Browser data proxy: `/.netlify/functions/user-data-proxy`
+### Key Netlify Functions
+- Start orchestration: `/.netlify/functions/orchestrator-start`
+- Background runner: `/.netlify/functions/orchestrator-run-background`
+- Progress: `/.netlify/functions/check-progress`
+- API usage logs: `/.netlify/functions/check-api-logs`
+- Read proxy (RLS‑aware): `/.netlify/functions/user-data-proxy`
+- Enrichment (server‑side only): `/.netlify/functions/enrich-decision-makers`
+- Test suite: `/.netlify/functions/test-*`
 
-### Database & RLS (Supabase)
-- Use `fix_rls_policies.sql` for dev-friendly policies and indexes
-- The DB auto-generates UUIDs for primary keys
-- `api_usage_logs.user_id` can be null in dev; logging retries with null on FK errors
+### Database (Supabase)
+- Canonical SQLs: `complete_database_setup_fixed.sql`, `fix_authentication_and_database.sql`, `fix_proxy_authentication.sql`, `fix_rls_policies.sql`.
+- RLS policies support read flows via proxy; server functions use service role for writes.
 
-### Progressive UX
-- Personas load first; “Live results are loading…” appears
-- Businesses and DMs stream in; subtle toasts on insert
-- DM profiles show “Enriching…” until email/phone are found
-- Loading overlay bars map to phases: starting → personas → businesses → DMs → market_research → completed
+### Security & privacy
+- No secrets in client bundles; write operations occur only in functions.
+- Logger removes console output entirely; PII redaction preserved for future external logging sinks.
 
 ### Troubleshooting
-- If UI appears idle, polling fallback in `useRealTimeSearch` refreshes every 5s
-- CORS/auth hiccups: data proxy is auto-used as fallback
-- Serper quota/auth: Google CSE fallback kicks in when configured
-- Country code mapping: “SA” is reserved for Saudi Arabia (sa). Use “ZA” or “South Africa” explicitly for South Africa.
+- UI idle? Realtime fallback triggers polling every 5s.
+- Serper quota/auth? Google CSE fallback auto‑engages when keys provided.
+- Country mapping: “SA” reserved for Saudi Arabia (sa). Use “ZA”/“South Africa” for South Africa.
 
-### Scripts
-- `npm run dev` – Vite dev server
-- `npm run build` – Production build
-- `npm run lint` – ESLint (use `--fix` to auto-fix)
+### Roadmap
+- Advanced deduping/merge strategies across multiple discovery sources.
+- Configurable heuristics for company size/revenue by industry/region.
+- Slack/Email alerts when new ICP matches appear.
 
-### Security
-- Contact enrichment (emails/phones) runs only server-side via `/.netlify/functions/enrich-decision-makers`
-- No secrets in client bundles
-
-### Notes
-- Keep only canonical SQL: `fix_rls_policies.sql`, `fix_authentication_and_database.sql`, `fix_proxy_authentication.sql`, `complete_database_setup_fixed.sql`
-- Remove ad‑hoc logs and legacy SQLs from repo (already cleaned)
+— Built for speed, signal, and sales outcomes.

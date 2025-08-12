@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { serperSearch } from '../tools/serper';
+import logger from '../lib/logger';
 // import { logApiUsage } from '../tools/db.write';
 import { glToCountryName } from '../tools/util';
 
@@ -106,7 +107,7 @@ async function performWebSearch(query: string, focus: string, countryCode: strin
       searchQuery = `${query} ${countryName} industry analysis market research report`;
     }
     
-    console.log(`Market research web search: "${searchQuery}" (focus: ${focus})`);
+  logger.debug('Market research web search', { q: searchQuery, focus });
     const resp = await serperSearch(searchQuery, countryCode, 5);
     const results = resp && resp.success ? resp.items : [];
     
@@ -121,7 +122,7 @@ async function performWebSearch(query: string, focus: string, countryCode: strin
     }));
     
   } catch (error: any) {
-    console.error(`Web search failed for ${query} (${focus}):`, error.message);
+  logger.warn('Web search failed', { q: query, focus, error: (error as any)?.message });
     
     // Note: Error logging will be handled by caller
     

@@ -1,6 +1,7 @@
 import { runDMDiscoveryForBusiness } from '../agents/dm-discovery-individual.agent';
 import { updateSearchProgress } from './db.write';
 import { loadSearch } from './db.read';
+import logger from '../lib/logger';
 
 // Track DM discovery progress per search
 const dmProgress: Record<string, { total: number; processed: number }> = {};
@@ -37,35 +38,43 @@ export async function triggerInstantDMDiscovery(
   businesses: Business[],
   options?: { initializeProgress?: boolean }
 ) {
-  console.log(`🎯 Starting instant DM discovery for ${businesses.length} businesses`);
+  const total = businesses.length;
+  logger.info(`Starting instant DM discovery`, { total, search_id });
   const shouldInit = options?.initializeProgress !== false;
-  if (shouldInit) {
-    initDMDiscoveryProgress(search_id, businesses.length);
-  }
-
-  // Load search data once for all businesses to get product/service context
-  const searchData = await loadSearch(search_id);
-
-  // Process businesses in small batches to avoid overwhelming the system
-  const batchSize = 2;
-  for (let i = 0; i < businesses.length; i += batchSize) {
-    const batch = businesses.slice(i, i + batchSize);
-
-    // Process batch in parallel for speed
-    const batchPromises = batch.map(async (business) => {
-      await processBusinessForDM(search_id, user_id, business, searchData?.product_service);
-    });
-
-    // Wait for batch to complete before starting next batch
-    await Promise.allSettled(batchPromises);
-
-    // Small delay between batches to avoid rate limiting
-    if (i + batchSize < businesses.length) {
-      await new Promise(resolve => setTimeout(resolve, 2500));
+  try {
+    if (shouldInit) {
+      initDMDiscoveryProgress(search_id, total);
     }
-  }
 
-  console.log(`🎉 Instant DM discovery completed for all ${businesses.length} businesses`);
+    // Load search data once for all businesses to get product/service context
+    const searchData = await loadSearch(search_id);
+
+    // Process businesses in small batches to avoid overwhelming the system
+    const batchSize = 2;
+    for (let i = 0; i < total; i += batchSize) {
+      const batch = businesses.slice(i, i + batchSize);
+
+      // Process batch in parallel for speed
+      const batchPromises = batch.map(async (business) => {
+        await processBusinessForDM(search_id, user_id, business, searchData?.product_service);
+      });
+
+      // Wait for batch to complete before starting next batch
+      await Promise.allSettled(batchPromises);
+
+      // Small delay between batches to avoid rate limiting
+      if (i + batchSize < total) {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+      }
+    }
+
+    logger.info(`Instant DM discovery completed`, { total, search_id });
+  } catch (e: any) {
+    logger.error('Instant DM discovery aborted', { search_id, error: e?.message || String(e) });
+    // Cleanup progress on failure to avoid stale entries
+    try { delete (dmProgress as any)[search_id]; } catch {}
+    throw e;
+  }
 }
 
 /**
@@ -79,7 +88,7 @@ export async function processBusinessForDM(
   product_service?: string
 ): Promise<boolean> {
   try {
-    console.log(`⚡ Processing single business for instant DM discovery: ${business.name}`);
+    logger.debug('Processing business for instant DM discovery', { business_id: business.id, business_name: business.name, search_id });
     
     // Avoid redundant DB lookups by accepting product_service from caller when available
     const productService = product_service ?? (await loadSearch(search_id))?.product_service;
@@ -95,8 +104,8 @@ export async function processBusinessForDM(
     });
     await recordProgress(search_id);
     return true;
-  } catch (error) {
-    console.error(`❌ DM discovery failed for ${business.name}:`, error);
+  } catch (error: any) {
+    logger.warn('DM discovery failed for business', { business_id: business.id, business_name: business.name, search_id, error: error?.message || String(error) });
     await recordProgress(search_id);
     return false;
   }

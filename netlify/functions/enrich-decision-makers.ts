@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 import { supa, openai, gemini } from '../../src/agents/clients';
 import { updateDecisionMakerEnrichment, logApiUsage } from '../../src/tools/db.write';
 import { fetchContactEnrichment } from '../../src/tools/contact-enrichment';
@@ -26,7 +27,7 @@ async function getPendingDecisionMakers(search_id: string): Promise<DecisionMake
     .limit(20); // Process in batches
 
   if (error) {
-    console.error('Error fetching pending decision makers:', error);
+    logger.error('Error fetching pending decision makers', { error });
     throw error;
   }
 
@@ -112,7 +113,7 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
     return enrichmentData;
     
   } catch (error: any) {
-    console.error(`Error enriching profile for ${dm.name}:`, error);
+    logger.error('Error enriching profile', { name: dm.name, error });
     
     // Log failed API usage
     await logApiUsage({
@@ -157,11 +158,11 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    console.log(`Starting decision maker enrichment for search ${search_id}`);
+    logger.info('Starting decision maker enrichment', { search_id });
     
     // Get pending decision makers
     const pendingDMs = await getPendingDecisionMakers(search_id);
-    console.log(`Found ${pendingDMs.length} pending decision makers for enrichment`);
+    logger.info('Found pending decision makers for enrichment', { count: pendingDMs.length });
     
     if (pendingDMs.length === 0) {
       return {
@@ -205,9 +206,9 @@ export const handler: Handler = async (event) => {
 
           await updateDecisionMakerEnrichment(dm.id, updateData);
           enrichedCount++;
-          console.log(`Enriched profile for ${dm.name} (${dm.title})`);
+          logger.info('Enriched profile', { name: dm.name, title: dm.title });
         } catch (error) {
-          console.error(`Error processing ${dm.name}:`, error);
+          logger.error('Error processing DM during enrichment', { name: dm.name, error });
           errorCount++;
         }
       });
@@ -220,7 +221,7 @@ export const handler: Handler = async (event) => {
       }
     }
     
-    console.log(`Enrichment completed for search ${search_id}: ${enrichedCount} successful, ${errorCount} errors`);
+    logger.info('Enrichment completed', { search_id, enriched: enrichedCount, errors: errorCount });
     
       return {
         statusCode: 200,
@@ -236,7 +237,7 @@ export const handler: Handler = async (event) => {
     };
     
   } catch (error: any) {
-    console.error('Decision maker enrichment error:', error);
+    logger.error('Decision maker enrichment error', { error });
     
     return {
       statusCode: 500,

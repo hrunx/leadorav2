@@ -90,7 +90,7 @@ export function useProfile() {
           // If user doesn't exist in app_users, this might be a new signup
           // The trigger should have created it, but let's handle the edge case
           if (error.code === 'PGRST116') {
-            console.warn('User profile not found, might be creating...');
+      import('../lib/logger').then(({ default: logger }) => logger.warn('User profile not found, might be creating...')).catch(()=>{});
             if (mounted) {
               setProfile(null);
               setLoading(false);
@@ -104,7 +104,7 @@ export function useProfile() {
           setProfile(data);
         }
       } catch (e: any) {
-        console.error('Profile loading error:', e);
+    import('../lib/logger').then(({ default: logger }) => logger.error('Profile loading error', { error: (e as any)?.message || e })).catch(()=>{});
         if (mounted) {
           setError(e.message);
         }

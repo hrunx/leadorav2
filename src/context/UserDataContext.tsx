@@ -104,14 +104,14 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
         }
       });
     } catch (error) {
-      console.error('Error loading user data:', error);
+      import('../lib/logger').then(({ default: logger }) => logger.error('Error loading user data', { error: (error as any)?.message || error })).catch(()=>{});
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
   const createSearch = async (searchData: any): Promise<string> => {
     if (!authState.user) {
-      console.error('User not authenticated for search creation');
+      import('../lib/logger').then(({ default: logger }) => logger.warn('User not authenticated for search creation')).catch(()=>{});
       throw new Error('User not authenticated');
     }
     
@@ -142,7 +142,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'ADD_SEARCH', payload: search });
       return search.id;
     } catch (error) {
-      console.error('Error creating search:', error);
+      import('../lib/logger').then(({ default: logger }) => logger.error('Error creating search', { error: (error as any)?.message || error })).catch(()=>{});
       
       // If there's a network error, provide a fallback
       if (error.message?.includes('Load failed') || error.message?.includes('network')) {

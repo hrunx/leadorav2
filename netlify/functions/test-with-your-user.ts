@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 import { createClient } from '@supabase/supabase-js';
 
 const supa = createClient(
@@ -38,7 +39,7 @@ export const handler: Handler = async (event) => {
 
     if (error) throw error;
 
-    console.log('Test search created with your user ID:', search.id);
+    logger.info('Test search created with your user ID', { search_id: search.id });
 
     return {
       statusCode: 200,
@@ -54,7 +55,7 @@ export const handler: Handler = async (event) => {
       })
     };
   } catch (error: any) {
-    console.error('Failed to create test search:', error);
+    logger.error('Failed to create test search', { error });
     return {
       statusCode: 500,
       headers: cors,

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import logger from '../../lib/logger';
 import { User, Building, Save, Edit, Camera, Shield, CreditCard, Crown, CheckCircle, Clock } from 'lucide-react';
 import { useProfile } from '../../hooks/useProfile';
 import { useSubscription } from '../../hooks/useSubscription';
@@ -68,7 +69,7 @@ export default function ProfilePage() {
       await updateProfile(formData);
       setIsEditing(false);
     } catch (err: any) {
-      console.error('Failed to update profile:', err);
+      logger.warn('Failed to update profile', { error: err?.message || String(err) });
       setError(err.message || 'Failed to update profile');
     } finally {
       setIsSaving(false);

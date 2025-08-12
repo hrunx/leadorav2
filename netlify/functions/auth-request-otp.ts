@@ -1,4 +1,5 @@
 import { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
@@ -55,7 +56,7 @@ export const handler: Handler = async (event) => {
 
   // Validate environment variables
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !EMAIL_API_URL || !EMAIL_API_KEY) {
-    console.error('Missing environment variables:', {
+    logger.error('Missing environment variables', {
       SUPABASE_URL: !!SUPABASE_URL,
       SUPABASE_SERVICE_ROLE_KEY: !!SUPABASE_SERVICE_ROLE_KEY,
       EMAIL_API_URL: !!EMAIL_API_URL,
@@ -158,7 +159,7 @@ export const handler: Handler = async (event) => {
     
     await sendEmail({ to: email, subject: subj, html: htmlBody });
 
-    console.log(`OTP sent for ${purpose} to ${email}`);
+    logger.info('OTP sent', { purpose, email });
     return { 
       statusCode: 200, 
       headers, 
@@ -166,7 +167,7 @@ export const handler: Handler = async (event) => {
     };
 
   } catch (e: any) {
-    console.error('OTP request error:', e);
+    logger.error('OTP request error', { error: e });
     return { 
       statusCode: 500, 
       headers, 

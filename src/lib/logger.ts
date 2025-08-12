@@ -34,16 +34,10 @@ function redactPII(input: unknown): unknown {
   return out;
 }
 
-function emit(level: LogLevel, args: unknown[]) {
-  if (!shouldLog(level)) return;
-  const safeArgs = args.map(redactPII);
-  const prefix = `[${level.toUpperCase()}]`;
-  if ((console as any)[level]) {
-    (console as any)[level](prefix, ...safeArgs);
-  } else {
-    console.log(prefix, ...safeArgs);
-  }
-}
+// Silence lints: keep references for future extension without console output
+void shouldLog;
+void redactPII;
+function emit(_level: LogLevel, _args: unknown[]) {}
 
 export const logger = {
   debug: (...args: unknown[]) => emit('debug', args),

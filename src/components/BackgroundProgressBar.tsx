@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import logger from '../lib/logger';
 import { Loader, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface BackgroundProgressBarProps {
@@ -55,8 +56,8 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({
           }, 3000);
         }
       }
-    } catch (error) {
-      console.error('Error polling progress:', error);
+    } catch (error: any) {
+      logger.warn('Error polling progress (background bar)', { error: error?.message || String(error) });
     }
   }, [onComplete, searchId]);
 

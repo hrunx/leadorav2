@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import logger from '../../lib/logger';
 import { Search, Users, Building, ArrowRight, Globe, Package, Factory, Heart, Briefcase, Car, Home, Plane, ShoppingBag, Cpu, Zap, Plus, X } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
@@ -128,8 +129,8 @@ export default function SearchSelection() {
         // Navigate to business personas (next step in flow)
         window.dispatchEvent(new CustomEvent('navigate', { detail: 'personas' }));
       }
-    } catch (error) {
-      console.error('Error creating search:', error);
+    } catch (error: any) {
+      logger.error('Error creating search', { error: error?.message || String(error) });
       setIsSearching(false);
     }
   };

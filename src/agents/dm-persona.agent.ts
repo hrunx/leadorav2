@@ -289,11 +289,11 @@ CRITICAL: Each persona must have:
       }));
       await insertDMPersonas(rows);
       await updateSearchProgress(search.id, 20, 'dm_personas');
-      console.log(`Completed DM persona generation for search ${search.id}`);
+    import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
       return;
     }
     // All LLMs failed, insert 3 deterministic DM personas
-    console.error(`[DMPersona] All LLMs failed for search ${search.id}. Inserting deterministic DM personas.`);
+    import('../lib/logger').then(({ default: logger }) => logger.error('[DMPersona] All LLMs failed, inserting deterministic personas', { search_id: search.id })).catch(()=>{});
     const [countryA] = search.countries.length ? search.countries : ['Global'];
     const rows = [
       {
@@ -332,9 +332,9 @@ CRITICAL: Each persona must have:
     ];
     await insertDMPersonas(rows as any);
     await updateSearchProgress(search.id, 20, 'dm_personas');
-    console.log(`Inserted deterministic DM personas for search ${search.id}`);
+    import('../lib/logger').then(({ default: logger }) => logger.info('Inserted deterministic DM personas', { search_id: search.id })).catch(()=>{});
   } catch (error) {
-    console.error(`DM persona generation failed for search ${search.id}:`, error);
+  import('../lib/logger').then(({ default: logger }) => logger.error('DM persona generation failed', { search_id: search.id, error: (error as any)?.message || error })).catch(()=>{});
     throw error;
   }
 }

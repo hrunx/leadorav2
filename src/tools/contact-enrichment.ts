@@ -1,4 +1,5 @@
 import { fetchWithTimeoutRetry } from './util';
+import logger from '../lib/logger';
 
 export interface ContactEnrichment {
   email?: string;
@@ -32,8 +33,8 @@ export async function fetchContactEnrichment(name: string, company: string): Pro
       },
       source,
     };
-  } catch (err) {
-    console.error('Contact enrichment failed', err);
+  } catch (err: any) {
+    logger.warn('Contact enrichment failed', { error: err?.message || String(err) });
     return { source, verification: { status: 'error' } };
   }
 }

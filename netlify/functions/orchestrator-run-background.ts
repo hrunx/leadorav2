@@ -1,4 +1,5 @@
 import { Handler } from '@netlify/functions';
+import logger from '../../src/lib/logger';
 
 // small utilities here instead of deep import chains to avoid cold-start bloat
 import { createClient } from '@supabase/supabase-js';
@@ -95,7 +96,7 @@ export const handler: Handler = async (event) => {
     const { search_id, user_id } = JSON.parse(event.body || '{}');
     if (!search_id || !user_id) return { statusCode: 400, headers: cors, body: 'search_id and user_id required' };
 
-    console.log(`Starting background orchestration for search ${search_id}, user ${user_id}`);
+    logger.info('Starting background orchestration', { search_id, user_id });
 
     // PHASE 0
     await updateProgress(search_id, 'starting', 0);
@@ -117,13 +118,13 @@ export const handler: Handler = async (event) => {
     const { startPersonaMappingListener, mapBusinessesToPersonas } = personaMapper;
 
     // START ALL AGENTS IN PARALLEL - everything begins immediately!
-    console.log('Starting all agents in parallel for maximum speed...');
+    logger.info('Starting all agents in parallel for maximum speed...');
 
     // Start market research in background (non-blocking)
     const marketResearchPromise = retry(() =>
       withTimeout(execMarketResearchParallel({ search_id, user_id }), 300_000, 'market_research')
     ).catch(e => {
-      console.error('Market research failed (non-blocking):', e.message);
+      logger.warn('Market research failed (non-blocking)', { error: e.message });
       return null;
     });
 
@@ -134,13 +135,13 @@ export const handler: Handler = async (event) => {
     const businessDiscoveryPromise = retry(() =>
       withTimeout(execBusinessDiscovery({ search_id, user_id }), 240_000, 'business_discovery')
     ).catch(e => {
-      console.error('Business discovery failed (non-blocking):', e.message);
+      logger.warn('Business discovery failed (non-blocking)', { error: e.message });
       return null;
     });
 
     // Start personas in parallel (these typically finish first)
     await updateProgress(search_id, 'business_personas', 10);
-    console.log('Starting persona generation...');
+    logger.info('Starting persona generation...');
     await retry(() => withTimeout(Promise.all([
       limiter(()=>execBusinessPersonas({ search_id, user_id })),
       limiter(()=>execDMPersonas({ search_id, user_id })),
@@ -149,8 +150,8 @@ export const handler: Handler = async (event) => {
     // After personas exist, perform initial business→persona mapping in batch
     try {
       await mapBusinessesToPersonas(search_id);
-    } catch (e) {
-      console.warn('Initial business→persona mapping failed (will retry via listener):', (e as any)?.message || e);
+    } catch (e: any) {
+      logger.warn('Initial business→persona mapping failed (will retry via listener)', { error: e?.message || e });
     }
 
     // Business discovery continues in background; update progress snapshot
@@ -158,21 +159,21 @@ export const handler: Handler = async (event) => {
 
     // PHASE 4: Wait for market research to complete (should be doing work in background)
     await updateProgress(search_id, 'market_research', 85);
-    console.log('Waiting for market research to complete...');
+    logger.info('Waiting for market research to complete...');
     const marketResult = await marketResearchPromise;
     if (marketResult) {
-      console.log('Market research completed successfully');
+      logger.info('Market research completed successfully');
     } else {
-      console.log('Market research failed - using fallback data');
+      logger.warn('Market research failed - using fallback data');
     }
 
     // Ensure business discovery has finished before marking completed
     await businessDiscoveryPromise;
     await updateProgress(search_id, 'completed', 100);
-    console.log(`Orchestration completed for search ${search_id}`);
+    logger.info('Orchestration completed', { search_id });
     return { statusCode: 202, headers: cors, body: 'accepted' };
   } catch (e:any) {
-    console.error('Background orchestration failed:', e);
+    logger.error('Background orchestration failed', { error: e });
     // best-effort: try to log search_id if present
     try {
       const { search_id, user_id } = JSON.parse(event.body || '{}');

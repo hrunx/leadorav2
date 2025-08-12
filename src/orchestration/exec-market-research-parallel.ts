@@ -19,7 +19,7 @@ export async function execMarketResearchParallel(payload: {
     search_id: search.id
   };
 
-  console.log(`Starting parallel market research for: ${searchData.product_service} in ${searchData.industries[0]} (${searchData.countries[0]})`);
+  // intentionally silent to avoid console; progress is recorded via API usage logs
 
   const startTime = Date.now();
   try {
@@ -82,7 +82,6 @@ Use ONLY valid JSON. Use these sources when relevant (do not quote text, just us
     });
 
   } catch (error: any) {
-    console.error('Market research failed:', error?.message || String(error));
     
     // Log failed API usage (provider: openai)
     await logApiUsage({
@@ -114,7 +113,6 @@ async function parseMarketAnalysis(analysis: string, _sources: any[]): Promise<a
       insights = await generateStructuredInsights(analysis);
     }
   } catch {
-    console.log('JSON parsing failed, generating structured insights from text');
     insights = await generateStructuredInsights(analysis);
   }
 

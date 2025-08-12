@@ -113,7 +113,7 @@ export class CampaignService {
       return data || [];
     } catch (error: any) {
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
-        console.log('CORS issue detected for campaign_recipients, falling back to proxy...');
+        logger.warn('CORS issue detected for campaign_recipients, falling back to proxy...');
         try {
           const response = await fetch(`/.netlify/functions/user-data-proxy?table=campaign_recipients&campaign_id=${campaignId}`, {
             method: 'GET',
@@ -122,7 +122,7 @@ export class CampaignService {
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
           return await response.json();
         } catch {
-          console.log('Proxy also failed for campaign_recipients, returning empty array...');
+          logger.warn('Proxy also failed for campaign_recipients, returning empty array...');
           return [];
         }
       }

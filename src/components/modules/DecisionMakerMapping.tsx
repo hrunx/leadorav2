@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Building, User, Crown, Shield, Users, Save, ArrowRight, Target, Filter, UserCheck, Mail, Phone, Linkedin, MapPin, Calendar, Briefcase, MessageSquare, Search } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
+import logger from '../../lib/logger';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
@@ -94,7 +95,7 @@ export default function DecisionMakerMapping() {
     // If no search or demo user, clean up any existing subscription
     if (!currentSearch || isDemo) {
       if (subscriptionRef.current) {
-        console.log('Cleaning up decision makers realtime subscription (no search/demo)');
+        logger.debug('Cleaning up decision makers realtime subscription (no search/demo)');
         supabase.removeChannel(subscriptionRef.current);
         subscriptionRef.current = null;
         currentSearchIdRef.current = null;
@@ -109,11 +110,11 @@ export default function DecisionMakerMapping() {
 
     // Clean up existing subscription if search changed
     if (subscriptionRef.current) {
-      console.log('Cleaning up previous decision makers realtime subscription');
+      logger.debug('Cleaning up previous decision makers realtime subscription');
       supabase.removeChannel(subscriptionRef.current);
     }
 
-    console.log(`Setting up realtime subscription for decision makers in search ${currentSearch.id}`);
+    logger.debug('Setting up realtime subscription for decision makers', { search_id: currentSearch.id });
     currentSearchIdRef.current = currentSearch.id;
 
     const channel = supabase
@@ -126,7 +127,7 @@ export default function DecisionMakerMapping() {
           filter: `search_id=eq.${currentSearch.id}`
         }, 
         (payload) => {
-          console.log('New decision maker inserted:', payload.new);
+          logger.debug('New decision maker inserted', { id: (payload.new as any)?.id });
           const newDM = payload.new as any;
           const enrichment = newDM.enrichment || {};
           
@@ -181,7 +182,7 @@ export default function DecisionMakerMapping() {
           filter: `search_id=eq.${currentSearch.id}`
         },
         (payload) => {
-          console.log('Decision maker updated (enrichment):', payload.new);
+          logger.debug('Decision maker updated (enrichment)', { id: (payload.new as any)?.id });
           const updatedDM = payload.new as any;
           const enrichment = updatedDM.enrichment || {};
           
@@ -218,7 +219,7 @@ export default function DecisionMakerMapping() {
 
     return () => {
       if (subscriptionRef.current) {
-        console.log('Cleaning up decision makers realtime subscription');
+        logger.debug('Cleaning up decision makers realtime subscription');
         supabase.removeChannel(subscriptionRef.current);
         subscriptionRef.current = null;
         currentSearchIdRef.current = null;
@@ -286,8 +287,8 @@ export default function DecisionMakerMapping() {
         setDecisionMakers(transformedData);
         setHasSearch(true);
       }
-    } catch (error) {
-      console.error('Error loading decision makers:', error);
+    } catch (error: any) {
+      logger.warn('Error loading decision makers', { error: error?.message || String(error) });
       setDecisionMakers([]);
       setHasSearch(false);
     } finally {

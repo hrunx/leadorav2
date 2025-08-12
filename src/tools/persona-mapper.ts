@@ -1,6 +1,7 @@
 import { supa, resolveModel, callOpenAIChatJSON, callGeminiText } from '../agents/clients';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { mapDMToPersona } from './util';
+import logger from '../lib/logger';
 
 // ---- Types ----
 export interface BusinessRow {
@@ -37,6 +38,22 @@ export interface DMPersonaRow {
   rank?: number;
   demographics?: { level?: string; department?: string; experience?: string; geography?: string };
   characteristics?: Record<string, unknown>;
+}
+
+// AI JSON result shape
+interface AiBestMatchJson {
+  best?: { persona_id?: string; score?: number };
+}
+
+function parseAiBestMatch(text: string): { personaId: string; score: number } | null {
+  try {
+    const obj = JSON.parse(text) as AiBestMatchJson;
+    const best = obj?.best;
+    if (best?.persona_id) {
+      return { personaId: String(best.persona_id), score: Number(best.score ?? 80) };
+    }
+  } catch { /* ignore */ }
+  return null;
 }
 
 // ---- Lightweight rate limiter for LLM mapping ----
@@ -85,19 +102,17 @@ Rules:
   return withLimiter(async () => {
     try {
       const text = await callOpenAIChatJSON({ model, system: 'You output ONLY valid JSON.', user: prompt, temperature: 0.2, maxTokens: 500, requireJsonObject: true, verbosity: 'low' });
-      let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
-      const best = obj?.best;
-      if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
+      const match = parseAiBestMatch(text);
+      if (match) return match;
     } catch (e: any) {
-      console.warn('scoreBusinessToPersonasLLM (openai) failed:', e?.message || e);
+      logger.warn('scoreBusinessToPersonasLLM (openai) failed', { error: e?.message || e });
     }
     try {
       const text = await callGeminiText('gemini-2.0-flash', prompt);
-      let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
-      const best = obj?.best;
-      if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
+      const match = parseAiBestMatch(text);
+      if (match) return match;
     } catch (e: any) {
-      console.warn('scoreBusinessToPersonasLLM (gemini) failed:', e?.message || e);
+      logger.warn('scoreBusinessToPersonasLLM (gemini) failed', { error: e?.message || e });
     }
     return null;
   });
@@ -124,26 +139,24 @@ Rules:
   return withLimiter(async () => {
     try {
       let text = await callOpenAIChatJSON({ model, system: 'Return ONLY JSON.', user: prompt, temperature: 0.2, maxTokens: 400, requireJsonObject: true, verbosity: 'low' });
-      let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
-      const best = obj?.best;
-      if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
+      const match = parseAiBestMatch(text);
+      if (match) return match;
     } catch (e: any) {
-      console.warn('scoreDMToPersonasLLM (openai) failed:', e?.message || e);
+      logger.warn('scoreDMToPersonasLLM (openai) failed', { error: e?.message || e });
     }
     try {
       const text = await callGeminiText('gemini-2.0-flash', prompt);
-      let obj: any; try { obj = JSON.parse(text); } catch { obj = {}; }
-      const best = obj?.best;
-      if (best && best.persona_id) return { personaId: String(best.persona_id), score: Number(best.score || 80) };
+      const match = parseAiBestMatch(text);
+      if (match) return match;
     } catch (e: any) {
-      console.warn('scoreDMToPersonasLLM (gemini) failed:', e?.message || e);
+      logger.warn('scoreDMToPersonasLLM (gemini) failed', { error: e?.message || e });
     }
     return null;
   });
 }
 
 // Intelligent business-persona matching functions
-function findBestMatchingPersona(business: any, personas: any[]): any {
+function findBestMatchingPersona(business: BusinessRow, personas: BusinessPersonaRow[]): BusinessPersonaRow {
   let bestPersona = personas[0];
   let bestScore = 0;
 
@@ -158,7 +171,7 @@ function findBestMatchingPersona(business: any, personas: any[]): any {
   return bestPersona;
 }
 
-function calculatePersonaMatchScore(business: any, persona: any): number {
+function calculatePersonaMatchScore(business: BusinessRow, persona: BusinessPersonaRow): number {
   let score = business.match_score || 75; // Base score
 
   // Analyze business characteristics for persona compatibility
@@ -192,7 +205,8 @@ function calculatePersonaMatchScore(business: any, persona: any): number {
 
   // Industry-specific matching
   if (businessIndustry) {
-    if (personaTitle.includes(businessIndustry) || personaDemos?.industries?.includes?.(businessIndustry)) {
+    const personaIndustry = (personaDemos as any)?.industry as string | undefined;
+    if (personaTitle.includes(businessIndustry) || (personaIndustry && personaIndustry.toLowerCase().includes(businessIndustry))) {
       score += 20;
     }
   }
@@ -254,7 +268,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
       return;
     }
     mappingLocks.add(searchId);
-    console.log(`Starting persona mapping for search ${searchId}`);
+    logger.info('Starting persona mapping', { searchId });
 
     // Ensure business personas exist before mapping
     const { data: personaCheck } = await supa
@@ -263,7 +277,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
       .eq('search_id', searchId)
       .limit(1);
     if (!personaCheck || personaCheck.length === 0) {
-      console.log('Business personas not ready yet. Deferring mapping by 5s.');
+      logger.debug('Business personas not ready yet. Deferring mapping by 5s.', { searchId });
       if (!mappingTimers.has(searchId)) {
         const t = setTimeout(() => {
           mappingTimers.delete(searchId);
@@ -286,7 +300,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     if (businessError) throw businessError;
     if (!businesses || businesses.length === 0) {
-      console.log('No businesses found requiring persona mapping');
+      logger.debug('No businesses found requiring persona mapping', { searchId });
       return;
     }
 
@@ -299,7 +313,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     if (personaError) throw personaError;
     if (!personas || personas.length === 0) {
-      console.log('No personas available yet for mapping, retrying in background');
+      logger.debug('No personas available yet for mapping, retrying in background', { searchId });
       // retry later without throwing to avoid blocking inserts
       setTimeout(() => {
         mapBusinessesToPersonas(searchId, businessId).catch(() => {});
@@ -307,13 +321,13 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
       return;
     }
 
-    console.log(`Mapping ${businesses.length} businesses to ${personas.length} personas`);
+    logger.info('Mapping businesses to personas', { businesses: businesses.length, personas: personas.length, searchId });
 
     // Intelligent mapping logic: use AI when enabled, fallback to heuristic
-    const updates = businesses.map(async (business) => {
+    const updates = businesses.map(async (business: BusinessRow) => {
       let bestId: string | null = null;
       let scoreNum = 0;
-      const ai = await scoreBusinessToPersonasLLM(business as BusinessRow, personas as any as BusinessPersonaRow[]).catch(() => null);
+      const ai = await scoreBusinessToPersonasLLM(business, personas as unknown as BusinessPersonaRow[]).catch(() => null);
       if (ai && ai.personaId) { bestId = ai.personaId; scoreNum = ai.score; }
       if (!bestId) {
         const bestPersona = findBestMatchingPersona(business, personas);
@@ -330,11 +344,11 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     const successful = results.filter(r => r.status === 'fulfilled').length;
     const failed = results.filter(r => r.status === 'rejected').length;
 
-    console.log(`Persona mapping completed: ${successful} successful, ${failed} failed`);
+    logger.info('Persona mapping completed', { successful, failed, total: businesses.length, searchId });
 
     return { successful, failed, total: businesses.length };
-  } catch (error) {
-    console.error('Error mapping businesses to personas:', error);
+  } catch (error: any) {
+    logger.error('Error mapping businesses to personas', { searchId, error: error?.message || error });
     throw error;
   }
   finally {
@@ -364,7 +378,7 @@ export function startPersonaMappingListener(searchId: string) {
         const newRow = (payload.new || {}) as { id?: string };
         if (!newRow.id) return;
         mapBusinessesToPersonas(searchId, newRow.id).catch(err =>
-          console.error('Error mapping persona for new business:', err)
+          logger.warn('Error mapping persona for new business', { searchId, error: err?.message || err })
         );
       }
     )
@@ -380,7 +394,7 @@ export function startPersonaMappingListener(searchId: string) {
  * This provides more intelligent mapping based on business characteristics
  */
 export async function intelligentPersonaMapping(searchId: string) {
-  try {
+    try {
     // Get businesses and personas
     const [businessResult, personaResult] = await Promise.all([
       supa.from('businesses').select('*').eq('search_id', searchId),
@@ -393,26 +407,26 @@ export async function intelligentPersonaMapping(searchId: string) {
     const businesses = businessResult.data || [];
     const personas = personaResult.data || [];
     
-    if (businesses.length === 0 || personas.length === 0) {
-      console.log('Insufficient data for intelligent mapping');
+      if (businesses.length === 0 || personas.length === 0) {
+      logger.debug('Insufficient data for intelligent mapping', { searchId });
       return await mapBusinessesToPersonas(searchId); // Fallback to simple mapping
     }
     
     // AI-first semantic matching with deterministic fallback per business
-    const updates = businesses.map(async (business) => {
+    const updates = businesses.map(async (business: BusinessRow) => {
       let bestId: string | null = null;
       let scoreNum = 0;
       try {
-        const ai = await scoreBusinessToPersonasLLM(business as any as BusinessRow, personas as any as BusinessPersonaRow[]);
+        const ai = await scoreBusinessToPersonasLLM(business, personas as unknown as BusinessPersonaRow[]);
         if (ai && ai.personaId) {
           bestId = ai.personaId;
           scoreNum = ai.score || 80;
         }
       } catch (e: any) {
-        console.warn('intelligentPersonaMapping AI step failed:', e?.message || e);
+        logger.warn('intelligentPersonaMapping AI step failed', { searchId, error: e?.message || e });
       }
       if (!bestId) {
-        const best = findBestMatchingPersona(business, personas);
+        const best = findBestMatchingPersona(business, personas as unknown as BusinessPersonaRow[]);
         bestId = best.id;
         scoreNum = calculatePersonaMatchScore(business, best);
       }
@@ -429,11 +443,11 @@ export async function intelligentPersonaMapping(searchId: string) {
     const results = await Promise.allSettled(updates);
     const successful = results.filter(r => r.status === 'fulfilled').length;
     
-    console.log(`Intelligent persona mapping completed: ${successful}/${businesses.length} businesses mapped`);
+    logger.info('Intelligent persona mapping completed', { successful, total: businesses.length, searchId });
     
     return { successful, failed: businesses.length - successful, total: businesses.length };
-  } catch (error) {
-    console.error('Error in intelligent persona mapping:', error);
+  } catch (error: any) {
+    logger.error('Error in intelligent persona mapping', { searchId, error: error?.message || error });
     // Fallback to simple mapping
     return await mapBusinessesToPersonas(searchId);
   }
@@ -444,7 +458,7 @@ export async function intelligentPersonaMapping(searchId: string) {
  */
 export async function mapDecisionMakersToPersonas(searchId: string) {
   try {
-    console.log(`Starting DM persona mapping for search ${searchId}`);
+    logger.info('Starting DM persona mapping', { searchId });
 
     // Ensure DM personas exist before mapping
     const { data: personaCheck } = await supa
@@ -453,7 +467,7 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
       .eq('search_id', searchId)
       .limit(1);
     if (!personaCheck || personaCheck.length === 0) {
-      console.log('DM personas not ready yet. Deferring mapping by 5s.');
+      logger.debug('DM personas not ready yet. Deferring mapping by 5s.', { searchId });
       setTimeout(() => { mapDecisionMakersToPersonas(searchId).catch(()=>{}); }, 5000);
       return;
     }
@@ -466,7 +480,7 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
 
     if (dmError) throw dmError;
     if (!dms || dms.length === 0) {
-      console.log('No decision makers found requiring persona mapping');
+      logger.debug('No decision makers found requiring persona mapping', { searchId });
       return;
     }
 
@@ -478,17 +492,17 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
 
     if (personaError) throw personaError;
     if (!personas || personas.length === 0) {
-      console.log('No DM personas available yet for mapping');
+      logger.debug('No DM personas available yet for mapping', { searchId });
       return;
     }
 
-    const updates = dms.map(async dm => {
+    const updates = dms.map(async (dm: { id: string; title: string; department?: string; level?: string; name: string }) => {
       let bestId: string | null = null;
-      const ai = await scoreDMToPersonasLLM(dm as any as DecisionMakerRow, personas as any as DMPersonaRow[]).catch(() => null);
+      const ai = await scoreDMToPersonasLLM(dm as unknown as DecisionMakerRow, personas as unknown as DMPersonaRow[]).catch(() => null);
       if (ai && ai.personaId) bestId = ai.personaId;
       if (!bestId) {
-        const persona = mapDMToPersona(dm as any, personas as any);
-        const fallbackId = (persona && (persona as any).id) ? (persona as any).id : (personas[0] as any).id;
+        const persona = mapDMToPersona(dm as unknown as { title?: string }, personas as unknown as Array<{ id?: string; title?: string }>);
+        const fallbackId = (persona && persona.id) ? String(persona.id) : String(personas[0]?.id);
         bestId = fallbackId;
       }
       return supa.from('decision_makers').update({ persona_id: bestId }).eq('id', dm.id);
@@ -498,11 +512,11 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
     const successful = results.filter(r => r.status === 'fulfilled').length;
     const failed = results.filter(r => r.status === 'rejected').length;
 
-    console.log(`DM persona mapping completed: ${successful} successful, ${failed} failed`);
+    logger.info('DM persona mapping completed', { successful, failed, total: dms.length, searchId });
 
     return { successful, failed, total: dms.length };
-  } catch (error) {
-    console.error('Error mapping decision makers to personas:', error);
+  } catch (error: any) {
+    logger.error('Error mapping decision makers to personas', { searchId, error: error?.message || error });
     throw error;
   }
 }

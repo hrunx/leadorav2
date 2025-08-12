@@ -127,8 +127,8 @@ export default function CampaignManagement() {
         setBusinesses(transformedBusinesses);
         setDecisionMakers(transformedDMs);
       }
-    } catch (error) {
-      console.error('Error loading campaign data:', error);
+    } catch (error: any) {
+      import('../../lib/logger').then(({ default: logger }) => logger.error('Error loading campaign data', { error: error?.message || String(error) })).catch(()=>{});
       setBusinesses([]);
       setDecisionMakers([]);
     } finally {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import logger from '../lib/logger';
 import { Search, Users, Building, UserCheck, TrendingUp, CheckCircle, Loader, AlertCircle } from 'lucide-react';
 
 interface AgentProgressOverlayProps {
@@ -103,8 +104,8 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
           }, 2000);
         }
       }
-    } catch (error) {
-      console.error('Error polling progress:', error);
+    } catch (error: any) {
+      logger.warn('Error polling progress', { error: error?.message || String(error) });
     }
   }, [onEarlyNavigation, onComplete, firstDataSeen, hasNavigatedEarly, searchId]);
 
