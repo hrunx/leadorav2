@@ -272,8 +272,10 @@ export async function runBusinessDiscovery(search: {
     const gl = countryToGL(firstCountry || countries);
     // lens not used in simplified placesQuery, but kept for future prompt variants
     // Simpler query for Places API to maximize results
+    const industry = (search.industries && search.industries[0]) ? search.industries[0] : '';
     const intent = search.search_type === 'customer' ? 'buyers need use purchase adopt' : 'vendors suppliers sell provide manufacture distribute';
-    const placesQuery = `${search.product_service} ${search.industries[0] || ''} ${intent} ${firstCountry || countries}`.trim();
+    // Use full country name, not gl, inside the query text; gl is used for locale
+    const placesQuery = `${search.product_service} ${industry} ${intent} ${firstCountry}`.trim();
 
     const msg = `search_id=${search.id} user_id=${search.user_id}
  - product_service=${search.product_service}
@@ -281,9 +283,9 @@ export async function runBusinessDiscovery(search: {
  - countries=${countries}
  - search_type=${search.search_type}
  
- MANDATE:
-- Call serperPlaces ONCE with q="${placesQuery}", gl="${gl}", limit=5, search_id="${search.id}", user_id="${search.user_id}"
- - Immediately call storeBusinesses with ALL returned places (cap 5) for industry="${search.industries[0] || industries}", country="${firstCountry || countries}"
+  MANDATE:
+ - Call serperPlaces ONCE with q="${placesQuery}", gl="${gl}", limit=5, search_id="${search.id}", user_id="${search.user_id}"
+  - Immediately call storeBusinesses with ALL returned places (cap 5) for industry="${industry || industries}", country="${firstCountry || countries}"
  - Do not perform additional place searches.
  
  NOTE: If serperPlaces returns 0 places, relax the query slightly (remove industry words) and try once more, then store results immediately if found.`;

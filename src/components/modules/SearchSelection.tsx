@@ -104,11 +104,21 @@ export default function SearchSelection() {
     
     setIsSearching(true);
     
+    // Normalize selections so backend receives human-readable names (icons → names, ISO codes → country names)
+    const selectedIndustryNames = selectedIndustries
+      .map(id => industries.find(i => i.id === id)?.name)
+      .filter((x): x is string => Boolean(x));
+    const selectedCountryNames = selectedCountries
+      .map(code => countries.find(c => c.code === code)?.name)
+      .filter((x): x is string => Boolean(x));
+
     const searchData = {
       type: searchType,
       productService: productService.trim(),
-      industries: [...selectedIndustries, ...customIndustries],
-      countries: [...selectedCountries, ...customCountries],
+      // Send industry names (not internal IDs) so agents build correct queries
+      industries: [...selectedIndustryNames, ...customIndustries],
+      // Send country names (not ISO codes) so queries use full country strings (e.g., "Qatar")
+      countries: [...selectedCountryNames, ...customCountries],
       timestamp: new Date().toISOString()
     };
 
