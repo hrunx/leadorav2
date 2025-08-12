@@ -14,6 +14,22 @@ export default function MarketingInsights() {
   const { getCurrentSearch } = useUserData();
   const { state: authState } = useAuth();
   const currentSearch = getCurrentSearch();
+  // Wire retryMarketResearch event to call Netlify function once per mount
+  useEffect(() => {
+    const handler = async () => {
+      try {
+        if (!currentSearch?.id) return;
+        await fetch('/.netlify/functions/retry-market-research', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ search_id: currentSearch.id })
+        });
+      } catch {}
+    };
+    const listener = () => { void handler(); };
+    window.addEventListener('retryMarketResearch', listener as EventListener);
+    return () => window.removeEventListener('retryMarketResearch', listener as EventListener);
+  }, [currentSearch?.id]);
   
   // Real-time data hook for progressive loading
   const realTimeData = useRealTimeSearch(currentSearch?.id || null);
