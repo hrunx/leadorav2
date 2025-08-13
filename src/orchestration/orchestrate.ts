@@ -21,48 +21,77 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
 
     // 🚀 PHASE 1: Launch ALL agents in parallel immediately
     logger.debug('Launching all agents in parallel');
-    
+
+    const weights = {
+      business_personas: 10,
+      dm_personas: 10,
+      business_discovery: 40,
+      market_research: 20,
+    } as const;
+
+    let currentProgress = 20; // after initial startup weight
+    let chain = Promise.resolve();
+    const reportProgress = (weight: number, phase: keyof typeof weights) => {
+      chain = chain.then(async () => {
+        currentProgress += weight;
+        await updateSearchProgress(search_id, currentProgress, phase, 'in_progress');
+        updateFn('PROGRESS', { phase, progress: currentProgress });
+      });
+      return chain;
+    };
+
     const parallelTasks = [
       // Task 1: Business Personas (fast for UI)
-      runBusinessPersonas(search).then(() => {
-        logger.info('Business personas completed', { search_id });
-        updateFn('PERSONAS_READY', { type: 'business', search_id });
-        return 'business_personas_done';
-      }).catch(err => {
-        logger.warn('Business personas failed', { error: err?.message || err });
-        return 'business_personas_failed';
-      }),
-      
-      // Task 2: DM Personas (fast for UI)
-      runDMPersonas(search).then(() => {
-        logger.info('DM personas completed', { search_id });
-        updateFn('PERSONAS_READY', { type: 'dm', search_id });
-        return 'dm_personas_done';
-      }).catch(err => {
-        logger.warn('DM personas failed', { error: err?.message || err });
-        return 'dm_personas_failed';
-      }),
-      
-      // Task 3: Business Discovery (triggers immediate UI updates)
-      runBusinessDiscovery(search).then(async () => {
-        logger.info('Business discovery completed', { search_id });
-        updateFn('BUSINESSES_FOUND', { search_id });
+      runBusinessPersonas(search)
+        .then(() => {
+          logger.info('Business personas completed', { search_id });
+          updateFn('PERSONAS_READY', { type: 'business', search_id });
+          return 'business_personas_done';
+        })
+        .catch(err => {
+          logger.warn('Business personas failed', { error: err?.message || err });
+          return 'business_personas_failed';
+        })
+        .finally(() => reportProgress(weights.business_personas, 'business_personas')),
 
-        return 'business_discovery_done';
-      }).catch(err => {
-        logger.warn('Business discovery failed', { error: err?.message || err });
-        return 'business_discovery_failed';
-      }),
-      
+      // Task 2: DM Personas (fast for UI)
+      runDMPersonas(search)
+        .then(() => {
+          logger.info('DM personas completed', { search_id });
+          updateFn('PERSONAS_READY', { type: 'dm', search_id });
+          return 'dm_personas_done';
+        })
+        .catch(err => {
+          logger.warn('DM personas failed', { error: err?.message || err });
+          return 'dm_personas_failed';
+        })
+        .finally(() => reportProgress(weights.dm_personas, 'dm_personas')),
+
+      // Task 3: Business Discovery (triggers immediate UI updates)
+      runBusinessDiscovery(search)
+        .then(() => {
+          logger.info('Business discovery completed', { search_id });
+          updateFn('BUSINESSES_FOUND', { search_id });
+          return 'business_discovery_done';
+        })
+        .catch(err => {
+          logger.warn('Business discovery failed', { error: err?.message || err });
+          return 'business_discovery_failed';
+        })
+        .finally(() => reportProgress(weights.business_discovery, 'business_discovery')),
+
       // Task 4: Market Research (runs independently, provides investor-grade data)
-      runMarketResearch(search).then(() => {
-        logger.info('Market research completed', { search_id });
-        updateFn('MARKET_RESEARCH_READY', { search_id });
-        return 'market_research_done';
-      }).catch(err => {
-        logger.warn('Market research failed', { error: err?.message || err });
-        return 'market_research_failed';
-      })
+      runMarketResearch(search)
+        .then(() => {
+          logger.info('Market research completed', { search_id });
+          updateFn('MARKET_RESEARCH_READY', { search_id });
+          return 'market_research_done';
+        })
+        .catch(err => {
+          logger.warn('Market research failed', { error: err?.message || err });
+          return 'market_research_failed';
+        })
+        .finally(() => reportProgress(weights.market_research, 'market_research')),
     ];
 
     // Initialize only; do not force a specific phase to avoid racing agents
