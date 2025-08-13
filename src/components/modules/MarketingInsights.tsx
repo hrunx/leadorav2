@@ -45,14 +45,34 @@ export default function MarketingInsights() {
   // Determine if we're in demo mode
   const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
   
+  // Parse helper for JSONB fields that may arrive as strings
+  const parseMaybeJSON = (v: any) => {
+    if (v && typeof v === 'string') {
+      const t = v.trim();
+      if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
+        try { return JSON.parse(t); } catch {}
+      }
+    }
+    return v;
+  };
   // Use real-time data for real users, demo data for demo users
-  const marketRow = isDemo ? demoMarketData : realTimeData.marketInsights.length > 0 ? realTimeData.marketInsights[0] : null;
+  const marketRowRaw = isDemo ? demoMarketData : (realTimeData.marketInsights.length > 0 ? realTimeData.marketInsights[0] : null);
+  const marketRow: any = marketRowRaw ? {
+    ...marketRowRaw,
+    tam_data: parseMaybeJSON((marketRowRaw as any).tam_data),
+    sam_data: parseMaybeJSON((marketRowRaw as any).sam_data),
+    som_data: parseMaybeJSON((marketRowRaw as any).som_data),
+    competitor_data: parseMaybeJSON((marketRowRaw as any).competitor_data),
+    trends: parseMaybeJSON((marketRowRaw as any).trends),
+    opportunities: parseMaybeJSON((marketRowRaw as any).opportunities),
+    sources: parseMaybeJSON((marketRowRaw as any).sources)
+  } : null;
   // Derive normalized blocks for rendering (tam/sam/som)
   const marketBlocks = isDemo
     ? (demoMarketData ? { tam: demoMarketData.tam, sam: demoMarketData.sam, som: demoMarketData.som } : null)
-    : (marketRow ? { tam: (marketRow as any).tam_data, sam: (marketRow as any).sam_data, som: (marketRow as any).som_data } : null);
+    : (marketRow ? { tam: marketRow.tam_data, sam: marketRow.sam_data, som: marketRow.som_data } : null);
 
-  const isLoading = isDemo ? isLoadingDemo : realTimeData.isLoading || !realTimeData.progress.market_insights_ready;
+  const isLoading = isDemo ? isLoadingDemo : (realTimeData.isLoading || (!marketRow && !realTimeData.progress.market_insights_ready));
   const hasError = !isDemo && (!isLoading) && !marketRow && realTimeData.progress.phase !== 'completed' && realTimeData.progress.phase !== 'idle';
   const hasSearch = isDemo ? !!demoMarketData : !!currentSearch;
   const [competitorData, setCompetitorData] = useState<any[]>([]);
@@ -96,8 +116,17 @@ export default function MarketingInsights() {
   const normalizedSources = useMemo(() => {
     return (sources || []).map((s: any) => {
       if (typeof s === 'string') return { title: s, url: s };
-      // Some agents may return { title, url, date, used_for } or { source, url, focus_area }
-      return s;
+      let used_for: string[] | undefined = undefined;
+      if (Array.isArray(s.used_for)) used_for = s.used_for;
+      else if (typeof s.focus_area === 'string' && s.focus_area) used_for = [s.focus_area];
+      return {
+        title: s.title || s.url || s.source || 'Source',
+        url: s.url || '',
+        snippet: s.snippet || '',
+        date: s.date || null,
+        used_for: used_for,
+        source: s.source || undefined
+      };
     });
   }, [sources]);
 

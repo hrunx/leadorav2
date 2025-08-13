@@ -139,13 +139,17 @@ export const handler: Handler = async (event) => {
       return null;
     });
 
-    // Start personas in parallel (these typically finish first)
+    // Start personas in parallel (non-blocking). If they time out or fail, do not fail the whole run.
     await updateProgress(search_id, 'business_personas', 10);
     logger.info('Starting persona generation...');
-    await retry(() => withTimeout(Promise.all([
+    const personasPromise = retry(() => withTimeout(Promise.all([
       limiter(()=>execBusinessPersonas({ search_id, user_id })),
       limiter(()=>execDMPersonas({ search_id, user_id })),
-    ]), 120_000, 'personas'));
+    ]), 120_000, 'personas'))
+      .catch(e => {
+        logger.warn('Persona generation failed (non-blocking)', { error: e?.message || e });
+        return null;
+      });
 
     // After personas exist, perform initial business→persona mapping in batch
     try {
@@ -169,6 +173,8 @@ export const handler: Handler = async (event) => {
 
     // Ensure business discovery has finished before marking completed
     await businessDiscoveryPromise;
+    // Best-effort wait for personas, but do not block completion
+    try { await personasPromise; } catch {}
     await updateProgress(search_id, 'completed', 100);
     logger.info('Orchestration completed', { search_id });
     return { statusCode: 202, headers: cors, body: 'accepted' };

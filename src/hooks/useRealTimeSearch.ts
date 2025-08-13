@@ -50,7 +50,6 @@ export function useRealTimeSearch(searchId: string | null) {
 
       // Load all data in parallel using SearchService (with proxy fallback)
       const progressPromise = (async () => {
-        // Try proxy first to avoid browser CORS issues
         try {
           const r = await fetch(`/.netlify/functions/user-data-proxy?table=user_searches&search_id=${searchId}`, {
             method: 'GET',
@@ -62,26 +61,15 @@ export function useRealTimeSearch(searchId: string | null) {
             if (row) return { phase: row.phase, progress_pct: row.progress_pct } as any;
           }
         } catch {}
-        // Fallback to direct Supabase
-        try {
-          const { data, error } = await supabase
-            .from('user_searches')
-            .select('phase, progress_pct')
-            .eq('id', searchId)
-            .single();
-          if (error) return null as any;
-          return data as any;
-        } catch {
-          return null as any;
-        }
+        return null as any;
       })();
 
       const [
-        businesses,
-        businessPersonas,
-        dmPersonas,
-        decisionMakers,
-        marketInsights,
+        fetchedBusinesses,
+        fetchedBusinessPersonas,
+        fetchedDmPersonas,
+        fetchedDecisionMakers,
+        fetchedMarketInsights,
         searchProgress
       ] = await Promise.all([
         SearchService.getBusinesses(searchId).catch(() => []),
@@ -92,21 +80,43 @@ export function useRealTimeSearch(searchId: string | null) {
         progressPromise
       ]);
 
-      setData({
-        businesses: businesses || [],
-        businessPersonas: businessPersonas || [],
-        dmPersonas: dmPersonas || [],
-        decisionMakers: decisionMakers || [],
-        marketInsights: marketInsights ? [marketInsights] : [],
-        progress: {
-          phase: searchProgress?.phase || data.progress.phase,
-          progress_pct: (typeof searchProgress?.progress_pct === 'number' ? searchProgress.progress_pct : data.progress.progress_pct),
-          businesses_count: (businesses || []).length,
-          personas_count: (businessPersonas || []).length + (dmPersonas || []).length,
-          decision_makers_count: (decisionMakers || []).length,
-          market_insights_ready: !!marketInsights
-        },
-        isLoading: false
+      const mergeById = (prev: any[], next: any[]) => {
+        const map = new Map<string, any>();
+        for (const item of prev || []) {
+          const id = String((item as any)?.id || '');
+          if (id) map.set(id, item);
+        }
+        for (const item of next || []) {
+          const id = String((item as any)?.id || '');
+          if (!id) continue;
+          map.set(id, { ...(map.get(id) || {}), ...item });
+        }
+        return Array.from(map.values());
+      };
+
+      setData(prev => {
+        const nextBusinesses = mergeById(prev.businesses, fetchedBusinesses || []);
+        const nextBusinessPersonas = mergeById(prev.businessPersonas, fetchedBusinessPersonas || []);
+        const nextDmPersonas = mergeById(prev.dmPersonas, fetchedDmPersonas || []);
+        const nextDecisionMakers = mergeById(prev.decisionMakers, fetchedDecisionMakers || []);
+        const nextInsights = fetchedMarketInsights ? [fetchedMarketInsights] : prev.marketInsights;
+
+        return {
+          businesses: nextBusinesses,
+          businessPersonas: nextBusinessPersonas,
+          dmPersonas: nextDmPersonas,
+          decisionMakers: nextDecisionMakers,
+          marketInsights: nextInsights,
+          progress: {
+            phase: searchProgress?.phase || prev.progress.phase || 'idle',
+            progress_pct: typeof searchProgress?.progress_pct === 'number' ? searchProgress.progress_pct : (prev.progress.progress_pct || 0),
+            businesses_count: nextBusinesses.length,
+            personas_count: nextBusinessPersonas.length + nextDmPersonas.length,
+            decision_makers_count: nextDecisionMakers.length,
+            market_insights_ready: (nextInsights && nextInsights.length > 0) || false
+          },
+          isLoading: false
+        };
       });
       hasLoadedOnceRef.current = true;
 

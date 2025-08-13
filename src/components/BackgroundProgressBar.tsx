@@ -36,6 +36,7 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({
     decision_makers: 0,
     market_insights: 0
   });
+  const [currentPhase, setCurrentPhase] = useState<string>('starting');
 
   const pollProgress = useCallback(async () => {
     try {
@@ -49,11 +50,38 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({
         const data = await response.json();
         setProgress(data.progress);
         setDataCounts(data.data_counts);
-        
+
+        // Normalize backend phase aliases
+        const rawPhase = data?.progress?.phase || 'starting';
+        const normalizedPhase = (() => {
+          switch (rawPhase) {
+            case 'personas': return 'business_personas';
+            case 'businesses': return 'business_discovery';
+            case 'market_insights': return 'market_research';
+            case 'parallel_processing': return 'business_discovery';
+            case 'business_personas_completed': return 'business_personas';
+            case 'dm_personas_completed': return 'dm_personas';
+            default: return rawPhase;
+          }
+        })();
+        const pct = Number(data?.progress?.progress_pct || 0);
+        // Derive a UI phase using counts and progress percent
+        const derivedPhase = (() => {
+          if (data.data_counts.market_insights > 0) return 'market_research';
+          if (data.data_counts.decision_makers > 0) return 'decision_makers';
+          if (data.data_counts.businesses > 0) return 'business_discovery';
+          if (data.data_counts.dm_personas >= 3) return 'dm_personas';
+          if (data.data_counts.business_personas >= 3) return 'business_personas';
+          if (normalizedPhase === 'completed' || pct >= 100) return 'completed';
+          if (pct >= 85) return 'market_research';
+          if (pct >= 40) return 'business_discovery';
+          if (pct >= 10) return 'business_personas';
+          return normalizedPhase;
+        })();
+        setCurrentPhase(derivedPhase);
+
         if (data.progress.phase === 'completed' || data.progress.phase === 'failed') {
-          setTimeout(() => {
-            onComplete();
-          }, 3000);
+          setTimeout(() => { onComplete(); }, 3000);
         }
       }
     } catch (error: any) {
@@ -72,14 +100,14 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({
   if (!isVisible || !progress) return null;
 
   const getStatusText = () => {
-    const phase = progress.phase;
+    const phase = currentPhase || progress.phase;
     const map: Record<string, string> = {
       starting: 'Starting analysis...',
-      business_personas: 'Generating business personas...',
+      business_personas: dataCounts.businesses > 0 || dataCounts.dm_personas > 0 ? 'Finding businesses...' : 'Generating business personas...',
       dm_personas: 'Generating decision maker personas...',
       business_discovery: 'Finding businesses...',
       decision_makers: 'Mapping decision makers...',
-      market_research: 'Generating market research...',
+      market_research: dataCounts.market_insights > 0 ? 'Insights ready' : 'Generating market research...',
       market_insights: 'Generating market insights...',
       completed: 'Analysis complete!',
       failed: 'Analysis failed'

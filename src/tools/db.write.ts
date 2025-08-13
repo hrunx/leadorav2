@@ -190,13 +190,11 @@ export const insertMarketInsights = async (row: {
   }
   const supa = getSupabaseClient();
 
-  const { data, error } = await supa.from('market_insights').insert(parsed.data).select('id').single();
-
-  const sources = (row.sources || []).map((s: any) => {
+  const sources = (parsed.data.sources || []).map((s: any) => {
     if (typeof s === 'string') return { title: s, url: s } as InsightSource;
     return { title: s.title ?? s.url, url: s.url, date: s.date, ...s } as InsightSource;
   });
-  const { data, error } = await supa.from('market_insights').insert({ ...row, sources }).select('id').single();
+  const { data, error } = await supa.from('market_insights').insert({ ...parsed.data, sources }).select('id').single();
   if (error) throw error;
   try { await updateSearchTotals(row.search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   return data!;
@@ -270,13 +268,15 @@ export async function updateSearchProgress(
   let nextPct = progress_pct;
   let nextPhase = normPhase;
   if (current) {
-    nextPct = Math.max(Number(current.progress_pct || 0), progress_pct);
+    const currentProgress = typeof (current as any).progress_pct === 'number' ? Number((current as any).progress_pct) : 0;
+    const currentPhase = typeof (current as any).phase === 'string' ? (current as any).phase : 'starting';
+    nextPct = Math.max(currentProgress, progress_pct);
     // Preserve later phase if already advanced
     const order = ['starting','business_personas','dm_personas','business_discovery','decision_makers','market_research','completed','failed'];
-    const curIdx = order.indexOf(normalizePhase(current.phase || 'starting'));
+    const curIdx = order.indexOf(normalizePhase(currentPhase));
     const newIdx = order.indexOf(normPhase);
     if (curIdx > -1 && newIdx > -1 && curIdx > newIdx) {
-      nextPhase = normalizePhase(current.phase || 'starting');
+      nextPhase = normalizePhase(currentPhase);
     }
   }
   const updateData: Record<string, any> = {

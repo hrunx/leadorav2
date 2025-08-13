@@ -32,37 +32,18 @@ export class CampaignService {
     const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
     const queryUserId = (userId === 'demo-user' || !isUuid(userId)) ? DEMO_USER_ID : userId;
     try {
-      const { data, error } = await supabase
-        .from('email_campaigns')
-        .select('*')
-        .eq('user_id', queryUserId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    } catch (error: any) {
-      // Fallback to proxy if direct Supabase call fails (CORS issues)
-      if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
-        logger.warn('CORS issue detected for campaigns, falling back to proxy...');
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const token = session?.access_token;
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=email_campaigns&user_id=${queryUserId}`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            }
-          });
-          if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-          return await response.json();
-        } catch {
-          logger.warn('Proxy also failed for campaigns, returning empty array...');
-          return []; // Return empty array as final fallback
-        }
-      }
-      throw error;
+      // Proxy-first for browser to avoid CORS/RLS
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch(`/.netlify/functions/user-data-proxy?table=email_campaigns&user_id=${queryUserId}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+        credentials: 'omit'
+      });
+      if (!response.ok) return [];
+      return await response.json();
+    } catch {
+      return [];
     }
   }
 

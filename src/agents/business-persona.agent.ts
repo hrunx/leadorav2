@@ -1,6 +1,4 @@
 import { Agent, tool } from '@openai/agents';
-import { insertBusinessPersonas } from '../tools/db.write';
-
 import { insertBusinessPersonas, updateSearchProgress, insertPersonaCache } from '../tools/db.write';
 import { loadPersonaCache } from '../tools/db.read';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
@@ -8,12 +6,10 @@ import { extractJson } from '../tools/json';
 import { ensureUniqueTitles } from './business-persona.helpers';
 
 import {
-  sanitizePersona,
   isRealisticPersona,
   isGenericTitle,
   BusinessPersona as Persona,
 } from '../tools/persona-validation';
-=======
 import Ajv, { JSONSchemaType } from 'ajv';
 
 
@@ -234,30 +230,7 @@ CRITICAL: Call storeBusinessPersonas tool ONCE with complete data. Do not retry.
 });
 
   // --- Helper: Validate persona realism ---
-function isRealisticPersona(persona: Persona): boolean {
-  // Check for non-empty, non-default, non-generic values in all required fields
-  if (!persona) return false;
-  const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim() && !['unknown', 'n/a', 'default', 'none'].includes(v.trim().toLowerCase());
-  const isNonEmptyArray = (v: any) => Array.isArray(v) && v.length > 0 && v.every(isNonEmptyString);
-  const isNonZeroNumber = (v: any) => typeof v === 'number' && v > 0;
-  try {
-    if (!isNonEmptyString(persona.title)) return false;
-    if (typeof persona.rank !== 'number' || persona.rank < 1 || persona.rank > 5) return false;
-    if (typeof persona.match_score !== 'number' || persona.match_score < 60) return false;
-    const d = persona.demographics;
-    if (!d || !isNonEmptyString(d.industry) || !isNonEmptyString(d.companySize) || !isNonEmptyString(d.geography) || !isNonEmptyString(d.revenue)) return false;
-    const c = persona.characteristics;
-    if (!c || !isNonEmptyArray(c.painPoints) || !isNonEmptyArray(c.motivations) || !isNonEmptyArray(c.challenges) || !isNonEmptyArray(c.decisionFactors)) return false;
-    const b = persona.behaviors;
-    if (!b || !isNonEmptyString(b.buyingProcess) || !isNonEmptyString(b.decisionTimeline) || !isNonEmptyString(b.budgetRange) || !isNonEmptyArray(b.preferredChannels)) return false;
-    const m = persona.market_potential;
-    if (!m || !isNonZeroNumber(m.totalCompanies) || !isNonEmptyString(m.avgDealSize) || !isNonZeroNumber(m.conversionRate)) return false;
-    if (!isNonEmptyArray(persona.locations)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
+// removed legacy helper (unused)
 
 // --- Helper: ensure market potential numbers are sane ---
 function validateMarketPotential(persona: Persona, searchId: string): Persona | null {
