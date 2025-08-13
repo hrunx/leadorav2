@@ -295,6 +295,10 @@ CRITICAL: Each persona must have:
     // All LLMs failed, insert 3 deterministic DM personas
     import('../lib/logger').then(({ default: logger }) => logger.error('[DMPersona] All LLMs failed, inserting deterministic personas', { search_id: search.id })).catch(()=>{});
     const [countryA] = search.countries.length ? search.countries : ['Global'];
+    const [industryA] = search.industries.length ? search.industries : ['General'];
+    // Tailor fallback personas to search context so results remain relevant even without model output
+    const deptTemplates = [`${industryA} Technology`, `${industryA} Operations`, `${industryA} Procurement`];
+    const levelTemplates = [`executive (${countryA})`, `director (${countryA})`, `manager (${countryA})`];
     const rows = [
       {
         search_id: search.id,
@@ -302,7 +306,7 @@ CRITICAL: Each persona must have:
         title: 'Chief Technology Officer',
         rank: 1,
         match_score: 92,
-        demographics: { level: 'executive', department: 'Technology', experience: '15+ years', geography: countryA },
+        demographics: { level: levelTemplates[0], department: deptTemplates[0], experience: '15+ years', geography: countryA },
         characteristics: { responsibilities: ['Technology strategy','Digital transformation'], painPoints: ['Legacy','Security'], motivations: ['Innovation','Efficiency'], challenges: ['Budget','Talent'], decisionFactors: ['Alignment','Scalability'] },
         behaviors: { decisionMaking: 'Strategic', communicationStyle: 'High-level', buyingProcess: 'Committee', preferredChannels: ['Executive briefings','Conferences'] },
         market_potential: { totalDecisionMakers: 1500, avgInfluence: 90, conversionRate: 8 }
@@ -313,7 +317,7 @@ CRITICAL: Each persona must have:
         title: 'VP Operations',
         rank: 2,
         match_score: 88,
-        demographics: { level: 'director', department: 'Operations', experience: '10+ years', geography: countryA },
+        demographics: { level: levelTemplates[1], department: deptTemplates[1], experience: '10+ years', geography: countryA },
         characteristics: { responsibilities: ['Process optimization','Cost control'], painPoints: ['Inefficiency','Downtime'], motivations: ['Throughput','Quality'], challenges: ['Change mgmt','ROI'], decisionFactors: ['Impact','Time-to-value'] },
         behaviors: { decisionMaking: 'Data-driven', communicationStyle: 'Concise', buyingProcess: 'Cross-functional', preferredChannels: ['Demos','Case studies'] },
         market_potential: { totalDecisionMakers: 3000, avgInfluence: 75, conversionRate: 12 }
@@ -324,7 +328,7 @@ CRITICAL: Each persona must have:
         title: 'Head of Procurement',
         rank: 3,
         match_score: 84,
-        demographics: { level: 'manager', department: 'Procurement', experience: '8+ years', geography: countryA },
+        demographics: { level: levelTemplates[2], department: deptTemplates[2], experience: '8+ years', geography: countryA },
         characteristics: { responsibilities: ['Vendor selection','Negotiation'], painPoints: ['Compliance','Costs'], motivations: ['Savings','Reliability'], challenges: ['Supplier risk','Integration'], decisionFactors: ['TCO','Compliance'] },
         behaviors: { decisionMaking: 'Criteria-based', communicationStyle: 'Formal', buyingProcess: 'RFP/RFQ', preferredChannels: ['RFP','Email'] },
         market_potential: { totalDecisionMakers: 5000, avgInfluence: 60, conversionRate: 15 }
