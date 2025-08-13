@@ -2,36 +2,7 @@ import { Agent, tool } from '@openai/agents';
 import { insertDMPersonas, updateSearchProgress } from '../tools/db.write';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
-
-interface DMPersona {
-  title: string;
-  rank: number;
-  match_score: number;
-  demographics: {
-    level: string;
-    department: string;
-    experience: string;
-    geography: string;
-  };
-  characteristics: {
-    responsibilities: string[];
-    painPoints: string[];
-    motivations: string[];
-    challenges: string[];
-    decisionFactors: string[];
-  };
-  behaviors: {
-    decisionMaking: string;
-    communicationStyle: string;
-    buyingProcess: string;
-    preferredChannels: string[];
-  };
-  market_potential: {
-    totalDecisionMakers: number;
-    avgInfluence: number;
-    conversionRate: number;
-  };
-}
+import { sanitizePersona, isRealisticPersona, DMPersona } from '../tools/persona-validation';
 
 interface StoreDMPersonasToolInput {
   search_id: string;
@@ -166,8 +137,6 @@ Use EXACT search criteria provided. Create personas who would make purchasing de
 CRITICAL: Call storeDMPersonas tool ONCE with complete data. Do not retry.`
 });
 
-// Removed unused isRealisticDMPersona helper to reduce bundle size
-
 export async function runDMPersonas(search: {
   id:string; 
   user_id:string; 
@@ -209,40 +178,10 @@ CRITICAL: Each persona must have:
       }
     };
 
-    const sanitizePersona = (p: any, index: number): DMPersona => ({
-      title: String(p?.title || `${search.industries[0] || 'Industry'} ${['Executive','Director','Manager'][index] || 'Leader'}`),
-      rank: typeof p?.rank === 'number' ? p.rank : index + 1,
-      match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
-      demographics: {
-        level: String(p?.demographics?.level || 'manager'),
-        department: String(p?.demographics?.department || 'General'),
-        experience: String(p?.demographics?.experience || '8+ years'),
-        geography: String(p?.demographics?.geography || (search.countries[0] || 'Global'))
-      },
-      characteristics: {
-        responsibilities: Array.isArray(p?.characteristics?.responsibilities) && p.characteristics.responsibilities.length ? p.characteristics.responsibilities : ['Strategy','Execution'],
-        painPoints: Array.isArray(p?.characteristics?.painPoints) && p.characteristics.painPoints.length ? p.characteristics.painPoints : ['Budget','Time'],
-        motivations: Array.isArray(p?.characteristics?.motivations) && p.characteristics.motivations.length ? p.characteristics.motivations : ['Growth','Efficiency'],
-        challenges: Array.isArray(p?.characteristics?.challenges) && p.characteristics.challenges.length ? p.characteristics.challenges : ['Legacy','Integration'],
-        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) && p.characteristics.decisionFactors.length ? p.characteristics.decisionFactors : ['ROI','Compliance']
-      },
-      behaviors: {
-        decisionMaking: String(p?.behaviors?.decisionMaking || 'Strategic'),
-        communicationStyle: String(p?.behaviors?.communicationStyle || 'Concise'),
-        buyingProcess: String(p?.behaviors?.buyingProcess || 'Committee'),
-        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) && p.behaviors.preferredChannels.length ? p.behaviors.preferredChannels : ['Demos','Briefings']
-      },
-      market_potential: {
-        totalDecisionMakers: typeof p?.market_potential?.totalDecisionMakers === 'number' ? p.market_potential.totalDecisionMakers : 1000,
-        avgInfluence: typeof p?.market_potential?.avgInfluence === 'number' ? p.market_potential.avgInfluence : 80,
-        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 10
-      }
-    });
-
     const acceptPersonas = (arr: any[]): DMPersona[] => {
       const three = (arr || []).slice(0,3);
       if (three.length !== 3) return [];
-      return three.map((p, i) => sanitizePersona(p, i));
+      return three.map((p, i) => sanitizePersona('dm', p, i, search));
     };
 
     try {
@@ -274,6 +213,12 @@ CRITICAL: Each persona must have:
         const accepted = acceptPersonas(tryParsePersonas(text));
         if (accepted.length === 3) personas = accepted;
       } catch {}
+    }
+    if (personas.length) {
+      const allRealistic = personas.every(p => isRealisticPersona('dm', p));
+      if (!allRealistic) {
+        personas = [];
+      }
     }
     if (personas.length) {
       const rows = personas.slice(0, 3).map((p: DMPersona) => ({
