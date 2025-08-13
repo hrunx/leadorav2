@@ -281,6 +281,36 @@ CRITICAL: Each persona must have:
       return three.map((p, i) => sanitizePersona('dm', p, i, search));
     };
 
+    const ensureProductServiceKeywords = async (arr: DMPersona[]): Promise<DMPersona[]> => {
+      const keywords = String(search.product_service || '')
+        .toLowerCase()
+        .split(/[^a-z0-9]+/i)
+        .filter(Boolean);
+      const needsRefine = arr.some(p => {
+        const text = [...p.characteristics.responsibilities, ...p.characteristics.decisionFactors]
+          .join(' ')
+          .toLowerCase();
+        return !keywords.some(k => text.includes(k));
+      });
+      if (!needsRefine) return arr;
+      const prompt = `Refine the personas so each includes at least one of the keywords (${keywords.join(', ')}) in responsibilities or decision factors. Keep all other fields intact. Personas: ${JSON.stringify(arr)}`;
+      try {
+        const text = await callOpenAIChatJSON({
+          model: resolveModel('primary'),
+          system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete decision-maker persona objects.',
+          user: prompt,
+          temperature: 0.4,
+          maxTokens: 800,
+          requireJsonObject: true,
+          verbosity: 'low'
+        });
+        const refined = acceptPersonas(tryParsePersonas(text));
+        return refined.length === 3 ? refined : arr;
+      } catch {
+        return arr;
+      }
+    };
+
     try {
       // 1) GPT-5 primary
       const text = await callOpenAIChatJSON({
@@ -292,23 +322,23 @@ CRITICAL: Each persona must have:
         requireJsonObject: true,
         verbosity: 'low'
       });
-      const accepted = acceptPersonas(tryParsePersonas(text));
-      if (accepted.length === 3) personas = accepted;
+      let accepted = acceptPersonas(tryParsePersonas(text));
+      if (accepted.length === 3) personas = await ensureProductServiceKeywords(accepted);
     } catch {}
     if (!personas.length) {
       // 2) Gemini fallback
       try {
         const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
-        const accepted = acceptPersonas(tryParsePersonas(text));
-        if (accepted.length === 3) personas = accepted;
+        let accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) personas = await ensureProductServiceKeywords(accepted);
       } catch {}
     }
     if (!personas.length) {
       // 3) DeepSeek fallback
       try {
         const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
-        const accepted = acceptPersonas(tryParsePersonas(text));
-        if (accepted.length === 3) personas = accepted;
+        let accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) personas = await ensureProductServiceKeywords(accepted);
       } catch {}
     }
     if (personas.length) {
