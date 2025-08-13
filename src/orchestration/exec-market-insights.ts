@@ -1,6 +1,8 @@
 import { gemini } from '../agents/clients';
 import { loadBusinessPersonas, loadBusinesses, loadDMPersonas, loadSearch } from '../tools/db.read';
 import { insertMarketInsights, logApiUsage } from '../tools/db.write';
+import logger from '../lib/logger';
+import { MarketInsightsSchema } from '../lib/marketInsightsSchema';
 
 export async function execMarketInsights(payload: {
   search_id: string;
@@ -102,17 +104,27 @@ Return only valid JSON, no other text.`;
       cleanText = cleanText.replace(/^```\s*/, '').replace(/\s*```$/, '');
     }
     const insights = JSON.parse(cleanText);
-    
+
+    const parsed = MarketInsightsSchema.safeParse(insights);
+    if (!parsed.success) {
+      logger.error('Invalid market insights from Gemini', { error: parsed.error });
+      throw new Error('Invalid market insights format');
+    }
+    const valid = parsed.data;
+
     // Store in database
     return await insertMarketInsights({
       search_id: search.id,
       user_id: search.user_id,
-      tam_data: insights.tam_data,
-      sam_data: insights.sam_data,
-      som_data: insights.som_data,
-      competitor_data: insights.competitor_data,
-      trends: insights.trends,
-      opportunities: insights.opportunities
+      tam_data: valid.tam_data,
+      sam_data: valid.sam_data,
+      som_data: valid.som_data,
+      competitor_data: valid.competitor_data,
+      trends: valid.trends,
+      opportunities: valid.opportunities,
+      sources: valid.sources,
+      analysis_summary: valid.analysis_summary,
+      research_methodology: valid.research_methodology
     });
     
   } catch (error: any) {
