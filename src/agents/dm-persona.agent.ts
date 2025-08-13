@@ -350,10 +350,7 @@ CRITICAL: Each persona must have:
       const accepted = acceptPersonas(tryParsePersonas(text));
       const { valid, rejected } = validatePersonas(accepted);
       if (rejected.length) rejectedPersonas.push(...rejected);
-      if (valid.length === 3) personas = valid;
-
-      const accepted2 = acceptPersonas(tryParsePersonas(text));
-      if (accepted2.length === 3) personas = await ensureProductServiceKeywords(accepted2);
+      if (valid.length === 3) personas = await ensureProductServiceKeywords(valid);
 
     } catch {}
     if (!personas.length) {
@@ -364,9 +361,7 @@ CRITICAL: Each persona must have:
         const accepted = acceptPersonas(tryParsePersonas(text));
         const { valid, rejected } = validatePersonas(accepted);
         if (rejected.length) rejectedPersonas.push(...rejected);
-        if (valid.length === 3) personas = valid;
-        const accepted2 = acceptPersonas(tryParsePersonas(text));
-        if (accepted2.length === 3) personas = await ensureProductServiceKeywords(accepted2);
+        if (valid.length === 3) personas = await ensureProductServiceKeywords(valid);
 
       } catch {}
     }
@@ -375,63 +370,38 @@ CRITICAL: Each persona must have:
       try {
         const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
 
-        const accepted3 = acceptPersonas(tryParsePersonas(text));
-        const { valid, rejected } = validatePersonas(accepted3);
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        const { valid, rejected } = validatePersonas(accepted);
         if (rejected.length) rejectedPersonas.push(...rejected);
-        if (valid.length === 3) personas = valid;
+        if (valid.length === 3) personas = await ensureProductServiceKeywords(valid);
       } catch {}
     }
-    if (personas.length) {
-      const { valid, rejected } = validatePersonas(personas);
-      if (rejected.length) rejectedPersonas.push(...rejected);
-      if (valid.length === 3) {
-        const rows = valid.slice(0, 3).map((p: LocalDMPersona) => ({
-          search_id: search.id,
-          user_id: search.user_id,
-          title: p.title,
-          rank: p.rank,
-          match_score: p.match_score,
-          demographics: p.demographics || {},
-          characteristics: p.characteristics || {},
-          behaviors: p.behaviors || {},
-          market_potential: p.market_potential || {}
-        }));
-        await insertDMPersonas(rows);
-        await updateSearchProgress(search.id, 20, 'dm_personas');
-        import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
-        return;
-      }
-    }
-    if (rejectedPersonas.length) {
-      import('../lib/logger').then(({ default: logger }) => logger.warn('Rejected DM personas', { search_id: search.id, personas: rejectedPersonas })).catch(()=>{});
 
-      try {
-        const text = await callOpenAIChatJSON({
-          model: resolveModel('light'),
-          system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete decision-maker persona objects.',
-          user: improvedPrompt,
-          temperature: 0.3,
-          maxTokens: 800,
-          requireJsonObject: true,
-          verbosity: 'low'
-        });
-        const accepted4 = acceptPersonas(tryParsePersonas(text));
-        if (accepted4.length === 3) personas = await ensureProductServiceKeywords(accepted4);
-      } catch {}
+    if (rejectedPersonas.length) {
+      import('../lib/logger')
+        .then(({ default: logger }) =>
+          logger.warn('Rejected DM personas', { search_id: search.id, personas: rejectedPersonas })
+        )
+        .catch(() => {});
     }
-    if (personas.length) {
+
+    if (personas.length === 3) {
       const allRealistic = personas.every(p => isRealisticPersona('dm', p as any));
       if (!allRealistic) personas = [];
     }
-    if (personas.length) {
+    if (personas.length === 3) {
       const allValid = personas.every(p => validateDMPersona(p));
       if (!allValid) {
-        import('../lib/logger').then(({ default: logger }) => logger.error('DM persona schema validation failed', { errors: validateDMPersona.errors })).catch(() => {});
+        import('../lib/logger')
+          .then(({ default: logger }) =>
+            logger.error('DM persona schema validation failed', { errors: validateDMPersona.errors })
+          )
+          .catch(() => {});
         personas = [];
       }
     }
-    if (personas.length) {
-      const rows = personas.slice(0, 3).map((p: LocalDMPersona) => ({
+    if (personas.length === 3) {
+      const rows = personas.map((p: LocalDMPersona) => ({
         search_id: search.id,
         user_id: search.user_id,
         title: p.title,
@@ -444,7 +414,11 @@ CRITICAL: Each persona must have:
       }));
       await insertDMPersonas(rows);
       await updateSearchProgress(search.id, 20, 'dm_personas');
-      import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
+      import('../lib/logger')
+        .then(({ default: logger }) =>
+          logger.info('Completed DM persona generation', { search_id: search.id })
+        )
+        .catch(() => {});
       return;
     }
     // All LLMs failed, insert 3 deterministic DM personas
