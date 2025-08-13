@@ -53,16 +53,16 @@ const linkedinSearchTool = tool({
   } as const,
   strict: true,
   execute: async (input: unknown) => {
-    const { company_name, company_country, search_id, user_id, product_service } = input as { 
-      company_name: string; 
+    const { company_name, company_country, search_id, user_id, product_service } = input as {
+      company_name: string;
       company_country: string;
-      search_id: string; 
+      search_id: string;
       user_id: string;
       product_service: string;
     };
-    
+
     const startTime = Date.now();
-    
+
     try {
       // Single precise search per company to limit API usage
       const personas = await loadDMPersonas(search_id);
@@ -70,16 +70,40 @@ const linkedinSearchTool = tool({
       const ctx = (product_service || '').trim();
       const suffix = ctx ? ` ${ctx}` : '';
       const queries = [`"${company_name}" site:linkedin.com/in/ ${primaryTitle}${suffix}`];
-      
+
       const allEmployees: Employee[] = [];
-      
+
+      // Cleanup old cached queries (non-blocking)
+      const cacheExpiryIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      void sharedSupa
+        .from('linkedin_query_cache')
+        .delete()
+        .lt('created_at', cacheExpiryIso)
+        .catch(() => {});
+
       // Search for employees in different roles
       for (const query of queries) {
         try {
-          // Skip if we've already executed this query for this company in this process
+          // Skip if we've already executed this query in-memory
           if (hasSeen(company_name, query)) {
             continue;
           }
+
+          // Check persistent cache to avoid repeated external calls
+          const { data: cached } = await sharedSupa
+            .from('linkedin_query_cache')
+            .select('search_id')
+            .eq('search_id', search_id)
+            .eq('company', company_name)
+            .eq('query', query)
+            .gte('created_at', cacheExpiryIso)
+            .maybeSingle();
+
+          if (cached) {
+            markSeen(company_name, query);
+            continue;
+          }
+
           const result = await serperSearch(query, company_country, 10);
           if (result && result.success && Array.isArray(result.items)) {
             const employees = result.items
@@ -113,9 +137,21 @@ const linkedinSearchTool = tool({
             // Store employees immediately with enrichment_status: 'pending'
             allEmployees.push(...employees);
           }
+
           // Mark this query as seen to prevent future duplicates
           markSeen(company_name, query);
-          
+
+          // Cache the successful query to reduce future API usage
+          try {
+            await sharedSupa.from('linkedin_query_cache').insert({
+              search_id,
+              company: company_name,
+              query
+            });
+          } catch (cacheErr) {
+            logger.warn('Failed to cache LinkedIn query', { error: (cacheErr as any)?.message || cacheErr });
+          }
+
           // Small delay between searches to avoid rate limiting
           const jitter = 300 + Math.floor(Math.random() * 300);
           await new Promise(resolve => setTimeout(resolve, jitter));
