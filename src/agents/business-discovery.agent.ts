@@ -2,7 +2,7 @@ import { Agent, tool, run } from '@openai/agents';
 import { serperPlaces } from '../tools/serper';
 import logger from '../lib/logger';
 import { resolveModel } from './clients';
-import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
+import { insertBusinesses, logApiUsage } from '../tools/db.write';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
 import { mapBusinessesToPersonas } from '../tools/persona-mapper';
@@ -261,7 +261,6 @@ export async function runBusinessDiscovery(search: {
   search_type:'customer'|'supplier'
 }) {
   try {
-    await updateSearchProgress(search.id, 30, 'business_discovery', 'in_progress');
 
     const countriesCsv = search.countries.join(', ');
     const industriesCsv = search.industries.join(', ');
@@ -340,7 +339,6 @@ export async function runBusinessDiscovery(search: {
       await run(BusinessDiscoveryAgent, [{ role: 'user', content: msg }]);
     }
 
-    await updateSearchProgress(search.id, 50, 'business_discovery');
     logger.info('Completed business discovery', { search_id: search.id });
   } catch (error) {
   logger.error('Business discovery failed', { search_id: search.id, error: (error as any)?.message || error });
