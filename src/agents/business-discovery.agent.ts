@@ -1,5 +1,5 @@
 import { Agent, tool, run } from '@openai/agents';
-import { serperPlaces } from '../tools/serper';
+import { serperPlaces, retryWithBackoff } from '../tools/serper';
 import logger from '../lib/logger';
 import { resolveModel } from './clients';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
@@ -32,7 +32,7 @@ const serperPlacesTool = tool({
     const startTime = Date.now();
     try {
       const capped = Math.max(1, Math.min(Number(limit) || 5, 15));
-      const places = await serperPlaces(q, gl, capped);
+      const places = await retryWithBackoff(() => serperPlaces(q, gl, capped));
       const endTime = Date.now();
 
       // Log API usage (with error handling)
@@ -271,11 +271,11 @@ export async function runBusinessDiscovery(search: {
     const countriesToSearch = (search.countries || []).slice(0, 3);
     const industry = search.industries?.[0] || '';
     const intent = search.search_type === 'customer' ? 'buyers need use purchase adopt' : 'vendors suppliers sell provide manufacture distribute';
-    const { serperPlaces } = await import('../tools/serper');
+    const { serperPlaces, retryWithBackoff } = await import('../tools/serper');
 
     const perCountryResults = await Promise.all(countriesToSearch.map(async (country) => {
       const q = `${search.product_service} ${industry} ${intent} ${country}`.trim();
-      return await serperPlaces(q, country, 8).catch(() => [] as any[]);
+      return await retryWithBackoff(() => serperPlaces(q, country, 8)).catch(() => [] as any[]);
     }));
 
     // Flatten and de-duplicate by website+name
