@@ -8,6 +8,7 @@ import { countryToGL, buildBusinessData } from '../tools/util';
 import { mapBusinessesToPersonas } from '../tools/persona-mapper';
 import { triggerInstantDMDiscovery, processBusinessForDM, initDMDiscoveryProgress } from '../tools/instant-dm-discovery';
 import type { Business } from '../tools/instant-dm-discovery';
+import pLimit from 'p-limit';
 
 // Generate semantic variations of search queries using synonyms and industry jargon
 // removed multi-query generator to enforce a single precise query flow per user request
@@ -163,20 +164,36 @@ const storeBusinessesTool = tool({
     if (insertedBusinesses.length > 0) {
       initDMDiscoveryProgress(search_id, insertedBusinesses.length);
     }
-    const results = await Promise.allSettled(
-      insertedBusinesses.map(async (business) => {
-        return await processBusinessForDM(search_id, user_id, {
-          ...business,
-          country,
-          industry
-        });
-      })
-    );
-    const succeededIds = new Set(
-      results
-        .map((r, idx) => (r.status === 'fulfilled' && r.value ? insertedBusinesses[idx].id : null))
-        .filter(Boolean) as string[]
-    );
+
+    // Limit DM lookups to avoid hammering external APIs.
+    // With a batch size of 3 and a 500ms gap, expected throughput is ~6 businesses/sec.
+    const limit = pLimit(3);
+    const batchSize = 3;
+    const succeededIds = new Set<string>();
+
+    for (let i = 0; i < insertedBusinesses.length; i += batchSize) {
+      const batch = insertedBusinesses.slice(i, i + batchSize);
+
+      await Promise.all(
+        batch.map((business) =>
+          limit(async () => {
+            const ok = await processBusinessForDM(search_id, user_id, {
+              ...business,
+              country,
+              industry
+            });
+            if (ok) {
+              succeededIds.add(business.id);
+            }
+          })
+        )
+      );
+
+      // simple backoff between batches to ease external API pressure
+      if (i + batchSize < insertedBusinesses.length) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
 
     // Fallback: trigger batch discovery only for businesses not processed individually
     const pendingBusinesses = insertedBusinesses.filter(b => !succeededIds.has(b.id));
