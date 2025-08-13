@@ -102,8 +102,18 @@ CREATE TABLE IF NOT EXISTS response_cache (
   last_accessed timestamptz DEFAULT now()
 );
 
--- Enable RLS on response_cache
+-- 7b. CREATE LINKEDIN_QUERY_CACHE TABLE to avoid redundant LinkedIn searches
+CREATE TABLE IF NOT EXISTS linkedin_query_cache (
+  search_id uuid NOT NULL,
+  company text NOT NULL,
+  query text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  PRIMARY KEY (search_id, company, query)
+);
+
+-- Enable RLS on cache tables
 ALTER TABLE response_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE linkedin_query_cache ENABLE ROW LEVEL SECURITY;
 
 -- 8. ENHANCE BUSINESS_PERSONAS TABLE
 ALTER TABLE business_personas 
@@ -170,6 +180,8 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_created_at ON api_usage_logs(created_at
 CREATE INDEX IF NOT EXISTS idx_response_cache_key ON response_cache(cache_key);
 CREATE INDEX IF NOT EXISTS idx_response_cache_type ON response_cache(cache_type);
 CREATE INDEX IF NOT EXISTS idx_response_cache_expires ON response_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_linkedin_query_cache_created_at ON linkedin_query_cache(created_at);
+CREATE INDEX IF NOT EXISTS idx_linkedin_query_cache_search ON linkedin_query_cache(search_id);
 
 -- Agent execution indexes
 CREATE INDEX IF NOT EXISTS idx_agent_execution_search_id ON agent_execution_log(search_id);
@@ -184,16 +196,20 @@ CREATE INDEX IF NOT EXISTS idx_agent_execution_status ON agent_execution_log(sta
 ALTER TABLE IF EXISTS api_usage_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS search_analytics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS agent_execution_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS linkedin_query_cache ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for new tables
 CREATE POLICY "Users can view their own API usage" ON api_usage_logs 
   FOR ALL USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can view their own search analytics" ON search_analytics 
+CREATE POLICY "Users can view their own search analytics" ON search_analytics
   FOR ALL USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can view relevant cache data" ON response_cache 
+CREATE POLICY "Users can view relevant cache data" ON response_cache
   FOR SELECT USING (true); -- Cache is shared but read-only for users
+
+CREATE POLICY "Internal access to LinkedIn query cache" ON linkedin_query_cache
+  FOR ALL USING (true);
 
 CREATE POLICY "Users can view their own agent execution logs" ON agent_execution_log 
   FOR ALL USING (auth.uid() = user_id);
