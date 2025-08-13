@@ -6,6 +6,7 @@ import { extractJson } from '../tools/json';
 import { ensureUniqueTitles } from './business-persona.helpers';
 
 import {
+  sanitizePersona,
   isRealisticPersona,
   isGenericTitle,
   BusinessPersona as Persona,
@@ -288,40 +289,10 @@ export async function runBusinessPersonas(search: {
       [...search.countries].sort().join(',')
     ].join('|').toLowerCase();
 
-    const sanitizePersona = (p: any, index: number): Persona => ({
-      title: String(p?.title || `${search.search_type==='customer'?'Buyer':'Supplier'} Archetype ${index+1} - ${search.industries[0] || 'General'}`),
-      rank: typeof p?.rank === 'number' ? p.rank : index + 1,
-      match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
-      demographics: {
-        industry: String(p?.demographics?.industry || (search.industries[0] || 'General')),
-        companySize: String(p?.demographics?.companySize || ''),
-        geography: String(p?.demographics?.geography || (search.countries[0] || 'Global')),
-        revenue: String(p?.demographics?.revenue || '')
-      },
-      characteristics: {
-        painPoints: Array.isArray(p?.characteristics?.painPoints) ? p.characteristics.painPoints : [],
-        motivations: Array.isArray(p?.characteristics?.motivations) ? p.characteristics.motivations : [],
-        challenges: Array.isArray(p?.characteristics?.challenges) ? p.characteristics.challenges : [],
-        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) ? p.characteristics.decisionFactors : []
-      },
-      behaviors: {
-        buyingProcess: String(p?.behaviors?.buyingProcess || ''),
-        decisionTimeline: String(p?.behaviors?.decisionTimeline || ''),
-        budgetRange: String(p?.behaviors?.budgetRange || ''),
-        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) ? p.behaviors.preferredChannels : []
-      },
-      market_potential: {
-        totalCompanies: typeof p?.market_potential?.totalCompanies === 'number' ? p.market_potential.totalCompanies : 0,
-        avgDealSize: String(p?.market_potential?.avgDealSize || ''),
-        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 0
-      },
-      locations: Array.isArray(p?.locations) ? p.locations : [search.countries[0] || 'Global']
-    });
-
     const cached = await loadPersonaCache(cacheKey);
     if (Array.isArray(cached) && cached.length) {
-      const accepted = cached.slice(0,3).map((p, i) => sanitizePersona(p, i));
-      if (accepted.length === 3 && accepted.every(p => isRealisticPersona(p))) {
+      const accepted = cached.slice(0,3).map((p, i) => sanitizePersona('business', p, i, search));
+      if (accepted.length === 3 && accepted.every(p => isRealisticPersona('business', p))) {
         const rows = accepted.map((p: Persona) => ({
           search_id: search.id,
           user_id: search.user_id,
