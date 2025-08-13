@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
 import logger from '../lib/logger';
 import { useAuth } from './AuthContext';
+import { isDemoUser } from '../constants/demo';
 import { SearchService } from '../services/searchService';
 import { CampaignService } from '../services/campaignService';
 import type { UserSearch, EmailCampaign } from '../lib/supabase';
@@ -71,7 +72,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   const { state: authState } = useAuth();
 
   useEffect(() => {
-    if (authState.isAuthenticated && authState.user && authState.user.id !== 'demo-user') {
+    if (authState.isAuthenticated && authState.user && !isDemoUser(authState.user.id, authState.user.email)) {
       loadUserDataFromDB();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,11 +121,9 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     }
     
     // Check for demo user (multiple possible IDs)
-    const isDemoUser = authState.user.id === 'demo-user' || 
-                      authState.user.id === '00000000-0000-0000-0000-000000000001' ||
-                      authState.user.email === 'demo@leadora.com';
+    const demo = isDemoUser(authState.user.id, authState.user.email);
     
-    if (isDemoUser) {
+    if (demo) {
       logger.info('Demo user detected, returning mock search ID');
       return 'demo-search-id';
     }

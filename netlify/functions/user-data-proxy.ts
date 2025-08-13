@@ -36,6 +36,18 @@ export const handler: Handler = async (event) => {
   const acrh = (event.headers['access-control-request-headers'] || event.headers['Access-Control-Request-Headers'] || '') as string;
   const acrm = (event.headers['access-control-request-method'] || event.headers['Access-Control-Request-Method'] || '') as string;
   const corsHeaders = buildCorsHeaders(origin, acrh, acrm);
+  // Determine if we are in a local/LAN dev environment. We use this to allow
+  // privileged reads via service role for convenience during development when
+  // browser-side RLS may block search-scoped queries.
+  const originHeader = (event.headers.origin || event.headers.Origin || '').toString();
+  const hostHeaderRaw = (event.headers.host || event.headers.Host || '').toString();
+  const hostOnly = hostHeaderRaw.split(':')[0];
+  const isLocalOrigin = originHeader.startsWith('http://localhost') || originHeader.startsWith('http://127.0.0.1');
+  const lanRegex = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
+  const isLanOrigin = !!originHeader && originHeader.startsWith('http://') && lanRegex.test(originHeader.replace(/^https?:\/\//, ''));
+  const isLocalHost = hostOnly === 'localhost' || hostOnly === '127.0.0.1';
+  const isLanHost = !!hostOnly && lanRegex.test(hostOnly);
+  const allowDev = isLocalOrigin || isLocalHost || isLanOrigin || isLanHost;
   // Validate required env after we can return CORS headers
   if (!supabaseUrl) {
     return {
@@ -112,25 +124,13 @@ export const handler: Handler = async (event) => {
   }
 
   // For user-scoped requests, require JWT in prod.
-  // In local dev, allow user-scoped reads without JWT for localhost/LAN, using service role for server-side fetch.
-  let allowDev = false;
-  if (user_id && !token) {
-    const originHeader = (event.headers.origin || event.headers.Origin || '').toString();
-    const hostHeaderRaw = (event.headers.host || event.headers.Host || '').toString();
-    const hostOnly = hostHeaderRaw.split(':')[0];
-    const isLocalOrigin = originHeader.startsWith('http://localhost') || originHeader.startsWith('http://127.0.0.1');
-    const isLocalHost = hostOnly === 'localhost' || hostOnly === '127.0.0.1';
-    const lanRegex = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
-    const isLanOrigin = !!originHeader && originHeader.startsWith('http://') && lanRegex.test(originHeader.replace(/^https?:\/\//, ''));
-    const isLanHost = !!hostOnly && lanRegex.test(hostOnly);
-    allowDev = isLocalOrigin || isLocalHost || isLanOrigin || isLanHost;
-    if (!allowDev) {
-      return {
-        statusCode: 401,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Authorization required for user-scoped requests' })
-      };
-    }
+  // In local dev, allow user-scoped reads without JWT for localhost/LAN.
+  if (user_id && !token && !allowDev) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Authorization required for user-scoped requests' })
+    };
   }
 
   // Build Supabase REST query
@@ -153,6 +153,9 @@ export const handler: Handler = async (event) => {
   try {
     // Query Supabase REST without service role; pass through anon and user token
     const restUrl = `${supabaseUrl}/rest/v1/${path}?${params.toString()}`;
+    // In local/LAN development, when no user token is available, prefer using the
+    // service role key to bypass RLS for search-scoped queries as well. This
+    // ensures UI can read rows (e.g., market_insights) immediately after agents insert them.
     const useServiceRole = (!token && allowDev && !!supabaseServiceKey);
     const response = await fetch(restUrl, {
       headers: {
