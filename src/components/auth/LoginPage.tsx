@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search, Mail, Lock, Eye, EyeOff, ArrowRight, Building, Users, Target } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -8,7 +8,7 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ onSwitchToRegister, onBackToLanding }: LoginPageProps) {
-  const { login } = useAuth();
+  const { login, requestOtp, loginWithOtp, resetPassword } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -16,6 +16,16 @@ export default function LoginPage({ onSwitchToRegister, onBackToLanding }: Login
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [mode, setMode] = useState<'password' | 'otp'>('password');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+
+  useEffect(() => {
+    if (!otpSent || resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn(prev => Math.max(prev - 1, 0)), 1000);
+    return () => clearTimeout(t);
+  }, [otpSent, resendIn]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,9 +33,25 @@ export default function LoginPage({ onSwitchToRegister, onBackToLanding }: Login
     setError(null);
     
     try {
-      const success = await login(formData.email, formData.password);
-      if (!success) {
-        setError('Invalid email or password');
+      if (mode === 'password') {
+        const success = await login(formData.email, formData.password);
+        if (!success) setError('Invalid email or password');
+      } else {
+        if (!otpSent) {
+          const ok = await requestOtp(formData.email, 'signin');
+          if (!ok) setError('Failed to send code. Please try again.');
+          else {
+            setOtpSent(true);
+            setResendIn(60);
+          }
+        } else {
+          if (!otpCode || otpCode.length < 6) {
+            setError('Enter the 6-digit code sent to your email.');
+          } else {
+            const ok = await loginWithOtp(formData.email, otpCode);
+            if (!ok) setError('Invalid or expired code.');
+          }
+        }
       }
       // If successful, AuthContext will automatically redirect to dashboard
     } catch (err: any) {
@@ -63,6 +89,22 @@ export default function LoginPage({ onSwitchToRegister, onBackToLanding }: Login
             <p className="text-gray-600">Sign in to your Leadora account</p>
           </div>
 
+          {/* Auth Mode Tabs */}
+          <div className="flex items-center justify-center mb-4">
+            <div className="inline-flex bg-gray-100 rounded-lg p-1">
+              <button
+                type="button"
+                onClick={() => { setMode('password'); setError(null); }}
+                className={`px-4 py-2 text-sm font-medium rounded-md ${mode==='password'?'bg-white shadow text-gray-900':'text-gray-600 hover:text-gray-800'}`}
+              >Password</button>
+              <button
+                type="button"
+                onClick={() => { setMode('otp'); setError(null); }}
+                className={`px-4 py-2 text-sm font-medium rounded-md ${mode==='otp'?'bg-white shadow text-gray-900':'text-gray-600 hover:text-gray-800'}`}
+              >OTP</button>
+            </div>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -89,31 +131,71 @@ export default function LoginPage({ onSwitchToRegister, onBackToLanding }: Login
               </div>
             </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter your password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
+            {mode === 'password' ? (
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter your password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div>
+                <label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-1">
+                  One-Time Passcode
+                </label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    id="otp"
+                    name="otp"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder={otpSent ? 'Enter 6-digit code' : 'Request a code'}
+                  />
+                  <button
+                    type="button"
+                    disabled={loading || resendIn > 0}
+                    onClick={async () => {
+                      setError(null);
+                      setLoading(true);
+                      try {
+                        const ok = await requestOtp(formData.email, 'signin');
+                        if (ok) {
+                          setOtpSent(true);
+                          setResendIn(60);
+                        } else setError('Failed to send code. Please try again.');
+                      } finally { setLoading(false); }
+                    }}
+                    className={`px-4 py-3 rounded-lg border ${resendIn>0?'border-gray-300 text-gray-400':'border-blue-600 text-blue-600 hover:bg-blue-50'}`}
+                  >
+                    {resendIn > 0 ? `Resend in ${resendIn}s` : 'Send code'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">A 6-digit code will be sent to your email.</p>
+              </div>
+            )}
 
             <button
               type="submit"
@@ -124,7 +206,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToLanding }: Login
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Sign In</span>
+                  <span>{mode==='password' ? 'Sign In' : (otpSent ? 'Verify & Sign In' : 'Send Code')}</span>
                   <ArrowRight className="w-5 h-5" />
                 </>
               )}
@@ -132,6 +214,21 @@ export default function LoginPage({ onSwitchToRegister, onBackToLanding }: Login
           </form>
 
           <div className="mt-6 text-center">
+            {mode==='password' && (
+              <button
+                onClick={async ()=>{
+                  setError(null);
+                  if (!formData.email) { setError('Enter your email to reset password.'); return; }
+                  setLoading(true);
+                  const ok = await resetPassword(formData.email);
+                  setLoading(false);
+                  if (!ok) setError('Failed to send reset email.');
+                }}
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium mr-3"
+              >
+                Forgot password?
+              </button>
+            )}
             <p className="text-gray-600">
               Don't have an account?{' '}
               <button

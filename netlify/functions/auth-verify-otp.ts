@@ -137,19 +137,40 @@ export const handler: Handler = async (event) => {
       if (createErr) throw createErr;
 
       logger.info('User created via OTP signup', { email });
+      // Generate a Supabase magic link token that the client can verify to obtain a session immediately
+      const redirectTo = process.env.URL || process.env.DEPLOY_URL || 'http://localhost:8888';
+      const link = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo } as any });
       return { 
         statusCode: 200, 
         headers, 
-        body: JSON.stringify({ success: true, created_user_id: created.user?.id }) 
+        body: JSON.stringify({ success: true, user_id: created.user?.id, email_otp: (link as any)?.email_otp || null, action_link: (link as any)?.action_link || null }) 
       };
     }
 
-    // signin OTP success
+    // signin OTP success → return a magiclink OTP so client can create a Supabase session
+    // If user does not exist, generateLink will implicitly prepare a signup magic link
+    let emailOtp: string | null = null;
+    let actionLink: string | null = null;
+    try {
+      const redirectTo = process.env.URL || process.env.DEPLOY_URL || 'http://localhost:8888';
+      const link: any = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo } as any });
+      emailOtp = link?.email_otp || null;
+      actionLink = link?.action_link || null;
+    } catch (e) {
+      // Fallback: attempt user creation then generate link
+      try {
+        await supaAdmin.auth.admin.createUser({ email, email_confirm: true });
+        const link2: any = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email });
+        emailOtp = link2?.email_otp || null;
+        actionLink = link2?.action_link || null;
+      } catch {}
+    }
+
     logger.info('OTP signin verified', { email });
     return { 
       statusCode: 200, 
       headers, 
-      body: JSON.stringify({ success: true }) 
+      body: JSON.stringify({ success: true, email_otp: emailOtp, action_link: actionLink }) 
     };
 
   } catch (e: any) {

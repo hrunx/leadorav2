@@ -26,9 +26,12 @@ interface AuthState {
 interface AuthContextType {
   state: AuthState;
   login: (email: string, password: string) => Promise<boolean>;
+  loginWithOtp: (email: string, code: string) => Promise<boolean>;
+  requestOtp: (email: string, purpose: 'signin'|'signup', userId?: string) => Promise<boolean>;
   register: (userData: RegisterData) => Promise<boolean>;
   logout: () => void;
   updateProfile: (userData: Partial<User>) => Promise<boolean>;
+  resetPassword: (email: string) => Promise<boolean>;
 }
 
 interface RegisterData {
@@ -101,6 +104,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           subscriptionStatus: session.user.user_metadata?.subscriptionStatus || 'demo'
         };
         dispatch({ type: 'LOGIN_SUCCESS', payload: user });
+        // Persist app session copy for refresh resilience
+        try { localStorage.setItem('leadora_app_user', JSON.stringify(user)); } catch {}
+      } else {
+        // No Supabase session — attempt to restore OTP app session from localStorage
+        try {
+          const raw = localStorage.getItem('leadora_app_user');
+          if (raw) {
+            const cached = JSON.parse(raw) as User;
+            if (cached && cached.id && cached.email) {
+              dispatch({ type: 'LOGIN_SUCCESS', payload: cached });
+            }
+          }
+        } catch {}
       }
       dispatch({ type: 'SET_LOADING', payload: false });
     };
@@ -157,9 +173,87 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (error) throw error;
+      // After Supabase login, persist app user mirror for refresh
+      const { data: { user: sUser } } = await supabase.auth.getUser();
+      if (sUser) {
+        const mirror: User = {
+          id: sUser.id,
+          email: sUser.email || email,
+          firstName: sUser.user_metadata?.firstName || '',
+          lastName: sUser.user_metadata?.lastName || '',
+          company: sUser.user_metadata?.company || '',
+          role: sUser.user_metadata?.role || '',
+          industry: sUser.user_metadata?.industry || '',
+          createdAt: sUser.created_at,
+          subscription: sUser.user_metadata?.subscription || 'demo',
+          subscriptionStatus: sUser.user_metadata?.subscriptionStatus || 'demo'
+        };
+        try { localStorage.setItem('leadora_app_user', JSON.stringify(mirror)); } catch {}
+      }
       return true;
     } catch (error: any) {
       logger.error('Login error', { error: error?.message || String(error) });
+      return false;
+    }
+  };
+
+  const requestOtp = async (email: string, purpose: 'signin'|'signup', userId?: string): Promise<boolean> => {
+    try {
+      const r = await fetch('/.netlify/functions/auth-request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, purpose, user_id: userId })
+      });
+      return r.ok;
+    } catch { return false; }
+  };
+
+  const loginWithOtp = async (email: string, code: string): Promise<boolean> => {
+    try {
+      const r = await fetch('/.netlify/functions/auth-verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, purpose: 'signin', code })
+      });
+      if (!r.ok) return false;
+      const payload = await r.json();
+      const emailOtp = payload?.email_otp as string | undefined;
+      const actionLink = payload?.action_link as string | undefined;
+      if (!emailOtp && !actionLink) {
+        // Could not create a magic link or token; do not fallback to a fake user to avoid ID mismatch
+        return false;
+      }
+      // Prefer direct email_otp exchange; otherwise open action link (Netlify dev) to complete session
+      let sUser: any = null;
+      if (emailOtp) {
+        const { data, error } = await supabase.auth.verifyOtp({ type: 'email', email, token: emailOtp });
+        if (error) return false;
+        sUser = data?.user || (await supabase.auth.getUser()).data.user;
+      } else if (actionLink) {
+        // As a fallback during dev, attempt to call the action link to seed session cookies (only works if same domain)
+        try {
+          // Open in same tab to complete magic link; after redirect back, session will exist
+          window.location.href = actionLink;
+          return false; // prevent further processing; page will reload
+        } catch {}
+      }
+      if (!sUser) return false;
+      const mirror: User = {
+        id: sUser.id,
+        email: sUser.email || email,
+        firstName: sUser.user_metadata?.firstName || '',
+        lastName: sUser.user_metadata?.lastName || '',
+        company: sUser.user_metadata?.company || '',
+        role: sUser.user_metadata?.role || '',
+        industry: sUser.user_metadata?.industry || '',
+        createdAt: sUser.created_at,
+        subscription: sUser.user_metadata?.subscription || 'demo',
+        subscriptionStatus: sUser.user_metadata?.subscriptionStatus || 'demo'
+      };
+      dispatch({ type: 'LOGIN_SUCCESS', payload: mirror });
+      try { localStorage.setItem('leadora_app_user', JSON.stringify(mirror)); } catch {}
+      return true;
+    } catch {
       return false;
     }
   };
@@ -192,6 +286,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     supabase.auth.signOut();
+    try { localStorage.removeItem('leadora_app_user'); } catch {}
+  };
+
+  const resetPassword = async (email: string): Promise<boolean> => {
+    try {
+      const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo
+      });
+      if (error) throw error;
+      return true;
+    } catch (error: any) {
+      logger.error('Password reset error', { error: error?.message || String(error) });
+      return false;
+    }
   };
 
   const updateProfile = async (userData: Partial<User>): Promise<boolean> => {
@@ -218,9 +327,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         state,
         login,
+        loginWithOtp,
+        requestOtp,
         register,
         logout,
-        updateProfile
+        updateProfile,
+        resetPassword
       }}
     >
       {children}
