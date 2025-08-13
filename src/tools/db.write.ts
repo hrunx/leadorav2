@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import logger from '../lib/logger';
 import { randomUUID } from 'crypto';
+import { MarketInsightsInsertSchema } from '../lib/marketInsightsSchema';
 
 // Create a memoized client for Netlify functions/server usage only
 let _supaWrite: ReturnType<typeof createClient> | null = null;
@@ -71,6 +72,15 @@ export const insertBusinessPersonas = async (rows: any[]) => {
     try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   }
   return data!;
+};
+
+export const insertPersonaCache = async (cache_key: string, personas: any[]) => {
+  const supa = getSupabaseClient();
+  const { error } = await supa
+    .from('persona_cache')
+    .upsert({ cache_key, personas })
+    .select('cache_key');
+  if (error) throw error;
 };
 
 // Patch insertBusinesses to guarantee returned objects always include country and industry
@@ -153,6 +163,13 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
 
 // Update enrichment data for a specific decision maker - moved to end of file
 
+type InsightSource = {
+  title?: string;
+  url: string;
+  date?: string;
+  [key: string]: any;
+};
+
 export const insertMarketInsights = async (row: {
   search_id: string;
   user_id: string;
@@ -162,16 +179,45 @@ export const insertMarketInsights = async (row: {
   competitor_data: any[];
   trends: any[];
   opportunities: any;
-  sources?: any[];
+  sources?: InsightSource[];
   analysis_summary?: string;
   research_methodology?: string;
 }) => {
+  const parsed = MarketInsightsInsertSchema.safeParse(row);
+  if (!parsed.success) {
+    logger.error('Invalid market insights payload', { error: parsed.error });
+    throw new Error('Invalid market insights payload');
+  }
   const supa = getSupabaseClient();
-  const { data, error } = await supa.from('market_insights').insert(row).select('id').single();
+
+  const { data, error } = await supa.from('market_insights').insert(parsed.data).select('id').single();
+
+  const sources = (row.sources || []).map((s: any) => {
+    if (typeof s === 'string') return { title: s, url: s } as InsightSource;
+    return { title: s.title ?? s.url, url: s.url, date: s.date, ...s } as InsightSource;
+  });
+  const { data, error } = await supa.from('market_insights').insert({ ...row, sources }).select('id').single();
   if (error) throw error;
   try { await updateSearchTotals(row.search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   return data!;
 };
+
+export async function mergeAgentMetadata(search_id: string, metadata: Record<string, any>): Promise<void> {
+  const supa = getSupabaseClient();
+  const { data, error } = await supa
+    .from('user_searches')
+    .select('agent_metadata')
+    .eq('id', search_id)
+    .single();
+  if (error) throw error;
+  const current = data?.agent_metadata || {};
+  const merged = { ...current, ...metadata };
+  const { error: updateError } = await supa
+    .from('user_searches')
+    .update({ agent_metadata: merged, updated_at: new Date().toISOString() })
+    .eq('id', search_id);
+  if (updateError) throw updateError;
+}
 
 // enforce allowed phases (must match DB CHECK constraint on user_searches.phase)
 const AllowedPhasesList = [
@@ -210,7 +256,8 @@ export async function updateSearchProgress(
   search_id: string,
   progress_pct: number,
   phase: string,
-  status = 'in_progress'
+  status = 'in_progress',
+  status_detail?: Record<string, 'done' | 'failed'>
 ) {
   const normPhase = normalizePhase(phase);
   const supa = getSupabaseClient();
@@ -232,14 +279,17 @@ export async function updateSearchProgress(
       nextPhase = normalizePhase(current.phase || 'starting');
     }
   }
+  const updateData: Record<string, any> = {
+    progress_pct: nextPct,
+    phase: nextPhase,
+    status, // status column is independent of check constraint
+    updated_at: new Date().toISOString(),
+  };
+  if (status_detail) updateData.status_detail = status_detail;
+
   const { error } = await supa
     .from('user_searches')
-    .update({
-      progress_pct: nextPct,
-      phase: nextPhase,
-      status, // status column is independent of check constraint
-      updated_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq('id', search_id);
 
   if (error) throw error;
