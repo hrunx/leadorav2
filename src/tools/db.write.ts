@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import logger from '../lib/logger';
 import { randomUUID } from 'crypto';
+import { MarketInsightsInsertSchema } from '../lib/marketInsightsSchema';
 
 // Create a memoized client for Netlify functions/server usage only
 let _supaWrite: ReturnType<typeof createClient> | null = null;
@@ -166,8 +167,13 @@ export const insertMarketInsights = async (row: {
   analysis_summary?: string;
   research_methodology?: string;
 }) => {
+  const parsed = MarketInsightsInsertSchema.safeParse(row);
+  if (!parsed.success) {
+    logger.error('Invalid market insights payload', { error: parsed.error });
+    throw new Error('Invalid market insights payload');
+  }
   const supa = getSupabaseClient();
-  const { data, error } = await supa.from('market_insights').insert(row).select('id').single();
+  const { data, error } = await supa.from('market_insights').insert(parsed.data).select('id').single();
   if (error) throw error;
   try { await updateSearchTotals(row.search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   return data!;
