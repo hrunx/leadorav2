@@ -141,7 +141,18 @@ BEGIN
     END IF;
 END $$;
 
--- 11. Verification and status report
+-- 11. Create linkedin_query_cache table for query caching
+CREATE TABLE IF NOT EXISTS linkedin_query_cache (
+  search_id uuid NOT NULL,
+  company text NOT NULL,
+  query text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  PRIMARY KEY (search_id, company, query)
+);
+CREATE INDEX IF NOT EXISTS idx_linkedin_query_cache_created_at ON linkedin_query_cache(created_at);
+CREATE INDEX IF NOT EXISTS idx_linkedin_query_cache_search ON linkedin_query_cache(search_id);
+
+-- 12. Verification and status report
 DO $$
 DECLARE
     business_count integer;
