@@ -1,6 +1,6 @@
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import logger from '../lib/logger';
-import { insertMarketInsights, updateSearchProgress, markSearchCompleted, logApiUsage } from '../tools/db.write';
+import { insertMarketInsights, markSearchCompleted, logApiUsage } from '../tools/db.write';
 import { extractJson } from '../tools/json';
 import { serperSearch } from '../tools/serper';
 import * as cheerio from 'cheerio';
@@ -64,7 +64,6 @@ export async function runMarketResearch(search: {
   search_type: 'customer' | 'supplier';
 }) {
   try {
-    await updateSearchProgress(search.id, 90, 'market_research', 'in_progress');
     logger.info('Starting market research', { search_id: search.id });
     
     // Prefetch strong external sources per country and industry to ground the analysis

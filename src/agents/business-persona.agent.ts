@@ -1,4 +1,6 @@
 import { Agent, tool } from '@openai/agents';
+import { insertBusinessPersonas } from '../tools/db.write';
+
 import { insertBusinessPersonas, updateSearchProgress, insertPersonaCache } from '../tools/db.write';
 import { loadPersonaCache } from '../tools/db.read';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
@@ -305,7 +307,6 @@ export async function runBusinessPersonas(search: {
   search_type:'customer'|'supplier'
 }) {
   try {
-    await updateSearchProgress(search.id, 10, 'business_personas', 'in_progress');
     let personas: Persona[] = [];
 
     const cacheKey = [
@@ -529,7 +530,6 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       }));
       await insertPersonaCache(cacheKey, personas);
       await insertBusinessPersonas(rows);
-      await updateSearchProgress(search.id, 20, 'business_personas');
       import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
       return;
     }
@@ -591,7 +591,6 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       }));
       await insertPersonaCache(cacheKey, fallback);
       await insertBusinessPersonas(rows);
-      await updateSearchProgress(search.id, 20, 'business_personas');
     }
     // Ensure we only update progress once at the end of the routine
     import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
