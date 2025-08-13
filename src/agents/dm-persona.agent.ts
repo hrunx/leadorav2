@@ -244,6 +244,7 @@ export async function runDMPersonas(search: {
 }) {
   try {
     let personas: DMPersona[] = [];
+    let rejectedPersonas: DMPersona[] = [];
     const improvedPrompt = `Generate 3 decision-maker personas for:
 - search_id=${search.id}
 - user_id=${search.user_id}
@@ -310,6 +311,30 @@ CRITICAL: Each persona must have:
       }
     };
 
+    const isNonEmptyString = (v: any): v is string => typeof v === 'string' && v.trim().length > 0;
+    const isNonEmptyStringArray = (arr: any): arr is string[] => Array.isArray(arr) && arr.length > 0 && arr.every(isNonEmptyString);
+    const validatePersona = (p: DMPersona): boolean =>
+      isNonEmptyString(p.title) &&
+      isNonEmptyString(p.demographics.level) &&
+      isNonEmptyString(p.demographics.department) &&
+      isNonEmptyString(p.demographics.experience) &&
+      isNonEmptyString(p.demographics.geography) &&
+      isNonEmptyStringArray(p.characteristics.responsibilities) &&
+      isNonEmptyStringArray(p.characteristics.painPoints) &&
+      isNonEmptyStringArray(p.characteristics.motivations) &&
+      isNonEmptyStringArray(p.characteristics.challenges) &&
+      isNonEmptyStringArray(p.characteristics.decisionFactors) &&
+      isNonEmptyString(p.behaviors.decisionMaking) &&
+      isNonEmptyString(p.behaviors.communicationStyle) &&
+      isNonEmptyString(p.behaviors.buyingProcess) &&
+      isNonEmptyStringArray(p.behaviors.preferredChannels);
+    const validatePersonas = (arr: DMPersona[]) => {
+      const valid: DMPersona[] = [];
+      const rejected: DMPersona[] = [];
+      arr.forEach(p => (validatePersona(p) ? valid : rejected).push(p));
+      return { valid, rejected };
+    };
+
     try {
       // 1) GPT-5 primary
       const text = await callOpenAIChatJSON({
@@ -321,21 +346,65 @@ CRITICAL: Each persona must have:
         requireJsonObject: true,
         verbosity: 'low'
       });
+
+      const accepted = acceptPersonas(tryParsePersonas(text));
+      const { valid, rejected } = validatePersonas(accepted);
+      if (rejected.length) rejectedPersonas.push(...rejected);
+      if (valid.length === 3) personas = valid;
+
       let accepted = acceptPersonas(tryParsePersonas(text));
       if (accepted.length === 3) personas = await ensureProductServiceKeywords(accepted);
+
     } catch {}
     if (!personas.length) {
       // 2) Gemini fallback
       try {
         const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
+
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        const { valid, rejected } = validatePersonas(accepted);
+        if (rejected.length) rejectedPersonas.push(...rejected);
+        if (valid.length === 3) personas = valid;
         let accepted = acceptPersonas(tryParsePersonas(text));
         if (accepted.length === 3) personas = await ensureProductServiceKeywords(accepted);
+
       } catch {}
     }
     if (!personas.length) {
       // 3) DeepSeek fallback
       try {
         const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
+
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        const { valid, rejected } = validatePersonas(accepted);
+        if (rejected.length) rejectedPersonas.push(...rejected);
+        if (valid.length === 3) personas = valid;
+      } catch {}
+    }
+    if (personas.length) {
+      const { valid, rejected } = validatePersonas(personas);
+      if (rejected.length) rejectedPersonas.push(...rejected);
+      if (valid.length === 3) {
+        const rows = valid.slice(0, 3).map((p: DMPersona) => ({
+          search_id: search.id,
+          user_id: search.user_id,
+          title: p.title,
+          rank: p.rank,
+          match_score: p.match_score,
+          demographics: p.demographics || {},
+          characteristics: p.characteristics || {},
+          behaviors: p.behaviors || {},
+          market_potential: p.market_potential || {}
+        }));
+        await insertDMPersonas(rows);
+        await updateSearchProgress(search.id, 20, 'dm_personas');
+        import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
+        return;
+      }
+    }
+    if (rejectedPersonas.length) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('Rejected DM personas', { search_id: search.id, personas: rejectedPersonas })).catch(()=>{});
+
         let accepted = acceptPersonas(tryParsePersonas(text));
         if (accepted.length === 3) personas = await ensureProductServiceKeywords(accepted);
       } catch {}
@@ -371,6 +440,7 @@ CRITICAL: Each persona must have:
       await updateSearchProgress(search.id, 20, 'dm_personas');
       import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
       return;
+
     }
     // All LLMs failed, insert 3 deterministic DM personas
     import('../lib/logger').then(({ default: logger }) => logger.error('[DMPersona] All LLMs failed, inserting deterministic personas', { search_id: search.id })).catch(()=>{});
