@@ -77,6 +77,7 @@ async function withLimiter<T>(fn: () => Promise<T>): Promise<T> {
 // ---- Throttling and de-duplication for mapping routines ----
 const mappingLocks = new Set<string>();
 const mappingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const lockTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
 async function scoreBusinessToPersonasLLM(business: BusinessRow, personas: BusinessPersonaRow[]): Promise<{ personaId: string; score: number } | null> {
   if (!personas || personas.length === 0) return null;
@@ -268,6 +269,13 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
       return;
     }
     mappingLocks.add(searchId);
+    const timeout = setTimeout(() => {
+      if (mappingLocks.delete(searchId)) {
+        logger.warn('Persona mapping lock timed out', { searchId });
+      }
+      lockTimeouts.delete(searchId);
+    }, 60000);
+    lockTimeouts.set(searchId, timeout);
     logger.info('Starting persona mapping', { searchId });
 
     // Ensure business personas exist before mapping
@@ -352,6 +360,11 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     throw error;
   }
   finally {
+    const t = lockTimeouts.get(searchId);
+    if (t) {
+      clearTimeout(t);
+      lockTimeouts.delete(searchId);
+    }
     mappingLocks.delete(searchId);
   }
 }
