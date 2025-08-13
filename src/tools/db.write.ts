@@ -73,6 +73,15 @@ export const insertBusinessPersonas = async (rows: any[]) => {
   return data!;
 };
 
+export const insertPersonaCache = async (cache_key: string, personas: any[]) => {
+  const supa = getSupabaseClient();
+  const { error } = await supa
+    .from('persona_cache')
+    .upsert({ cache_key, personas })
+    .select('cache_key');
+  if (error) throw error;
+};
+
 // Patch insertBusinesses to guarantee returned objects always include country and industry
 // Add a type/interface for the business row for type safety
 // If Supabase omits these fields, explicitly add them from the input rows before returning
