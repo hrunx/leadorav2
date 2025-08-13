@@ -3,7 +3,7 @@ import { serperSearch } from '../tools/serper';
 import { resolveModel, supa as sharedSupa } from './clients';
 import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
-import { mapDMToPersona } from '../tools/util';
+import { mapDMToPersona, retryWithBackoff } from '../tools/util';
 import logger from '../lib/logger';
 import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
 
@@ -366,13 +366,19 @@ const storeDMsTool = tool({
 
     try {
       // Trigger backend enrichment via Netlify function without blocking
-      void fetch(enrichUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ search_id })
-      }).catch(err => {
-        logger.warn('Failed to trigger enrichment', { error: (err as any)?.message || err });
-      });
+      let attempts = 0;
+      void retryWithBackoff(async () => {
+        attempts++;
+        return fetch(enrichUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ search_id })
+        });
+      }, 2)
+        .then(() => logger.debug('Triggered enrichment', { attempts }))
+        .catch(err => {
+          logger.warn('Failed to trigger enrichment', { attempts, error: (err as any)?.message || err });
+        });
     } catch (err) {
       logger.warn('Failed to trigger enrichment', { error: (err as any)?.message || err });
     }
