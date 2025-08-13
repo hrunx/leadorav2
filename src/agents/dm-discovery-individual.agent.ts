@@ -6,7 +6,11 @@ import { loadDMPersonas } from '../tools/db.read';
 import { mapDMToPersona, retryWithBackoff } from '../tools/util';
 import logger from '../lib/logger';
 import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
+
+import { hasSeenQuery, markSeenQuery } from '../tools/query-cache';
+
 import { createHash } from 'crypto';
+
 
 interface Employee {
   name: string;
@@ -22,6 +26,7 @@ interface Employee {
 }
 
 type SerperItem = { link?: string; title?: string; snippet?: string };
+
 
 // Supabase-backed de-duplication of repeated search queries
 const QUERY_LOG_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -121,11 +126,16 @@ const linkedinSearchTool = tool({
       // Search for employees in different roles
       for (const query of queries) {
         try {
+
+          // Skip if we've already executed this query for this company recently
+          if (await hasSeenQuery(company_name, query)) {
+
           // Skip if we've already executed this query recently
           if (await hasSeen(company_name, query)) {
 
           // Skip if we've already executed this query in-memory
           if (hasSeen(company_name, query)) {
+
             continue;
           }
 
@@ -179,6 +189,9 @@ const linkedinSearchTool = tool({
           }
 
           // Mark this query as seen to prevent future duplicates
+
+          await markSeenQuery(company_name, query);
+
 
           await markSeen(company_name, query);
           
