@@ -1,6 +1,6 @@
-import { retryWithBackoff } from './util';
-import { glToCountryName } from './util';
+import { glToCountryName, fetchWithTimeoutRetry } from './util';
 import { createClient } from '@supabase/supabase-js';
+import logger from '../lib/logger';
 
 function requireEnv(key: string) {
   const v = process.env[key];
@@ -26,6 +26,32 @@ async function withLimiter<T>(fn: () => Promise<T>): Promise<T> {
     };
     if (running < MAX_CONCURRENT) runNext(); else queue.push(runNext);
   });
+}
+
+// Retry wrapper with incremental backoff and logging
+export async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  baseDelay = 500
+): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      if (attempt > 0) {
+        logger.warn('Serper retry attempt', { attempt, retries });
+      }
+      return await fn();
+    } catch (error) {
+      if (attempt === retries) {
+        logger.error('Serper request failed after max retries', { error: (error as any)?.message || error });
+        throw error;
+      }
+      const delay = baseDelay * Math.pow(2, attempt);
+      logger.warn('Serper request failed, backing off', { attempt: attempt + 1, delay });
+      await new Promise(res => setTimeout(res, delay));
+    }
+  }
+  // Should never reach here
+  throw new Error('retryWithBackoff exhausted');
 }
 
 // Optional DB-backed cache (response_cache)
@@ -103,9 +129,6 @@ function glFromCountry(country: string): string {
   ]);
   return m.get(key) || 'us';
 }
-
-import logger from '../lib/logger';
-import { fetchWithTimeoutRetry } from './util';
 
 // Deprecated inline timeout function removed; we use fetchWithTimeoutRetry exclusively
 
