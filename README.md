@@ -14,6 +14,7 @@ Leadora is a production‑grade, zero‑console, fully serverless multi‑agent 
 - Business Discovery (Serper Places/Search + CSE fallback), country‑aware, with conservative filtering.
 - Decision‑Maker Discovery + server‑side Contact Enrichment (email/phone) with graceful backoff.
 - Market Research (GPT‑5 primary) with multi‑country web references, structured JSON output (TAM/SAM/SOM, competitors, trends).
+- Optional advanced market research with live web search and TAM/SAM/SOM, competitor, and trend analysis when `use_advanced_research` is set on a search record.
 - Real‑time UI progress via SSE and Supabase listeners; data persists in Supabase (RLS compatible).
 
 ### Architecture
