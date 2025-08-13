@@ -2,7 +2,7 @@ import { Agent, tool, run } from '@openai/agents';
 import { serperPlaces, retryWithBackoff } from '../tools/serper';
 import logger from '../lib/logger';
 import { resolveModel } from './clients';
-import { insertBusinesses, logApiUsage } from '../tools/db.write';
+import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 import { loadBusinesses } from '../tools/db.read';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
@@ -142,50 +142,19 @@ const storeBusinessesTool = tool({
   } as const,
   execute: async (input: unknown) => {
 
-    const { search_id, user_id, items } = input as {
-      search_id: string;
-      user_id: string;
-      items: (Business & { industry: string; country: string })[]
-    };
-    // Insert IMMEDIATELY without enrichment for fastest UI paint; enrichment can be handled later
-    const capped1 = items.slice(0, 5);
-    // Note: reserved for future enrichment (intentionally not used)
-    void capped1.map((b) =>
-      buildBusinessData({
-        search_id,
-        user_id,
-        persona_id: b.persona_id || null, // Use null if no persona mapping yet (will be updated later)
-        name: b.name,
-        industry: b.industry,
-        country: b.country,
-        address: b.address || '',
-        city: b.city || (b.address?.split(',')?.[0] || b.country),
-        phone: b.phone || undefined,
-        website: b.website || undefined,
-        rating: b.rating ?? undefined,
-        size: b.size || 'Unknown',
-        revenue: b.revenue || 'Unknown',
-        description: b.description || 'Business discovered via search',
-        match_score: b.match_score || 75,
-        persona_type: 'business_candidate',
-        relevant_departments: b.relevant_departments || [],
-        key_products: b.key_products || [],
-        recent_activity: b.recent_activity || []
-      })
-    );
-
-    const { search_id: search_id2, user_id: user_id2, industry, country, items: items2 } = input as {
+    const { search_id, user_id, industry, country, items } = input as {
       search_id: string;
       user_id: string;
       industry: string;
       country: string;
-      items: Business[]
+      items: Business[];
     };
+
     // Deduplicate by website/phone (case-insensitive):
     // - Seed sets with existing DB values for this search
     // - Skip items whose website or phone already exists in sets
     // - Add each unique website/phone to catch duplicates within the batch
-    const existing = await loadBusinesses(search_id2);
+    const existing = await loadBusinesses(search_id);
     const existingAny = (existing as any[]) || [];
     const seenWeb = new Set(
       existingAny.map((b: any) => String(b?.website || '').toLowerCase()).filter(Boolean)
@@ -193,7 +162,7 @@ const storeBusinessesTool = tool({
     const seenPhone = new Set(
       existingAny.map((b: any) => String(b?.phone || '').toLowerCase()).filter(Boolean)
     );
-    const unique = items2.filter(b => {
+    const unique = items.filter(b => {
       const w = (b.website || '').toLowerCase();
       const p = (b.phone || '').toLowerCase();
       if (w && seenWeb.has(w)) return false;
@@ -204,10 +173,10 @@ const storeBusinessesTool = tool({
     });
 
     // After deduplication, insert immediately without enrichment for fastest UI paint
-    const capped2 = unique.slice(0, 5);
-    const rows2 = capped2.map((b: Business) => buildBusinessData({
-      search_id: search_id2,
-      user_id: user_id2,
+    const capped = unique.slice(0, 5);
+    const rows = capped.map((b: Business) => buildBusinessData({
+      search_id,
+      user_id,
       persona_id: b.persona_id || null, // Use null if no persona mapping yet (will be updated later)
       name: b.name,
       industry,
@@ -228,7 +197,7 @@ const storeBusinessesTool = tool({
     }));
 
     // Normalize nullables to satisfy insert typing
-    const rowsForInsert = rows2.map((r: any) => ({
+    const rowsForInsert = rows.map((r: any) => ({
       ...r,
       address: r.address ?? undefined,
       city: r.city ?? undefined,
@@ -241,19 +210,18 @@ const storeBusinessesTool = tool({
     }));
 
     // rows are already deduplicated; insert only new businesses
-    logger.info('Inserting businesses', { count: rowsForInsert.length, search_id: search_id2 });
+    logger.info('Inserting businesses', { count: rowsForInsert.length, search_id });
     const insertedBusinesses: any[] = await insertBusinesses(rowsForInsert as any);
-    // Only increment the running DM discovery total with this batch if there are new businesses
-    // Do not initialize here; we'll initialize within the batch trigger call to avoid double-counting
     // 🚀 PERSONA MAPPING (fire-and-forget)
-  void mapBusinessesToPersonas(search_id2).catch(err => logger.warn('Persona mapping failed', { error: err?.message || err }));
+    void mapBusinessesToPersonas(search_id).catch(err => logger.warn('Persona mapping failed', { error: err?.message || err }));
 
-    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately with batching
-    // Initialize progress once for all inserted businesses
+    // Initialize DM discovery progress and update search progress once
     if (insertedBusinesses.length > 0) {
-      initDMDiscoveryProgress(search_id2, insertedBusinesses.length);
+      initDMDiscoveryProgress(search_id, insertedBusinesses.length);
+      await updateSearchProgress(search_id, 40, 'business_discovery');
     }
 
+    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately with batching
     // Limit DM lookups to avoid hammering external APIs.
     // With a batch size of 3 and a 500ms gap, expected throughput is ~6 businesses/sec.
     const limit = pLimit(3);
@@ -266,7 +234,7 @@ const storeBusinessesTool = tool({
       await Promise.all(
         batch.map((business: any) =>
           limit(async () => {
-            const ok = await processBusinessForDM(search_id2, user_id2, {
+            const ok = await processBusinessForDM(search_id, user_id, {
               ...business,
               country,
               industry
@@ -283,7 +251,6 @@ const storeBusinessesTool = tool({
         await new Promise((r) => setTimeout(r, 500));
       }
     }
-
 
     // Fallback: trigger batch discovery only for businesses not processed individually
     const pendingBusinesses = insertedBusinesses.filter((b: any) => !succeededIds.has(String(b.id)));
