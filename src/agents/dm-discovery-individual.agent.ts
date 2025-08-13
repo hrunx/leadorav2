@@ -7,9 +7,8 @@ import { mapDMToPersona, retryWithBackoff } from '../tools/util';
 import logger from '../lib/logger';
 import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
 
-import { hasSeenQuery, markSeenQuery } from '../tools/query-cache';
-
-import { createHash } from 'crypto';
+// Use shared query cache utilities for deduplication
+import { hasSeenQuery as hasSeen, markSeenQuery as markSeen } from '../tools/query-cache';
 
 
 interface Employee {
@@ -26,55 +25,6 @@ interface Employee {
 }
 
 type SerperItem = { link?: string; title?: string; snippet?: string };
-
-
-// Supabase-backed de-duplication of repeated search queries
-const QUERY_LOG_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const supa = sharedSupa;
-
-function makeQueryHash(company: string, query: string): string {
-  return createHash('sha256').update(`${company}::${query}`.toLowerCase()).digest('hex');
-}
-
-async function hasSeen(company: string, query: string): Promise<boolean> {
-  const hash = makeQueryHash(company, query);
-  const cutoff = new Date(Date.now() - QUERY_LOG_TTL_MS).toISOString();
-  try {
-    const { data, error } = await supa
-      .from('linkedin_query_log')
-      .select('id')
-      .eq('hash', hash)
-      .gte('created_at', cutoff)
-      .limit(1)
-      .maybeSingle();
-    if (error) {
-      logger.warn('Failed to check query log', { error: error.message || error });
-      return false;
-    }
-    return Boolean(data);
-  } catch (e: any) {
-    logger.warn('Failed to check query log', { error: e?.message || e });
-    return false;
-  }
-}
-
-async function markSeen(company: string, query: string): Promise<void> {
-  const hash = makeQueryHash(company, query);
-  try {
-    await supa.from('linkedin_query_log').insert({ hash, company, query }).select('id');
-  } catch (e: any) {
-    logger.warn('Failed to log query', { error: e?.message || e });
-  }
-}
-
-async function expireOldQueryLogs(): Promise<void> {
-  const cutoff = new Date(Date.now() - QUERY_LOG_TTL_MS).toISOString();
-  try {
-    await supa.from('linkedin_query_log').delete().lt('created_at', cutoff);
-  } catch (e: any) {
-    logger.warn('Failed to expire old query logs', { error: e?.message || e });
-  }
-}
 
 const linkedinSearchTool = tool({
   name: 'linkedinSearch',
@@ -104,8 +54,6 @@ const linkedinSearchTool = tool({
     const startTime = Date.now();
 
     try {
-      await expireOldQueryLogs();
-
       // Single precise search per company to limit API usage
       const personas = await loadDMPersonas(search_id);
       const primaryTitle = (Array.isArray(personas) && personas[0]?.title) ? String(personas[0].title).trim() : 'Head of';
@@ -127,9 +75,8 @@ const linkedinSearchTool = tool({
       for (const query of queries) {
         try {
 
-          // Skip if we've already executed this query recently (cache-backed)
-          if (await hasSeenQuery(company_name, query) || await hasSeen(company_name, query)) {
-
+          // Skip if we've already executed this query recently
+          if (await hasSeen(company_name, query)) {
             continue;
           }
 
@@ -144,7 +91,6 @@ const linkedinSearchTool = tool({
             .maybeSingle();
 
           if (cached) {
-            markSeen(company_name, query);
             continue;
           }
 
@@ -183,8 +129,6 @@ const linkedinSearchTool = tool({
           }
 
           // Mark this query as seen to prevent future duplicates
-
-          await markSeenQuery(company_name, query);
           await markSeen(company_name, query);
 
           // Cache the successful query to reduce future API usage
