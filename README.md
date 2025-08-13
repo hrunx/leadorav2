@@ -33,6 +33,11 @@ Leadora is a production‑grade, zero‑console, fully serverless multi‑agent 
 3) `check-progress` reports phase and percentage; UI subscribes to realtime inserts.
 4) `user-data-proxy` provides safe browser → DB access for read flows (RLS‑aware) and smooth CORS.
 
+### Concurrency & Backoff
+- `storeBusinesses` limits instant decision‑maker lookups to batches of **3** with a **500 ms** pause between batches.
+- Peak throughput is roughly **6 businesses/second**, easing pressure on external APIs.
+- Any businesses that fail individual processing fall back to the slower bulk discovery, which already spaces requests.
+
 ### What we implemented in this version
 - Zero‑console policy across the entire app and all functions; centralized logger emits no runtime console.
 - Serper client hardened (timeouts, backoff, DB cache, CSE fallback), with country‑aware filtering and KSA/ZA mapping fixes.
