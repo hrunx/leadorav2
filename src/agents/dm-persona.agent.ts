@@ -1,5 +1,5 @@
 import { Agent, tool } from '@openai/agents';
-import { insertDMPersonas, updateSearchProgress } from '../tools/db.write';
+import { insertDMPersonas } from '../tools/db.write';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
 
@@ -243,7 +243,6 @@ export async function runDMPersonas(search: {
   search_type:'customer'|'supplier';
 }) {
   try {
-    await updateSearchProgress(search.id, 10, 'dm_personas', 'in_progress');
     let personas: DMPersona[] = [];
     const improvedPrompt = `Generate 3 decision-maker personas for:
 - search_id=${search.id}
@@ -368,6 +367,7 @@ CRITICAL: Each persona must have:
         market_potential: p.market_potential || {}
       }));
       await insertDMPersonas(rows);
+    import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
       await updateSearchProgress(search.id, 20, 'dm_personas');
       import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
       return;
@@ -404,6 +404,9 @@ CRITICAL: Each persona must have:
         market_potential: { totalDecisionMakers: 5000, avgInfluence: 60, conversionRate: 15 }
       }
     ];
+
+    await insertDMPersonas(rows as any);
+
     for (const p of fallback) {
       if (!validateDMPersona(p)) {
         import('../lib/logger')
@@ -425,6 +428,7 @@ CRITICAL: Each persona must have:
     }));
     await insertDMPersonas(rows);
     await updateSearchProgress(search.id, 20, 'dm_personas');
+
     import('../lib/logger').then(({ default: logger }) => logger.info('Inserted deterministic DM personas', { search_id: search.id })).catch(()=>{});
   } catch (error) {
   import('../lib/logger').then(({ default: logger }) => logger.error('DM persona generation failed', { search_id: search.id, error: (error as any)?.message || error })).catch(()=>{});
