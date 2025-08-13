@@ -44,8 +44,8 @@ ADD COLUMN IF NOT EXISTS address text DEFAULT '',
 ADD COLUMN IF NOT EXISTS rating decimal(2,1) DEFAULT null;
 
 -- 4. Fix market_insights table for comprehensive market research
-ALTER TABLE market_insights 
-ADD COLUMN IF NOT EXISTS sources jsonb DEFAULT '[]',
+ALTER TABLE market_insights
+ADD COLUMN IF NOT EXISTS sources jsonb DEFAULT '[]', -- [{title,text,url,text,date,text}]
 ADD COLUMN IF NOT EXISTS analysis_summary text DEFAULT '',
 ADD COLUMN IF NOT EXISTS research_methodology text DEFAULT '';
 

@@ -162,6 +162,13 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
 
 // Update enrichment data for a specific decision maker - moved to end of file
 
+type InsightSource = {
+  title?: string;
+  url: string;
+  date?: string;
+  [key: string]: any;
+};
+
 export const insertMarketInsights = async (row: {
   search_id: string;
   user_id: string;
@@ -171,12 +178,16 @@ export const insertMarketInsights = async (row: {
   competitor_data: any[];
   trends: any[];
   opportunities: any;
-  sources?: any[];
+  sources?: InsightSource[];
   analysis_summary?: string;
   research_methodology?: string;
 }) => {
   const supa = getSupabaseClient();
-  const { data, error } = await supa.from('market_insights').insert(row).select('id').single();
+  const sources = (row.sources || []).map((s: any) => {
+    if (typeof s === 'string') return { title: s, url: s } as InsightSource;
+    return { title: s.title ?? s.url, url: s.url, date: s.date, ...s } as InsightSource;
+  });
+  const { data, error } = await supa.from('market_insights').insert({ ...row, sources }).select('id').single();
   if (error) throw error;
   try { await updateSearchTotals(row.search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
   return data!;
