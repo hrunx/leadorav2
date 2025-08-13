@@ -17,6 +17,7 @@
     "@openai/agents-core": "0.0.14",
     "@openai/agents-openai": "0.0.14",
     "@supabase/supabase-js": "^2.52.1",
+    "ajv": "^8.17.1",
     "lucide-react": "^0.344.0",
     "openai": "^4.53.0",
     "react": "^18.3.1",
