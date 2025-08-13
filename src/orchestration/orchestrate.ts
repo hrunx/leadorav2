@@ -1,5 +1,5 @@
 import { loadSearch } from '../tools/db.read';
-import { updateSearchProgress } from '../tools/db.write';
+import { updateSearchProgress, mergeAgentMetadata } from '../tools/db.write';
 import logger from '../lib/logger';
 import { runBusinessPersonas } from '../agents/business-persona.agent';
 import { runDMPersonas } from '../agents/dm-persona.agent';
@@ -21,15 +21,24 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
 
     // 🚀 PHASE 1: Launch ALL agents in parallel immediately
     logger.debug('Launching all agents in parallel');
-    
+
+    const taskStatus: Record<string, 'pending' | 'success' | 'failed'> = {
+      business_personas: 'pending',
+      dm_personas: 'pending',
+      business_discovery: 'pending',
+      market_research: 'pending'
+    };
+
     const parallelTasks = [
       // Task 1: Business Personas (fast for UI)
       runBusinessPersonas(search).then(() => {
         logger.info('Business personas completed', { search_id });
         updateFn('PERSONAS_READY', { type: 'business', search_id });
+        taskStatus.business_personas = 'success';
         return 'business_personas_done';
       }).catch(err => {
         logger.warn('Business personas failed', { error: err?.message || err });
+        taskStatus.business_personas = 'failed';
         return 'business_personas_failed';
       }),
       
@@ -37,9 +46,11 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
       runDMPersonas(search).then(() => {
         logger.info('DM personas completed', { search_id });
         updateFn('PERSONAS_READY', { type: 'dm', search_id });
+        taskStatus.dm_personas = 'success';
         return 'dm_personas_done';
       }).catch(err => {
         logger.warn('DM personas failed', { error: err?.message || err });
+        taskStatus.dm_personas = 'failed';
         return 'dm_personas_failed';
       }),
       
@@ -47,10 +58,11 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
       runBusinessDiscovery(search).then(async () => {
         logger.info('Business discovery completed', { search_id });
         updateFn('BUSINESSES_FOUND', { search_id });
-
+        taskStatus.business_discovery = 'success';
         return 'business_discovery_done';
       }).catch(err => {
         logger.warn('Business discovery failed', { error: err?.message || err });
+        taskStatus.business_discovery = 'failed';
         return 'business_discovery_failed';
       }),
       
@@ -58,9 +70,12 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
       runMarketResearch(search).then(() => {
         logger.info('Market research completed', { search_id });
         updateFn('MARKET_RESEARCH_READY', { search_id });
+        taskStatus.market_research = 'success';
         return 'market_research_done';
-      }).catch(err => {
+      }).catch(async err => {
         logger.warn('Market research failed', { error: err?.message || err });
+        taskStatus.market_research = 'failed';
+        try { await mergeAgentMetadata(search_id, { market_research_warning: true }); } catch (e: any) { logger.warn('Failed to set market research warning', { error: e?.message || e }); }
         return 'market_research_failed';
       })
     ];
@@ -84,7 +99,7 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
     });
 
     // Mark as completed only if at least one task succeeded; otherwise mark failed
-    const anySuccess = results.some(r => r.status === 'fulfilled');
+    const anySuccess = Object.values(taskStatus).some(s => s === 'success');
     if (anySuccess) {
       await updateSearchProgress(search_id, 100, 'completed', 'completed');
       updateFn('PROGRESS', { phase: 'completed', progress: 100 });
@@ -94,7 +109,7 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
     }
     
     logger.info('Optimized orchestration finished', { search_id });
-    return { success: true, search_id, results: results.map(r => r.status) };
+    return { success: true, search_id, task_status: taskStatus };
     
   } catch (error: any) {
     logger.error('Orchestration failed', { search_id, error: error?.message || error });
