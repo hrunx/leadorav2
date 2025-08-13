@@ -174,7 +174,7 @@ OUTPUT JSON SCHEMA EXACTLY:
           request: { model: modelMini, sources_candidate_count: sources.length },
           response: { error: 'empty_or_unparseable_output' }
         });
-        throw new Error('Market research output unparseable');
+        throw new Error('MARKET_RESEARCH_FAILED');
       }
       data = json;
 
@@ -220,11 +220,11 @@ OUTPUT JSON SCHEMA EXACTLY:
       request: { model: modelMini },
       response: { error: error.message }
     });
-    // Propagate failure; the orchestrator will keep overall status consistent
-    throw error;
+    // Propagate standardized error; the orchestrator will handle downstream status
+    throw new Error('MARKET_RESEARCH_FAILED');
   }
   } catch (error) {
     logger.error('Market research failed', { search_id: search.id, error: (error as any)?.message || error });
-    throw error;
+    throw new Error('MARKET_RESEARCH_FAILED');
   }
 }

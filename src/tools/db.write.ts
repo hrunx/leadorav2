@@ -173,6 +173,23 @@ export const insertMarketInsights = async (row: {
   return data!;
 };
 
+export async function mergeAgentMetadata(search_id: string, metadata: Record<string, any>): Promise<void> {
+  const supa = getSupabaseClient();
+  const { data, error } = await supa
+    .from('user_searches')
+    .select('agent_metadata')
+    .eq('id', search_id)
+    .single();
+  if (error) throw error;
+  const current = data?.agent_metadata || {};
+  const merged = { ...current, ...metadata };
+  const { error: updateError } = await supa
+    .from('user_searches')
+    .update({ agent_metadata: merged, updated_at: new Date().toISOString() })
+    .eq('id', search_id);
+  if (updateError) throw updateError;
+}
+
 // enforce allowed phases (must match DB CHECK constraint on user_searches.phase)
 const AllowedPhasesList = [
   'starting',
