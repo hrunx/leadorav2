@@ -3,6 +3,7 @@ import { insertBusinessPersonas, updateSearchProgress, insertPersonaCache } from
 import { loadPersonaCache } from '../tools/db.read';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
+import { ensureUniqueTitles } from './business-persona.helpers';
 
 import {
   sanitizePersona,
@@ -472,6 +473,9 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
           personas = personas.map((p, i) => ({ ...p, title: String(newTitles[i]) }));
         }
       } catch {}
+    }
+    if (personas.length === 3) {
+      personas = await ensureUniqueTitles(personas, { id: search.id });
     }
 
     if (personas.length) {
