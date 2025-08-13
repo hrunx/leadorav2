@@ -210,6 +210,45 @@ function isRealisticPersona(persona: Persona): boolean {
   }
 }
 
+// --- Helper: ensure market potential numbers are sane ---
+function validateMarketPotential(persona: Persona, searchId: string): Persona | null {
+  const mp = persona.market_potential || { totalCompanies: 0, avgDealSize: '', conversionRate: 0 };
+  const errors: string[] = [];
+
+  if (typeof mp.totalCompanies !== 'number' || mp.totalCompanies <= 0) {
+    errors.push(`totalCompanies:${mp.totalCompanies}`);
+    mp.totalCompanies = Math.max(1, Number(mp.totalCompanies) || 1);
+  }
+  if (typeof mp.conversionRate !== 'number' || mp.conversionRate < 0 || mp.conversionRate > 100) {
+    errors.push(`conversionRate:${mp.conversionRate}`);
+    mp.conversionRate = Math.min(100, Math.max(0, Number(mp.conversionRate) || 0));
+  }
+
+  if (errors.length) {
+    import('../lib/logger')
+      .then(({ default: logger }) => logger.warn('[BusinessPersona] Persona market_potential corrected', {
+        search_id: searchId,
+        title: persona.title,
+        errors,
+        corrected: { totalCompanies: mp.totalCompanies, conversionRate: mp.conversionRate }
+      }))
+      .catch(() => {});
+  }
+
+  if (mp.totalCompanies <= 0 || mp.conversionRate < 0 || mp.conversionRate > 100) {
+    import('../lib/logger')
+      .then(({ default: logger }) => logger.error('[BusinessPersona] Persona rejected after validation', {
+        search_id: searchId,
+        title: persona.title,
+        market_potential: mp
+      }))
+      .catch(() => {});
+    return null;
+  }
+
+  return { ...persona, market_potential: mp };
+}
+
 export async function runBusinessPersonas(search: {
   id:string; 
   user_id:string; 
@@ -359,6 +398,25 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
           personas = personas.map((p, i) => ({ ...p, title: String(newTitles[i]) }));
         }
       } catch {}
+    }
+
+    if (personas.length) {
+      // Schema validation for market potential figures
+      const validated = personas
+        .map(p => validateMarketPotential(p, search.id))
+        .filter((p): p is Persona => Boolean(p));
+      if (validated.length !== personas.length) {
+        import('../lib/logger')
+          .then(({ default: logger }) =>
+            logger.error('[BusinessPersona] Persona count changed after validation', {
+              search_id: search.id,
+              before: personas.length,
+              after: validated.length
+            })
+          )
+          .catch(() => {});
+      }
+      personas = validated.length === 3 ? validated : [];
     }
 
     if (personas.length) {
