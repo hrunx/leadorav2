@@ -1,5 +1,6 @@
 import { Agent, tool } from '@openai/agents';
-import { insertBusinessPersonas, updateSearchProgress } from '../tools/db.write';
+import { insertBusinessPersonas, updateSearchProgress, insertPersonaCache } from '../tools/db.write';
+import { loadPersonaCache } from '../tools/db.read';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
 
@@ -266,6 +267,66 @@ export async function runBusinessPersonas(search: {
   try {
     await updateSearchProgress(search.id, 10, 'business_personas', 'in_progress');
     let personas: Persona[] = [];
+
+    const cacheKey = [
+      search.product_service,
+      [...search.industries].sort().join(','),
+      [...search.countries].sort().join(',')
+    ].join('|').toLowerCase();
+
+    const sanitizePersona = (p: any, index: number): Persona => ({
+      title: String(p?.title || `${search.search_type==='customer'?'Buyer':'Supplier'} Archetype ${index+1} - ${search.industries[0] || 'General'}`),
+      rank: typeof p?.rank === 'number' ? p.rank : index + 1,
+      match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
+      demographics: {
+        industry: String(p?.demographics?.industry || (search.industries[0] || 'General')),
+        companySize: String(p?.demographics?.companySize || ''),
+        geography: String(p?.demographics?.geography || (search.countries[0] || 'Global')),
+        revenue: String(p?.demographics?.revenue || '')
+      },
+      characteristics: {
+        painPoints: Array.isArray(p?.characteristics?.painPoints) ? p.characteristics.painPoints : [],
+        motivations: Array.isArray(p?.characteristics?.motivations) ? p.characteristics.motivations : [],
+        challenges: Array.isArray(p?.characteristics?.challenges) ? p.characteristics.challenges : [],
+        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) ? p.characteristics.decisionFactors : []
+      },
+      behaviors: {
+        buyingProcess: String(p?.behaviors?.buyingProcess || ''),
+        decisionTimeline: String(p?.behaviors?.decisionTimeline || ''),
+        budgetRange: String(p?.behaviors?.budgetRange || ''),
+        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) ? p.behaviors.preferredChannels : []
+      },
+      market_potential: {
+        totalCompanies: typeof p?.market_potential?.totalCompanies === 'number' ? p.market_potential.totalCompanies : 0,
+        avgDealSize: String(p?.market_potential?.avgDealSize || ''),
+        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 0
+      },
+      locations: Array.isArray(p?.locations) ? p.locations : [search.countries[0] || 'Global']
+    });
+
+    const cached = await loadPersonaCache(cacheKey);
+    if (Array.isArray(cached) && cached.length) {
+      const accepted = cached.slice(0,3).map((p, i) => sanitizePersona(p, i));
+      if (accepted.length === 3 && accepted.every(p => isRealisticPersona(p))) {
+        const rows = accepted.map((p: Persona) => ({
+          search_id: search.id,
+          user_id: search.user_id,
+          title: p.title,
+          rank: p.rank,
+          match_score: p.match_score,
+          demographics: p.demographics || {},
+          characteristics: p.characteristics || {},
+          behaviors: p.behaviors || {},
+          market_potential: p.market_potential || {},
+          locations: p.locations || []
+        }));
+        await insertBusinessPersonas(rows);
+        await updateSearchProgress(search.id, 20, 'business_personas');
+        import('../lib/logger').then(({ default: logger }) => logger.info('Loaded business personas from cache', { search_id: search.id })).catch(()=>{});
+        return;
+      }
+    }
+
     const improvedPrompt = `Generate 3 business personas (COMPANY ARCHETYPES) for:
 - search_id=${search.id}
 - user_id=${search.user_id}
@@ -404,6 +465,7 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
         market_potential: p.market_potential || {},
         locations: p.locations || []
       }));
+      await insertPersonaCache(cacheKey, personas);
       await insertBusinessPersonas(rows);
       await updateSearchProgress(search.id, 20, 'business_personas');
       import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
@@ -465,6 +527,7 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
         market_potential: p.market_potential,
         locations: p.locations
       }));
+      await insertPersonaCache(cacheKey, fallback);
       await insertBusinessPersonas(rows);
       await updateSearchProgress(search.id, 20, 'business_personas');
     }
