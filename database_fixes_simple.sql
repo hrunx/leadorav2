@@ -4,8 +4,8 @@
 -- =====================================================
 
 -- STEP 1: Fix market_insights table (CRITICAL for market research)
-ALTER TABLE market_insights 
-ADD COLUMN IF NOT EXISTS sources jsonb DEFAULT '[]';
+ALTER TABLE market_insights
+ADD COLUMN IF NOT EXISTS sources jsonb DEFAULT '[]'; -- [{title,text,url,text,date,text}]
 
 ALTER TABLE market_insights 
 ADD COLUMN IF NOT EXISTS analysis_summary text DEFAULT '';
