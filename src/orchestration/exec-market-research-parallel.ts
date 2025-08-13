@@ -3,6 +3,8 @@ import { openai, resolveModel } from '../agents/clients';
 import { serperSearch } from '../tools/serper';
 import { loadSearch } from '../tools/db.read';
 import { insertMarketInsights, logApiUsage } from '../tools/db.write';
+import logger from '../lib/logger';
+import { MarketInsightsSchema } from '../lib/marketInsightsSchema';
 
 export async function execMarketResearchParallel(payload: {
   search_id: string;
@@ -65,20 +67,27 @@ Use ONLY valid JSON. Use these sources when relevant (do not quote text, just us
 
     // Parse the analysis to extract structured data
     const insights = await parseMarketAnalysis(analysis, webFindings.map(s => s.url));
-    
+
+    const parsed = MarketInsightsSchema.safeParse(insights);
+    if (!parsed.success) {
+      logger.error('Invalid market insights from analysis', { error: parsed.error });
+      throw new Error('Invalid market insights format');
+    }
+    const valid = parsed.data;
+
     // Store in database with sources and methodology
     return await insertMarketInsights({
       search_id: search.id,
       user_id: search.user_id,
-      tam_data: insights.tam_data || {},
-      sam_data: insights.sam_data || {},
-      som_data: insights.som_data || {},
-      competitor_data: insights.competitor_data || [],
-      trends: insights.trends || [],
-      opportunities: insights.opportunities || {},
-      sources: insights.sources || [],
-      analysis_summary: insights.analysis_summary || 'Advanced market research completed',
-      research_methodology: insights.research_methodology || 'AI-powered analysis with multi-country web search and competitive intelligence'
+      tam_data: valid.tam_data,
+      sam_data: valid.sam_data,
+      som_data: valid.som_data,
+      competitor_data: valid.competitor_data,
+      trends: valid.trends,
+      opportunities: valid.opportunities,
+      sources: valid.sources || [],
+      analysis_summary: valid.analysis_summary || 'Advanced market research completed',
+      research_methodology: valid.research_methodology || 'AI-powered analysis with multi-country web search and competitive intelligence'
     });
 
   } catch (error: any) {

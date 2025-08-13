@@ -1,7 +1,11 @@
 import { Agent, tool } from '@openai/agents';
-import { insertDMPersonas, updateSearchProgress } from '../tools/db.write';
+import { insertDMPersonas } from '../tools/db.write';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
+
+import { sanitizePersona, isRealisticPersona, DMPersona } from '../tools/persona-validation';
+
+import Ajv, { JSONSchemaType } from 'ajv';
 
 interface DMPersona {
   title: string;
@@ -38,6 +42,65 @@ interface StoreDMPersonasToolInput {
   user_id: string;
   personas: DMPersona[];
 }
+
+const ajv = new Ajv({ allErrors: true });
+
+const dmPersonaSchema: JSONSchemaType<DMPersona> = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    rank: { type: 'number' },
+    match_score: { type: 'number' },
+    demographics: {
+      type: 'object',
+      properties: {
+        level: { type: 'string' },
+        department: { type: 'string' },
+        experience: { type: 'string' },
+        geography: { type: 'string' }
+      },
+      required: ['level', 'department', 'experience', 'geography'],
+      additionalProperties: false
+    },
+    characteristics: {
+      type: 'object',
+      properties: {
+        responsibilities: { type: 'array', items: { type: 'string' } },
+        painPoints: { type: 'array', items: { type: 'string' } },
+        motivations: { type: 'array', items: { type: 'string' } },
+        challenges: { type: 'array', items: { type: 'string' } },
+        decisionFactors: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['responsibilities', 'painPoints', 'motivations', 'challenges', 'decisionFactors'],
+      additionalProperties: false
+    },
+    behaviors: {
+      type: 'object',
+      properties: {
+        decisionMaking: { type: 'string' },
+        communicationStyle: { type: 'string' },
+        buyingProcess: { type: 'string' },
+        preferredChannels: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['decisionMaking', 'communicationStyle', 'buyingProcess', 'preferredChannels'],
+      additionalProperties: false
+    },
+    market_potential: {
+      type: 'object',
+      properties: {
+        totalDecisionMakers: { type: 'number' },
+        avgInfluence: { type: 'number' },
+        conversionRate: { type: 'number' }
+      },
+      required: ['totalDecisionMakers', 'avgInfluence', 'conversionRate'],
+      additionalProperties: false
+    }
+  },
+  required: ['title', 'rank', 'match_score', 'demographics', 'characteristics', 'behaviors', 'market_potential'],
+  additionalProperties: false
+};
+
+const validateDMPersona = ajv.compile<DMPersona>(dmPersonaSchema);
 
 const storeDMPersonasTool = tool({
   name: 'storeDMPersonas',
@@ -123,8 +186,13 @@ const storeDMPersonasTool = tool({
       throw new Error('Expected exactly 3 personas.');
     }
     for (const p of personas) {
-      for (const k of ['title','rank','match_score','demographics','characteristics','behaviors','market_potential']) {
-        if (!(k in p)) throw new Error(`persona missing key: ${k}`);
+      if (!validateDMPersona(p)) {
+        import('../lib/logger')
+          .then(({ default: logger }) =>
+            logger.error('DM persona validation failed', { errors: validateDMPersona.errors, persona: p })
+          )
+          .catch(() => {});
+        throw new Error('Invalid DM persona structure.');
       }
     }
     const rows = personas.slice(0,3).map((p: DMPersona) => ({
@@ -166,8 +234,6 @@ Use EXACT search criteria provided. Create personas who would make purchasing de
 CRITICAL: Call storeDMPersonas tool ONCE with complete data. Do not retry.`
 });
 
-// Removed unused isRealisticDMPersona helper to reduce bundle size
-
 export async function runDMPersonas(search: {
   id:string; 
   user_id:string; 
@@ -177,7 +243,6 @@ export async function runDMPersonas(search: {
   search_type:'customer'|'supplier';
 }) {
   try {
-    await updateSearchProgress(search.id, 10, 'dm_personas', 'in_progress');
     let personas: DMPersona[] = [];
     const improvedPrompt = `Generate 3 decision-maker personas for:
 - search_id=${search.id}
@@ -209,40 +274,40 @@ CRITICAL: Each persona must have:
       }
     };
 
-    const sanitizePersona = (p: any, index: number): DMPersona => ({
-      title: String(p?.title || `${search.industries[0] || 'Industry'} ${['Executive','Director','Manager'][index] || 'Leader'}`),
-      rank: typeof p?.rank === 'number' ? p.rank : index + 1,
-      match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
-      demographics: {
-        level: String(p?.demographics?.level || 'manager'),
-        department: String(p?.demographics?.department || 'General'),
-        experience: String(p?.demographics?.experience || '8+ years'),
-        geography: String(p?.demographics?.geography || (search.countries[0] || 'Global'))
-      },
-      characteristics: {
-        responsibilities: Array.isArray(p?.characteristics?.responsibilities) && p.characteristics.responsibilities.length ? p.characteristics.responsibilities : ['Strategy','Execution'],
-        painPoints: Array.isArray(p?.characteristics?.painPoints) && p.characteristics.painPoints.length ? p.characteristics.painPoints : ['Budget','Time'],
-        motivations: Array.isArray(p?.characteristics?.motivations) && p.characteristics.motivations.length ? p.characteristics.motivations : ['Growth','Efficiency'],
-        challenges: Array.isArray(p?.characteristics?.challenges) && p.characteristics.challenges.length ? p.characteristics.challenges : ['Legacy','Integration'],
-        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) && p.characteristics.decisionFactors.length ? p.characteristics.decisionFactors : ['ROI','Compliance']
-      },
-      behaviors: {
-        decisionMaking: String(p?.behaviors?.decisionMaking || 'Strategic'),
-        communicationStyle: String(p?.behaviors?.communicationStyle || 'Concise'),
-        buyingProcess: String(p?.behaviors?.buyingProcess || 'Committee'),
-        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) && p.behaviors.preferredChannels.length ? p.behaviors.preferredChannels : ['Demos','Briefings']
-      },
-      market_potential: {
-        totalDecisionMakers: typeof p?.market_potential?.totalDecisionMakers === 'number' ? p.market_potential.totalDecisionMakers : 1000,
-        avgInfluence: typeof p?.market_potential?.avgInfluence === 'number' ? p.market_potential.avgInfluence : 80,
-        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 10
-      }
-    });
-
     const acceptPersonas = (arr: any[]): DMPersona[] => {
       const three = (arr || []).slice(0,3);
       if (three.length !== 3) return [];
-      return three.map((p, i) => sanitizePersona(p, i));
+      return three.map((p, i) => sanitizePersona('dm', p, i, search));
+    };
+
+    const ensureProductServiceKeywords = async (arr: DMPersona[]): Promise<DMPersona[]> => {
+      const keywords = String(search.product_service || '')
+        .toLowerCase()
+        .split(/[^a-z0-9]+/i)
+        .filter(Boolean);
+      const needsRefine = arr.some(p => {
+        const text = [...p.characteristics.responsibilities, ...p.characteristics.decisionFactors]
+          .join(' ')
+          .toLowerCase();
+        return !keywords.some(k => text.includes(k));
+      });
+      if (!needsRefine) return arr;
+      const prompt = `Refine the personas so each includes at least one of the keywords (${keywords.join(', ')}) in responsibilities or decision factors. Keep all other fields intact. Personas: ${JSON.stringify(arr)}`;
+      try {
+        const text = await callOpenAIChatJSON({
+          model: resolveModel('primary'),
+          system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete decision-maker persona objects.',
+          user: prompt,
+          temperature: 0.4,
+          maxTokens: 800,
+          requireJsonObject: true,
+          verbosity: 'low'
+        });
+        const refined = acceptPersonas(tryParsePersonas(text));
+        return refined.length === 3 ? refined : arr;
+      } catch {
+        return arr;
+      }
     };
 
     try {
@@ -256,24 +321,38 @@ CRITICAL: Each persona must have:
         requireJsonObject: true,
         verbosity: 'low'
       });
-      const accepted = acceptPersonas(tryParsePersonas(text));
-      if (accepted.length === 3) personas = accepted;
+      let accepted = acceptPersonas(tryParsePersonas(text));
+      if (accepted.length === 3) personas = await ensureProductServiceKeywords(accepted);
     } catch {}
     if (!personas.length) {
       // 2) Gemini fallback
       try {
         const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
-        const accepted = acceptPersonas(tryParsePersonas(text));
-        if (accepted.length === 3) personas = accepted;
+        let accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) personas = await ensureProductServiceKeywords(accepted);
       } catch {}
     }
     if (!personas.length) {
       // 3) DeepSeek fallback
       try {
         const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
-        const accepted = acceptPersonas(tryParsePersonas(text));
-        if (accepted.length === 3) personas = accepted;
+        let accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) personas = await ensureProductServiceKeywords(accepted);
       } catch {}
+    }
+    if (personas.length) {
+
+      const allRealistic = personas.every(p => isRealisticPersona('dm', p));
+      if (!allRealistic) {
+
+      const allValid = personas.every(p => validateDMPersona(p));
+      if (!allValid) {
+        import('../lib/logger')
+          .then(({ default: logger }) => logger.error('DM persona schema validation failed', { errors: validateDMPersona.errors }))
+          .catch(() => {});
+
+        personas = [];
+      }
     }
     if (personas.length) {
       const rows = personas.slice(0, 3).map((p: DMPersona) => ({
@@ -288,17 +367,16 @@ CRITICAL: Each persona must have:
         market_potential: p.market_potential || {}
       }));
       await insertDMPersonas(rows);
-      await updateSearchProgress(search.id, 20, 'dm_personas');
     import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
+      await updateSearchProgress(search.id, 20, 'dm_personas');
+      import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
       return;
     }
     // All LLMs failed, insert 3 deterministic DM personas
     import('../lib/logger').then(({ default: logger }) => logger.error('[DMPersona] All LLMs failed, inserting deterministic personas', { search_id: search.id })).catch(()=>{});
     const [countryA] = search.countries.length ? search.countries : ['Global'];
-    const rows = [
+    const fallback: DMPersona[] = [
       {
-        search_id: search.id,
-        user_id: search.user_id,
         title: 'Chief Technology Officer',
         rank: 1,
         match_score: 92,
@@ -308,8 +386,6 @@ CRITICAL: Each persona must have:
         market_potential: { totalDecisionMakers: 1500, avgInfluence: 90, conversionRate: 8 }
       },
       {
-        search_id: search.id,
-        user_id: search.user_id,
         title: 'VP Operations',
         rank: 2,
         match_score: 88,
@@ -319,8 +395,6 @@ CRITICAL: Each persona must have:
         market_potential: { totalDecisionMakers: 3000, avgInfluence: 75, conversionRate: 12 }
       },
       {
-        search_id: search.id,
-        user_id: search.user_id,
         title: 'Head of Procurement',
         rank: 3,
         match_score: 84,
@@ -330,8 +404,31 @@ CRITICAL: Each persona must have:
         market_potential: { totalDecisionMakers: 5000, avgInfluence: 60, conversionRate: 15 }
       }
     ];
+
     await insertDMPersonas(rows as any);
+
+    for (const p of fallback) {
+      if (!validateDMPersona(p)) {
+        import('../lib/logger')
+          .then(({ default: logger }) => logger.error('Fallback DM persona validation failed', { errors: validateDMPersona.errors, persona: p }))
+          .catch(() => {});
+        throw new Error('Invalid fallback DM persona.');
+      }
+    }
+    const rows = fallback.map((p: DMPersona) => ({
+      search_id: search.id,
+      user_id: search.user_id,
+      title: p.title,
+      rank: p.rank,
+      match_score: p.match_score,
+      demographics: p.demographics,
+      characteristics: p.characteristics,
+      behaviors: p.behaviors,
+      market_potential: p.market_potential
+    }));
+    await insertDMPersonas(rows);
     await updateSearchProgress(search.id, 20, 'dm_personas');
+
     import('../lib/logger').then(({ default: logger }) => logger.info('Inserted deterministic DM personas', { search_id: search.id })).catch(()=>{});
   } catch (error) {
   import('../lib/logger').then(({ default: logger }) => logger.error('DM persona generation failed', { search_id: search.id, error: (error as any)?.message || error })).catch(()=>{});

@@ -5,6 +5,7 @@ import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
+import { retryWithBackoff } from '../../tools/util';
 
 import { isDemoUser } from '../../constants/demo';
 
@@ -210,13 +211,18 @@ export default function DecisionMakerProfiles() {
       } else if (typeof window !== 'undefined' && window.location) {
         enrichUrl = `${window.location.origin}/.netlify/functions/enrich-decision-makers`;
       }
-      await fetch(enrichUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ search_id: currentSearch?.id })
-      });
+      let attempts = 0;
+      await retryWithBackoff(async () => {
+        attempts++;
+        return fetch(enrichUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ search_id: currentSearch?.id })
+        });
+      }, 2);
+      logger.debug('Triggered enrichment', { attempts });
     } catch (e: any) {
-      logger.warn('Failed to trigger enrichment', { error: e?.message || String(e) });
+      logger.warn('Failed to trigger enrichment', { attempts, error: e?.message || String(e) });
     } finally {
       setEnriching(false);
     }
