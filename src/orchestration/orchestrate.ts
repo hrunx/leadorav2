@@ -22,45 +22,63 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
     // 🚀 PHASE 1: Launch ALL agents in parallel immediately
     logger.debug('Launching all agents in parallel');
     
+    const statusMap: Record<string, 'done' | 'failed'> = {};
+    const recordStatus = async (agent: string, outcome: 'done' | 'failed') => {
+      statusMap[agent] = outcome;
+      try {
+        await updateSearchProgress(search_id, 0, 'starting', 'in_progress', statusMap);
+      } catch (err: any) {
+        logger.warn('Failed to update status_detail', { error: err?.message || err });
+      }
+    };
+
     const parallelTasks = [
       // Task 1: Business Personas (fast for UI)
-      runBusinessPersonas(search).then(() => {
+      runBusinessPersonas(search).then(async () => {
         logger.info('Business personas completed', { search_id });
         updateFn('PERSONAS_READY', { type: 'business', search_id });
+        await recordStatus('business_personas', 'done');
         return 'business_personas_done';
-      }).catch(err => {
+      }).catch(async err => {
         logger.warn('Business personas failed', { error: err?.message || err });
+        await recordStatus('business_personas', 'failed');
         return 'business_personas_failed';
       }),
-      
+
       // Task 2: DM Personas (fast for UI)
-      runDMPersonas(search).then(() => {
+      runDMPersonas(search).then(async () => {
         logger.info('DM personas completed', { search_id });
         updateFn('PERSONAS_READY', { type: 'dm', search_id });
+        await recordStatus('dm_personas', 'done');
         return 'dm_personas_done';
-      }).catch(err => {
+      }).catch(async err => {
         logger.warn('DM personas failed', { error: err?.message || err });
+        await recordStatus('dm_personas', 'failed');
         return 'dm_personas_failed';
       }),
-      
+
       // Task 3: Business Discovery (triggers immediate UI updates)
       runBusinessDiscovery(search).then(async () => {
         logger.info('Business discovery completed', { search_id });
         updateFn('BUSINESSES_FOUND', { search_id });
+        await recordStatus('business_discovery', 'done');
 
         return 'business_discovery_done';
-      }).catch(err => {
+      }).catch(async err => {
         logger.warn('Business discovery failed', { error: err?.message || err });
+        await recordStatus('business_discovery', 'failed');
         return 'business_discovery_failed';
       }),
-      
+
       // Task 4: Market Research (runs independently, provides investor-grade data)
-      runMarketResearch(search).then(() => {
+      runMarketResearch(search).then(async () => {
         logger.info('Market research completed', { search_id });
         updateFn('MARKET_RESEARCH_READY', { search_id });
+        await recordStatus('market_research', 'done');
         return 'market_research_done';
-      }).catch(err => {
+      }).catch(async err => {
         logger.warn('Market research failed', { error: err?.message || err });
+        await recordStatus('market_research', 'failed');
         return 'market_research_failed';
       })
     ];
@@ -84,17 +102,19 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
     });
 
     // Mark as completed only if at least one task succeeded; otherwise mark failed
-    const anySuccess = results.some(r => r.status === 'fulfilled');
-    if (anySuccess) {
-      await updateSearchProgress(search_id, 100, 'completed', 'completed');
+    const anySuccess = Object.values(statusMap).some(s => s === 'done');
+    const criticalAgents = ['market_research'];
+    const criticalFailure = criticalAgents.some(a => statusMap[a] === 'failed');
+    if (anySuccess && !criticalFailure) {
+      await updateSearchProgress(search_id, 100, 'completed', 'completed', statusMap);
       updateFn('PROGRESS', { phase: 'completed', progress: 100 });
     } else {
-      await updateSearchProgress(search_id, 0, 'failed', 'failed');
-      updateFn('ERROR', { search_id, message: 'All parallel tasks failed' });
+      await updateSearchProgress(search_id, 0, 'failed', 'failed', statusMap);
+      updateFn('ERROR', { search_id, message: criticalFailure ? 'Critical agent failed' : 'All parallel tasks failed' });
     }
     
     logger.info('Optimized orchestration finished', { search_id });
-    return { success: true, search_id, results: results.map(r => r.status) };
+    return { success: true, search_id, results: statusMap };
     
   } catch (error: any) {
     logger.error('Orchestration failed', { search_id, error: error?.message || error });

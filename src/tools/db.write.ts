@@ -210,7 +210,8 @@ export async function updateSearchProgress(
   search_id: string,
   progress_pct: number,
   phase: string,
-  status = 'in_progress'
+  status = 'in_progress',
+  status_detail?: Record<string, 'done' | 'failed'>
 ) {
   const normPhase = normalizePhase(phase);
   const supa = getSupabaseClient();
@@ -232,14 +233,17 @@ export async function updateSearchProgress(
       nextPhase = normalizePhase(current.phase || 'starting');
     }
   }
+  const updateData: Record<string, any> = {
+    progress_pct: nextPct,
+    phase: nextPhase,
+    status, // status column is independent of check constraint
+    updated_at: new Date().toISOString(),
+  };
+  if (status_detail) updateData.status_detail = status_detail;
+
   const { error } = await supa
     .from('user_searches')
-    .update({
-      progress_pct: nextPct,
-      phase: nextPhase,
-      status, // status column is independent of check constraint
-      updated_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq('id', search_id);
 
   if (error) throw error;
