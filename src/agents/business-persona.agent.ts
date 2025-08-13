@@ -2,37 +2,17 @@ import { Agent, tool } from '@openai/agents';
 import { insertBusinessPersonas, updateSearchProgress } from '../tools/db.write';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
+
+import {
+  sanitizePersona,
+  isRealisticPersona,
+  isGenericTitle,
+  BusinessPersona as Persona,
+} from '../tools/persona-validation';
+=======
 import Ajv, { JSONSchemaType } from 'ajv';
 
-interface Persona {
-  title: string;
-  rank: number;
-  match_score: number;
-  demographics: {
-    industry: string;
-    companySize: string;
-    geography: string;
-    revenue: string;
-  };
-  characteristics: {
-    painPoints: string[];
-    motivations: string[];
-    challenges: string[];
-    decisionFactors: string[];
-  };
-  behaviors: {
-    buyingProcess: string;
-    decisionTimeline: string;
-    budgetRange: string;
-    preferredChannels: string[];
-  };
-  market_potential: {
-    totalCompanies: number;
-    avgDealSize: string;
-    conversionRate: number;
-  };
-  locations: string[];
-}
+
 
 interface StoreBusinessPersonasToolInput {
   search_id: string;
@@ -321,45 +301,13 @@ CRITICAL: Each persona must have:
       }
     };
 
-    const sanitizePersona = (p: any, index: number): Persona => ({
-      title: String(p?.title || `${search.search_type==='customer'?'Buyer':'Supplier'} Archetype ${index+1} - ${search.industries[0] || 'General'}`),
-      rank: typeof p?.rank === 'number' ? p.rank : index + 1,
-      match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
-      demographics: {
-        industry: String(p?.demographics?.industry || (search.industries[0] || 'General')),
-        companySize: String(p?.demographics?.companySize || ''),
-        geography: String(p?.demographics?.geography || (search.countries[0] || 'Global')),
-        revenue: String(p?.demographics?.revenue || '')
-      },
-      characteristics: {
-        painPoints: Array.isArray(p?.characteristics?.painPoints) ? p.characteristics.painPoints : [],
-        motivations: Array.isArray(p?.characteristics?.motivations) ? p.characteristics.motivations : [],
-        challenges: Array.isArray(p?.characteristics?.challenges) ? p.characteristics.challenges : [],
-        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) ? p.characteristics.decisionFactors : []
-      },
-      behaviors: {
-        buyingProcess: String(p?.behaviors?.buyingProcess || ''),
-        decisionTimeline: String(p?.behaviors?.decisionTimeline || ''),
-        budgetRange: String(p?.behaviors?.budgetRange || ''),
-        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) ? p.behaviors.preferredChannels : []
-      },
-      market_potential: {
-        totalCompanies: typeof p?.market_potential?.totalCompanies === 'number' ? p.market_potential.totalCompanies : 0,
-        avgDealSize: String(p?.market_potential?.avgDealSize || ''),
-        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 0
-      },
-      locations: Array.isArray(p?.locations) ? p.locations : [search.countries[0] || 'Global']
-    });
-
     const acceptPersonas = (arr: any[]): Persona[] => {
       const three = (arr || []).slice(0,3);
       if (three.length !== 3) return [];
-      const sanitized = three.map((p, i) => sanitizePersona(p, i));
-      return sanitized;
+      return three.map((p, i) => sanitizePersona('business', p, i, search));
     };
 
     const hasGenericTitles = (arr: Persona[]): boolean => {
-      const bad = ['persona', 'profile', 'archetype'];
       const titles = arr.map(p => (p.title || '').toLowerCase());
       const duplicates = new Set<string>();
       let dup = false;
@@ -367,7 +315,7 @@ CRITICAL: Each persona must have:
         if (duplicates.has(t)) { dup = true; break; }
         duplicates.add(t);
       }
-      return titles.some(t => bad.some(b => t.includes(b))) || dup;
+      return arr.some(p => isGenericTitle(p.title)) || dup;
     };
 
     try {
@@ -428,7 +376,7 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
 
     if (personas.length) {
       // Validate realism before persisting to avoid low-quality data
-      const allRealistic = personas.every(p => isRealisticPersona(p));
+      const allRealistic = personas.every(p => isRealisticPersona('business', p));
       if (!allRealistic) {
         personas = [];
       }
