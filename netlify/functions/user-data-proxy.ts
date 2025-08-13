@@ -5,27 +5,23 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function buildCorsHeaders(origin?: string, requestHeaders?: string, requestMethod?: string) {
-  // Liberal in dev: allow any localhost/LAN origin; otherwise reflect if whitelisted; fallback '*'
-  const isLocalhost = origin?.startsWith('http://localhost') || origin?.startsWith('http://127.0.0.1');
-  const isLan = !!origin && /^(http:\/\/|https:\/\/)(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(origin);
-  const isAllowed = allowedOrigins.length === 0 || (origin ? allowedOrigins.includes(origin) : false);
-  const finalOrigin = (isLocalhost || isLan || isAllowed) ? (origin || '*') : '*';
-  const allowHeaders = requestHeaders && requestHeaders.length > 0
+  const allowHeaders = (requestHeaders && requestHeaders.length > 0)
     ? requestHeaders
     : 'Authorization, Content-Type, Accept, apikey, X-Requested-With';
-  const allowMethods = requestMethod && requestMethod.length > 0
+  const allowMethods = (requestMethod && requestMethod.length > 0)
     ? requestMethod
     : 'GET, POST, OPTIONS, PUT, PATCH, DELETE';
+  const finalOrigin = origin || '*';
   return {
     'Access-Control-Allow-Origin': finalOrigin,
-    // Be permissive in dev; browsers will still enforce
     'Access-Control-Allow-Headers': allowHeaders,
     'Access-Control-Allow-Methods': allowMethods,
     'Access-Control-Max-Age': '86400',
-    'Access-Control-Allow-Credentials': 'false',
-    // Address Private Network Access preflights in some browsers
+    // Allow credentials if browser decides to send cookies/authorization
+    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Private-Network': 'true',
     'Access-Control-Expose-Headers': '*',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
     'Timing-Allow-Origin': '*',
     'Vary': 'Origin'
   } as Record<string,string>;

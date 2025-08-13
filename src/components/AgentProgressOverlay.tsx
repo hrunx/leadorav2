@@ -78,19 +78,24 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
             default: return rawPhase;
           }
         })();
-        // Derive a safe UI phase from data counts to avoid stale/misaligned labels
+        // Derive a safe UI phase from data counts and progress percentage
+        const pct = Number(data?.progress?.progress_pct || 0);
         const derivedPhase = (() => {
           if (data.data_counts.market_insights > 0) return 'market_research';
           if (data.data_counts.decision_makers > 0) return 'decision_makers';
           if (data.data_counts.businesses > 0) return 'business_discovery';
           if (data.data_counts.dm_personas >= 3) return 'dm_personas';
           if (data.data_counts.business_personas >= 3) return 'business_personas';
+          if (normalizedPhase === 'completed' || pct >= 100) return 'completed';
+          if (pct >= 85) return 'market_research';
+          if (pct >= 40) return 'business_discovery';
+          if (pct >= 10) return 'business_personas';
           return normalizedPhase;
         })();
         setCurrentPhase(derivedPhase);
         // Auto-dismiss overlay when first rows are visible to switch user to live screens quickly
         const anyVisible = (data.data_counts.business_personas > 0 && data.data_counts.dm_personas > 0) || data.data_counts.businesses > 0;
-        if (!firstDataSeen && !hasNavigatedEarly && anyVisible && onEarlyNavigation) {
+        if (!firstDataSeen && !hasNavigatedEarly && (anyVisible || pct >= 40) && onEarlyNavigation) {
           setFirstDataSeen(true);
           setHasNavigatedEarly(true);
           onEarlyNavigation();

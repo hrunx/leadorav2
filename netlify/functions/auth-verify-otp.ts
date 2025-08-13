@@ -156,7 +156,7 @@ export const handler: Handler = async (event) => {
       const link: any = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo } as any });
       emailOtp = link?.email_otp || null;
       actionLink = link?.action_link || null;
-    } catch (e) {
+  } catch {
       // Fallback: attempt user creation then generate link
       try {
         await supaAdmin.auth.admin.createUser({ email, email_confirm: true });

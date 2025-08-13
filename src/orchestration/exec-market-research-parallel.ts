@@ -1,5 +1,5 @@
 // import { executeAdvancedMarketResearch } from '../agents/market-research-advanced.agent';
-import { openai, resolveModel } from '../agents/clients';
+import { openai, resolveModel, callGeminiText } from '../agents/clients';
 import { serperSearch } from '../tools/serper';
 import { loadSearch } from '../tools/db.read';
 import { insertMarketInsights, logApiUsage } from '../tools/db.write';
@@ -25,7 +25,7 @@ export async function execMarketResearchParallel(payload: {
 
   const startTime = Date.now();
   try {
-    // Execute market research via OpenAI GPT-5
+    // Execute market research via OpenAI GPT-5 with robust fallbacks
     const modelId = resolveModel('primary');
 
     // Pre-fetch web sources via Serper for each country (low token footprint: pass only URLs and short titles)
@@ -40,37 +40,65 @@ export async function execMarketResearchParallel(payload: {
     ).flat().slice(0, 8);
 
     const sourcesForPrompt = webFindings.map(s => `- ${s.title} (${s.url})`).join('\n');
-    const prompt = `Generate structured market insights JSON for ${searchData.product_service} targeting ${searchData.industries.join(', ')} in ${searchData.countries.join(', ')}.
+    const basePrompt = `Generate structured market insights JSON for ${searchData.product_service} targeting ${searchData.industries.join(', ')} in ${searchData.countries.join(', ')}.
 
-Use ONLY valid JSON. Use these sources when relevant (do not quote text, just use as references):\n${sourcesForPrompt}`;
-    const res = await openai.chat.completions.create({
-      model: modelId,
-      messages: [
-        { role: 'system', content: 'You output ONLY valid JSON for market insights per the user spec.' },
-        { role: 'user', content: prompt }
-      ],
-      response_format: { type: 'json_object' }
-    });
-    const analysis = res.choices?.[0]?.message?.content || '{}';
+Return ONLY valid JSON that conforms to the following sections: tam_data, sam_data, som_data, competitor_data (array), trends (array), opportunities (object or array), sources (array of URLs), analysis_summary, research_methodology.
+Use these sources when relevant (do not quote text, just use as references):\n${sourcesForPrompt}`;
 
-    // Log OpenAI API usage (provider: openai)
-    await logApiUsage({
-      user_id: search.user_id,
-      search_id: search.id,
-      provider: 'openai',
-      endpoint: 'chat.completions',
-      status: 200,
-      ms: Date.now() - startTime,
-      request: { model: modelId, product: searchData.product_service, industries: searchData.industries, countries: searchData.countries },
-      response: { text_length: analysis.length }
-    });
+    let analysis = '';
+    let provider: 'openai' | 'gemini' | 'fallback' = 'openai';
+    try {
+      const res = await openai.chat.completions.create({
+        model: modelId,
+        messages: [
+          { role: 'system', content: 'You output ONLY valid JSON for market insights per the user spec.' },
+          { role: 'user', content: basePrompt }
+        ],
+        response_format: { type: 'json_object' }
+      });
+      analysis = res.choices?.[0]?.message?.content || '';
+      await logApiUsage({
+        user_id: search.user_id,
+        search_id: search.id,
+        provider: 'openai',
+        endpoint: 'chat.completions',
+        status: 200,
+        ms: Date.now() - startTime,
+        request: { model: modelId, product: searchData.product_service, industries: searchData.industries, countries: searchData.countries },
+        response: { text_length: analysis.length }
+      });
+    } catch (e: any) {
+      // Fallback to Gemini
+      provider = 'gemini';
+      try {
+        const gText = await callGeminiText('gemini-1.5-pro', basePrompt);
+        analysis = gText || '';
+        await logApiUsage({
+          user_id: search.user_id,
+          search_id: search.id,
+          provider: 'gemini',
+          endpoint: 'generateContent',
+          status: 200,
+          ms: Date.now() - startTime,
+          request: { model: 'gemini-1.5-pro', product: searchData.product_service },
+          response: { text_length: analysis.length }
+        });
+      } catch (e2: any) {
+        provider = 'fallback';
+        analysis = JSON.stringify({
+          sources: webFindings.map(s => s.url),
+          analysis_summary: 'Heuristic insights constructed from available web links due to LLM failures',
+          research_methodology: 'Serper web search and heuristic extraction'
+        });
+      }
+    }
 
     // Parse the analysis to extract structured data
     const insights = await parseMarketAnalysis(analysis, webFindings.map(s => s.url));
 
     const parsed = MarketInsightsSchema.safeParse(insights);
     if (!parsed.success) {
-      logger.error('Invalid market insights from analysis', { error: parsed.error });
+      logger.error('Invalid market insights from analysis', { error: parsed.error, provider });
       throw new Error('Invalid market insights format');
     }
     const valid = parsed.data;
@@ -86,12 +114,28 @@ Use ONLY valid JSON. Use these sources when relevant (do not quote text, just us
       trends: valid.trends,
       opportunities: valid.opportunities,
       sources: valid.sources || [],
-      analysis_summary: valid.analysis_summary || 'Advanced market research completed',
-      research_methodology: valid.research_methodology || 'AI-powered analysis with multi-country web search and competitive intelligence'
+      analysis_summary: valid.analysis_summary || (provider === 'fallback' ? 'Heuristic market insights' : 'Market research completed'),
+      research_methodology: valid.research_methodology || (provider === 'fallback' ? 'Serper web search and heuristic extraction' : 'AI-powered analysis with multi-country web search and competitive intelligence')
     });
 
   } catch (error: any) {
-    
+    // Final failure: attempt to store a minimal placeholder so UI can proceed
+    try {
+      await insertMarketInsights({
+        search_id: search.id,
+        user_id: search.user_id,
+        tam_data: { value: 'Data not available', growth: 'Unknown', description: 'Total Addressable Market', calculation: 'Insufficient data', data_quality: 'unavailable' },
+        sam_data: { value: 'Data not available', growth: 'Unknown', description: 'Serviceable Addressable Market', calculation: 'Insufficient data', data_quality: 'unavailable' },
+        som_data: { value: 'Data not available', growth: 'Unknown', description: 'Serviceable Obtainable Market', calculation: 'Insufficient data', data_quality: 'unavailable' },
+        competitor_data: [],
+        trends: [],
+        opportunities: { summary: 'Insufficient data', playbook: [], market_gaps: [], timing: 'Unknown' },
+        sources: [],
+        analysis_summary: 'Market research failed due to provider errors',
+        research_methodology: 'Fallback placeholder due to API failure'
+      });
+    } catch {}
+
     // Log failed API usage (provider: openai)
     await logApiUsage({
       user_id: search.user_id,
@@ -125,6 +169,16 @@ async function parseMarketAnalysis(analysis: string, _sources: any[]): Promise<a
     insights = await generateStructuredInsights(analysis);
   }
 
+  // Normalize sources to object form expected by schema
+  const normalizedSources = (_sources && Array.isArray(_sources) ? _sources : (insights?.sources || []))
+    .map((s: any) => {
+      if (!s) return null;
+      if (typeof s === 'string') return { title: s, url: s };
+      if (typeof s.url === 'string') return { title: s.title || s.url, url: s.url, date: s.date };
+      return null;
+    })
+    .filter(Boolean);
+
   // Return only real data - no fake placeholders
   return {
     tam_data: insights.tam_data || {
@@ -156,7 +210,7 @@ async function parseMarketAnalysis(analysis: string, _sources: any[]): Promise<a
       market_gaps: [],
       timing: "Cannot determine without reliable market data"
     },
-    sources: _sources || insights.sources || [],
+    sources: normalizedSources,
     analysis_summary: insights.analysis_summary || "Market research incomplete due to insufficient data",
     research_methodology: insights.research_methodology || "Limited data available - requires industry reports and market intelligence"
   };

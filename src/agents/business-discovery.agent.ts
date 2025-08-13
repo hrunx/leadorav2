@@ -3,8 +3,6 @@ import { serperPlaces, retryWithBackoff } from '../tools/serper';
 import logger from '../lib/logger';
 import { resolveModel } from './clients';
 import { insertBusinesses, logApiUsage } from '../tools/db.write';
-
-import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
 import { loadBusinesses } from '../tools/db.read';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
@@ -150,8 +148,9 @@ const storeBusinessesTool = tool({
       items: (Business & { industry: string; country: string })[]
     };
     // Insert IMMEDIATELY without enrichment for fastest UI paint; enrichment can be handled later
-    const capped = items.slice(0, 5);
-    const rows = capped.map((b) =>
+    const capped1 = items.slice(0, 5);
+    // Note: reserved for future enrichment (intentionally not used)
+    void capped1.map((b) =>
       buildBusinessData({
         search_id,
         user_id,
@@ -175,7 +174,7 @@ const storeBusinessesTool = tool({
       })
     );
 
-    const { search_id, user_id, industry, country, items } = input as {
+    const { search_id: search_id2, user_id: user_id2, industry, country, items: items2 } = input as {
       search_id: string;
       user_id: string;
       industry: string;
@@ -186,14 +185,15 @@ const storeBusinessesTool = tool({
     // - Seed sets with existing DB values for this search
     // - Skip items whose website or phone already exists in sets
     // - Add each unique website/phone to catch duplicates within the batch
-    const existing = await loadBusinesses(search_id);
+    const existing = await loadBusinesses(search_id2);
+    const existingAny = (existing as any[]) || [];
     const seenWeb = new Set(
-      (existing || []).map(b => (b.website || '').toLowerCase()).filter(Boolean)
+      existingAny.map((b: any) => String(b?.website || '').toLowerCase()).filter(Boolean)
     );
     const seenPhone = new Set(
-      (existing || []).map(b => (b.phone || '').toLowerCase()).filter(Boolean)
+      existingAny.map((b: any) => String(b?.phone || '').toLowerCase()).filter(Boolean)
     );
-    const unique = items.filter(b => {
+    const unique = items2.filter(b => {
       const w = (b.website || '').toLowerCase();
       const p = (b.phone || '').toLowerCase();
       if (w && seenWeb.has(w)) return false;
@@ -204,10 +204,10 @@ const storeBusinessesTool = tool({
     });
 
     // After deduplication, insert immediately without enrichment for fastest UI paint
-    const capped = unique.slice(0, 5);
-    const rows = capped.map((b: Business) => buildBusinessData({
-      search_id,
-      user_id,
+    const capped2 = unique.slice(0, 5);
+    const rows2 = capped2.map((b: Business) => buildBusinessData({
+      search_id: search_id2,
+      user_id: user_id2,
       persona_id: b.persona_id || null, // Use null if no persona mapping yet (will be updated later)
       name: b.name,
       industry,
@@ -227,32 +227,32 @@ const storeBusinessesTool = tool({
       recent_activity: b.recent_activity || []
     }));
 
-    // rows are already deduplicated; insert only new businesses
+    // Normalize nullables to satisfy insert typing
+    const rowsForInsert = rows2.map((r: any) => ({
+      ...r,
+      address: r.address ?? undefined,
+      city: r.city ?? undefined,
+      phone: r.phone ?? undefined,
+      website: r.website ?? undefined,
+      rating: typeof r.rating === 'number' ? r.rating : undefined,
+      relevant_departments: Array.isArray(r.relevant_departments) ? r.relevant_departments : [],
+      key_products: Array.isArray(r.key_products) ? r.key_products : [],
+      recent_activity: Array.isArray(r.recent_activity) ? r.recent_activity : []
+    }));
 
-    logger.info('Inserting businesses', { count: rows.length, search_id });
-    const insertedBusinesses = await insertBusinesses(rows);
+    // rows are already deduplicated; insert only new businesses
+    logger.info('Inserting businesses', { count: rowsForInsert.length, search_id: search_id2 });
+    const insertedBusinesses: any[] = await insertBusinesses(rowsForInsert as any);
     // Only increment the running DM discovery total with this batch if there are new businesses
     // Do not initialize here; we'll initialize within the batch trigger call to avoid double-counting
     // 🚀 PERSONA MAPPING (fire-and-forget)
-  void mapBusinessesToPersonas(search_id).catch(err => logger.warn('Persona mapping failed', { error: err?.message || err }));
+  void mapBusinessesToPersonas(search_id2).catch(err => logger.warn('Persona mapping failed', { error: err?.message || err }));
 
-    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately
+    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately with batching
     // Initialize progress once for all inserted businesses
     if (insertedBusinesses.length > 0) {
-      initDMDiscoveryProgress(search_id, insertedBusinesses.length);
+      initDMDiscoveryProgress(search_id2, insertedBusinesses.length);
     }
-
-    const results = await Promise.allSettled(
-      insertedBusinesses.map(async (business) => {
-        return await processBusinessForDM(search_id, user_id, business);
-      })
-    );
-    const succeededIds = new Set(
-      results
-        .map((r, idx) => (r.status === 'fulfilled' && r.value ? insertedBusinesses[idx].id : null))
-        .filter(Boolean) as string[]
-    );
-
 
     // Limit DM lookups to avoid hammering external APIs.
     // With a batch size of 3 and a 500ms gap, expected throughput is ~6 businesses/sec.
@@ -264,15 +264,15 @@ const storeBusinessesTool = tool({
       const batch = insertedBusinesses.slice(i, i + batchSize);
 
       await Promise.all(
-        batch.map((business) =>
+        batch.map((business: any) =>
           limit(async () => {
-            const ok = await processBusinessForDM(search_id, user_id, {
+            const ok = await processBusinessForDM(search_id2, user_id2, {
               ...business,
               country,
               industry
             });
             if (ok) {
-              succeededIds.add(business.id);
+              succeededIds.add(String(business.id));
             }
           })
         )
@@ -286,13 +286,13 @@ const storeBusinessesTool = tool({
 
 
     // Fallback: trigger batch discovery only for businesses not processed individually
-    const pendingBusinesses = insertedBusinesses.filter(b => !succeededIds.has(b.id));
+    const pendingBusinesses = insertedBusinesses.filter((b: any) => !succeededIds.has(String(b.id)));
     if (pendingBusinesses.length > 0) {
       logger.debug('Triggering instant DM discovery (fallback)', { count: pendingBusinesses.length, search_id });
       await triggerInstantDMDiscovery(
         search_id,
         user_id,
-        pendingBusinesses,
+        pendingBusinesses as any,
         { initializeProgress: true }
       );
     }
@@ -385,33 +385,28 @@ export async function runBusinessDiscovery(search: {
     const perCountryResults = await Promise.all(
       countriesToSearch.map(async (country) => {
         const q = `${search.product_service} ${industry} ${intent} ${country}`.trim();
-        const places = await serperPlaces(q, country, 8).catch(() => [] as any[]);
-        return places.map((p: any) => ({ ...p, country, industry }));
+        return await retryWithBackoff(() => serperPlaces(q, country, 8)).catch(() => [] as any[]);
       })
     );
-
-    const perCountryResults = await Promise.all(countriesToSearch.map(async (country) => {
-      const q = `${search.product_service} ${industry} ${intent} ${country}`.trim();
-      return await retryWithBackoff(() => serperPlaces(q, country, 8)).catch(() => [] as any[]);
-    }));
 
 
     // Flatten and deduplicate by website/phone (case-insensitive), also excluding existing DB entries
     const allPlaces = perCountryResults.flat();
-    const existing = await loadBusinesses(search.id);
-    const seenWeb = new Set(
-      (existing || []).map(b => (b.website || '').toLowerCase()).filter(Boolean)
+    const existing2 = await loadBusinesses(search.id);
+    const existing2Any = (existing2 as any[]) || [];
+    const seenWeb2 = new Set(
+      existing2Any.map((b: any) => String(b?.website || '').toLowerCase()).filter(Boolean)
     );
-    const seenPhone = new Set(
-      (existing || []).map(b => (b.phone || '').toLowerCase()).filter(Boolean)
+    const seenPhone2 = new Set(
+      existing2Any.map((b: any) => String(b?.phone || '').toLowerCase()).filter(Boolean)
     );
     const unique = allPlaces.filter((p: any) => {
-      const w = (p.website || '').toLowerCase();
-      const ph = (p.phone || '').toLowerCase();
-      if (w && seenWeb.has(w)) return false;
-      if (ph && seenPhone.has(ph)) return false;
-      if (w) seenWeb.add(w);
-      if (ph) seenPhone.add(ph);
+      const w = String(p.website || '').toLowerCase();
+      const ph = String(p.phone || '').toLowerCase();
+      if (w && seenWeb2.has(w)) return false;
+      if (ph && seenPhone2.has(ph)) return false;
+      if (w) seenWeb2.add(w);
+      if (ph) seenPhone2.add(ph);
       return true;
     });
 

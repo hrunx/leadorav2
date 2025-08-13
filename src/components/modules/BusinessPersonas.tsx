@@ -58,6 +58,10 @@ export default function BusinessPersonas() {
   
   // Real-time data hook for progressive loading
   const realTimeData = useRealTimeSearch(currentSearch?.id || null);
+  // Prefer business personas; if none yet, fallback to DM personas so UI does not block
+  const personasSource = (realTimeData.businessPersonas && realTimeData.businessPersonas.length > 0)
+    ? realTimeData.businessPersonas
+    : realTimeData.dmPersonas;
   
   // UI state
   const [selectedPersona, setSelectedPersona] = useState<PersonaData | null>(null);
@@ -90,7 +94,7 @@ export default function BusinessPersonas() {
   // Use real-time data for real users, demo data for demo users (stable, no flicker)
   const personas: PersonaData[] = useMemo(() => {
     if (isDemo) return demoPersonas;
-    const list = (realTimeData.businessPersonas || [])
+    const list = (personasSource || [])
       .filter(p => typeof p?.title === 'string' && p.title.trim().toLowerCase() !== 'persona generation failed')
       .sort((a, b) => ((a?.rank as number) ?? 999) - ((b?.rank as number) ?? 999))
       .slice(0, 3)
@@ -140,10 +144,11 @@ export default function BusinessPersonas() {
       } as PersonaData;
     });
     return list as PersonaData[];
-  }, [isDemo, demoPersonas, realTimeData.businessPersonas, realTimeData.businesses]);
+  }, [isDemo, demoPersonas, personasSource, realTimeData.businesses]);
   
   // Show loader only until first persona arrives; do not block on phase value
-  const isLoading = isDemo ? isLoadingDemo : (personas.length === 0);
+  // Do not block the screen if businesses already exist or DM personas are available
+  const isLoading = isDemo ? isLoadingDemo : (personas.length === 0 && realTimeData.businesses.length === 0);
   const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
 
   // Load demo data for demo users only

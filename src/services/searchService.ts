@@ -243,21 +243,14 @@ export class SearchService {
   // Get business personas for a search
   static async getBusinessPersonas(searchId: string): Promise<BusinessPersona[]> {
     // Proxy-first to avoid CORS/RLS issues in browsers
-    try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (response.ok) {
-        const arr = await response.json();
-        const list = Array.isArray(arr) ? arr : [];
-        return list as any;
-      }
-    } catch (e) {
-      import('../lib/logger').then(({ default: logger }) => logger.warn('getBusinessPersonas proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
       try {
-        const { data } = await supabase.from('business_personas').select('*').eq('search_id', searchId).order('rank');
-        return (Array.isArray(data) ? data : []) as any;
-      } catch {}
-    }
-    return [];
+        const response = await fetch(`${this.functionsBase}/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
+        if (!response.ok) return [];
+        const arr = await response.json();
+        return (Array.isArray(arr) ? arr : []) as any;
+      } catch {
+        return [];
+      }
   }
 
   // Check if user should see demo data
@@ -318,20 +311,12 @@ export class SearchService {
     // Proxy-first
     try {
       const response = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (response.ok) {
-        const arr = await response.json();
-        const list = Array.isArray(arr) ? arr : [];
-        return list as any;
-      }
+      if (!response.ok) return [];
+      const arr = await response.json();
+      return (Array.isArray(arr) ? arr : []) as any;
+    } catch {
       return [];
-    } catch (e) {
-      import('../lib/logger').then(({ default: logger }) => logger.warn('getBusinesses proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
-      try {
-        const { data } = await supabase.from('businesses').select('*').eq('search_id', searchId).order('match_score', { ascending: false });
-        return (Array.isArray(data) ? data : []) as any;
-      } catch {}
     }
-    return [];
   }
 
   // Get decision maker personas for a search (agents generate them automatically)
@@ -373,19 +358,12 @@ export class SearchService {
     // Proxy-first
     try {
       const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (response.ok) {
-        const arr = await response.json();
-        const list = Array.isArray(arr) ? arr : [];
-        return list as any;
-      }
-    } catch (e) {
-      import('../lib/logger').then(({ default: logger }) => logger.warn('getDecisionMakerPersonas proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
-      try {
-        const { data } = await supabase.from('decision_maker_personas').select('*').eq('search_id', searchId).order('rank');
-        return (Array.isArray(data) ? data : []) as any;
-      } catch {}
+      if (!response.ok) return [];
+      const arr = await response.json();
+      return (Array.isArray(arr) ? arr : []) as any;
+    } catch {
+      return [];
     }
-    return [];
   }
 
   // Get decision makers for a search (agents generate them automatically via LinkedIn)
@@ -439,19 +417,12 @@ export class SearchService {
     // Proxy-first
     try {
       const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (response.ok) {
-        const arr = await response.json();
-        const list = Array.isArray(arr) ? arr : [];
-        return list as any;
-      }
-    } catch (e) {
-      import('../lib/logger').then(({ default: logger }) => logger.warn('getDecisionMakers proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
-      try {
-        const { data } = await supabase.from('decision_makers').select('*').eq('search_id', searchId).order('influence', { ascending: false });
-        return (Array.isArray(data) ? data : []) as any;
-      } catch {}
+      if (!response.ok) return [];
+      const arr = await response.json();
+      return (Array.isArray(arr) ? arr : []) as any;
+    } catch {
+      return [];
     }
-    return [];
   }
 
   // Get market insights for a search (agents generate them automatically via Gemini)
@@ -495,18 +466,12 @@ export class SearchService {
     // Proxy-first
     try {
       const response = await fetch(`${this.functionsBase}/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (response.ok) {
-        const arr = await response.json();
-        return (Array.isArray(arr) && arr.length > 0) ? (arr[0] as any) : null;
-      }
-    } catch (e) {
-      import('../lib/logger').then(({ default: logger }) => logger.warn('getMarketInsights proxy failed, falling back to Supabase', { error: (e as any)?.message || e })).catch(()=>{});
-      try {
-        const { data } = await supabase.from('market_insights').select('*').eq('search_id', searchId).limit(1).maybeSingle();
-        return (data as any) || null;
-      } catch {}
+      if (!response.ok) return null;
+      const arr = await response.json();
+      return (Array.isArray(arr) && arr.length > 0) ? (arr[0] as any) : null;
+    } catch {
+      return null;
     }
-    return null;
   }
 
   // Mock data generation methods (these would be replaced with actual AI generation)

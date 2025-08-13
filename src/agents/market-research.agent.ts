@@ -3,7 +3,15 @@ import logger from '../lib/logger';
 import { insertMarketInsights, markSearchCompleted, logApiUsage } from '../tools/db.write';
 import { extractJson } from '../tools/json';
 import { serperSearch } from '../tools/serper';
-import * as cheerio from 'cheerio';
+let cheerio: any;
+try {
+// Optional in Netlify runtime; if not present, verification gracefully degrades
+// Using conditional require; allowed in Node functions
+  // @ts-ignore: runtime optional require for Node
+  cheerio = require('cheerio');
+} catch {
+  cheerio = null;
+}
 
 function parseCurrencyToNumber(value: string): number | null {
   if (!value) return null;
@@ -26,6 +34,7 @@ async function fetchNumberFromSource(url: string, expected: number | null): Prom
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     if (!res.ok) return null;
     const html = await res.text();
+    if (!cheerio) return null;
     const $ = cheerio.load(html);
     const text = $('body').text();
     const matches = text.match(/[$€£]?\s?[\d,.]+\s?(?:billion|million|thousand|bn|m|k|B|M|K)?/gi) || [];

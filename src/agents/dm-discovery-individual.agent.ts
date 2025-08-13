@@ -127,14 +127,8 @@ const linkedinSearchTool = tool({
       for (const query of queries) {
         try {
 
-          // Skip if we've already executed this query for this company recently
-          if (await hasSeenQuery(company_name, query)) {
-
-          // Skip if we've already executed this query recently
-          if (await hasSeen(company_name, query)) {
-
-          // Skip if we've already executed this query in-memory
-          if (hasSeen(company_name, query)) {
+          // Skip if we've already executed this query recently (cache-backed)
+          if (await hasSeenQuery(company_name, query) || await hasSeen(company_name, query)) {
 
             continue;
           }
@@ -191,12 +185,7 @@ const linkedinSearchTool = tool({
           // Mark this query as seen to prevent future duplicates
 
           await markSeenQuery(company_name, query);
-
-
           await markSeen(company_name, query);
-          
-
-          markSeen(company_name, query);
 
           // Cache the successful query to reduce future API usage
           try {
