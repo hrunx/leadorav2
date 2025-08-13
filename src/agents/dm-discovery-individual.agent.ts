@@ -3,7 +3,7 @@ import { serperSearch } from '../tools/serper';
 import { resolveModel, supa as sharedSupa } from './clients';
 import { insertDecisionMakersBasic, logApiUsage } from '../tools/db.write';
 import { loadDMPersonas } from '../tools/db.read';
-import { mapDMToPersona } from '../tools/util';
+import { mapDMToPersona, retryWithBackoff } from '../tools/util';
 import logger from '../lib/logger';
 import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
 import { createHash } from 'crypto';
@@ -88,14 +88,14 @@ const linkedinSearchTool = tool({
   } as const,
   strict: true,
   execute: async (input: unknown) => {
-    const { company_name, company_country, search_id, user_id, product_service } = input as { 
-      company_name: string; 
+    const { company_name, company_country, search_id, user_id, product_service } = input as {
+      company_name: string;
       company_country: string;
-      search_id: string; 
+      search_id: string;
       user_id: string;
       product_service: string;
     };
-    
+
     const startTime = Date.now();
 
     try {
@@ -107,16 +107,43 @@ const linkedinSearchTool = tool({
       const ctx = (product_service || '').trim();
       const suffix = ctx ? ` ${ctx}` : '';
       const queries = [`"${company_name}" site:linkedin.com/in/ ${primaryTitle}${suffix}`];
-      
+
       const allEmployees: Employee[] = [];
-      
+
+      // Cleanup old cached queries (non-blocking)
+      const cacheExpiryIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      void sharedSupa
+        .from('linkedin_query_cache')
+        .delete()
+        .lt('created_at', cacheExpiryIso)
+        .catch(() => {});
+
       // Search for employees in different roles
       for (const query of queries) {
         try {
           // Skip if we've already executed this query recently
           if (await hasSeen(company_name, query)) {
+
+          // Skip if we've already executed this query in-memory
+          if (hasSeen(company_name, query)) {
             continue;
           }
+
+          // Check persistent cache to avoid repeated external calls
+          const { data: cached } = await sharedSupa
+            .from('linkedin_query_cache')
+            .select('search_id')
+            .eq('search_id', search_id)
+            .eq('company', company_name)
+            .eq('query', query)
+            .gte('created_at', cacheExpiryIso)
+            .maybeSingle();
+
+          if (cached) {
+            markSeen(company_name, query);
+            continue;
+          }
+
           const result = await serperSearch(query, company_country, 10);
           if (result && result.success && Array.isArray(result.items)) {
             const employees = result.items
@@ -150,9 +177,26 @@ const linkedinSearchTool = tool({
             // Store employees immediately with enrichment_status: 'pending'
             allEmployees.push(...employees);
           }
+
           // Mark this query as seen to prevent future duplicates
+
           await markSeen(company_name, query);
           
+
+          markSeen(company_name, query);
+
+          // Cache the successful query to reduce future API usage
+          try {
+            await sharedSupa.from('linkedin_query_cache').insert({
+              search_id,
+              company: company_name,
+              query
+            });
+          } catch (cacheErr) {
+            logger.warn('Failed to cache LinkedIn query', { error: (cacheErr as any)?.message || cacheErr });
+          }
+
+
           // Small delay between searches to avoid rate limiting
           const jitter = 300 + Math.floor(Math.random() * 300);
           await new Promise(resolve => setTimeout(resolve, jitter));
@@ -367,13 +411,19 @@ const storeDMsTool = tool({
 
     try {
       // Trigger backend enrichment via Netlify function without blocking
-      void fetch(enrichUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ search_id })
-      }).catch(err => {
-        logger.warn('Failed to trigger enrichment', { error: (err as any)?.message || err });
-      });
+      let attempts = 0;
+      void retryWithBackoff(async () => {
+        attempts++;
+        return fetch(enrichUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ search_id })
+        });
+      }, 2)
+        .then(() => logger.debug('Triggered enrichment', { attempts }))
+        .catch(err => {
+          logger.warn('Failed to trigger enrichment', { attempts, error: (err as any)?.message || err });
+        });
     } catch (err) {
       logger.warn('Failed to trigger enrichment', { error: (err as any)?.message || err });
     }
