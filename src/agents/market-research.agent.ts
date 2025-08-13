@@ -199,7 +199,9 @@ OUTPUT JSON SCHEMA EXACTLY:
         competitor_data: data.competitor_data || [],
         trends: data.trends || [],
         opportunities: data.opportunities || {},
-        sources: (data.sources && Array.isArray(data.sources)) ? data.sources : sources.map(s => s.url),
+        sources: Array.isArray(data.sources) && data.sources.length
+          ? data.sources.map((s: any) => typeof s === 'string' ? { title: s, url: s } : s)
+          : sources.map(({ title, url }) => ({ title, url })),
         analysis_summary: data.analysis_summary || 'Market research completed using OpenAI GPT-5 analysis',
         research_methodology: data.research_methodology || 'AI-assisted market analysis grounded in recent web sources and country/industry context'
       };
