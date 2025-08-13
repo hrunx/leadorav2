@@ -4,6 +4,7 @@ import { serperSearch } from '../tools/serper';
 import logger from '../lib/logger';
 // import { logApiUsage } from '../tools/db.write';
 import { glToCountryName } from '../tools/util';
+import { insertMarketInsights, updateSearchProgress, markSearchCompleted } from '../tools/db.write';
 
   const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -367,6 +368,74 @@ Start by searching for current market data, then analyze competitors, and finall
   return {
     analysis: finalResult.response.text(),
     functionCalls: functionCalls || [],
+    functionResponses,
     sources: [...new Set(allSources)] // Remove duplicates
   };
+}
+
+export async function runAdvancedMarketResearch(search: {
+  id: string;
+  user_id: string;
+  product_service: string;
+  industries: string[];
+  countries: string[];
+}) {
+  try {
+    await updateSearchProgress(search.id, 90, 'market_research', 'in_progress');
+    logger.info('Starting advanced market research', { search_id: search.id });
+
+    const result = await executeAdvancedMarketResearch({
+      product_service: search.product_service,
+      industries: search.industries,
+      countries: search.countries,
+      search_id: search.id,
+      user_id: search.user_id
+    });
+
+    const marketSize = result.functionResponses.find((fr: any) => fr.name === 'calculate_market_size')?.response || {};
+    const competitors = result.functionResponses.find((fr: any) => fr.name === 'analyze_competitors')?.response || {};
+    const trends = result.functionResponses.find((fr: any) => fr.name === 'analyze_trends')?.response || {};
+
+    const row = {
+      search_id: search.id,
+      user_id: search.user_id,
+      tam_data: {
+        value: marketSize.tam,
+        methodology: marketSize.methodology,
+        source: marketSize.sources?.[0],
+        growth_rate: marketSize.growth_rate,
+        confidence: marketSize.confidence,
+        note: marketSize.note
+      },
+      sam_data: {
+        value: marketSize.sam,
+        methodology: marketSize.methodology,
+        source: marketSize.sources?.[1],
+        growth_rate: marketSize.growth_rate,
+        confidence: marketSize.confidence,
+        note: marketSize.note
+      },
+      som_data: {
+        value: marketSize.som,
+        methodology: marketSize.methodology,
+        source: marketSize.sources?.[2],
+        growth_rate: marketSize.growth_rate,
+        confidence: marketSize.confidence,
+        note: marketSize.note
+      },
+      competitor_data: competitors.competitors || [],
+      trends: trends.trends || [],
+      opportunities: {},
+      sources: result.sources,
+      analysis_summary: result.analysis,
+      research_methodology: 'Advanced web-grounded market research'
+    };
+
+    await insertMarketInsights(row);
+    await markSearchCompleted(search.id);
+    logger.info('Completed advanced market research', { search_id: search.id });
+  } catch (error: any) {
+    logger.error('Advanced market research failed', { search_id: search.id, error: error?.message || error });
+    throw error;
+  }
 }
