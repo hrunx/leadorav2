@@ -79,6 +79,7 @@ npm run typecheck
 ### Database (Supabase)
 - Canonical SQLs: `complete_database_setup_fixed.sql`, `fix_authentication_and_database.sql`, `fix_proxy_authentication.sql`, `fix_rls_policies.sql`.
 - RLS policies support read flows via proxy; server functions use service role for writes.
+- `market_insights.sources` now stores objects `{ title, url, date }` for richer citation metadata.
 
 ### Security & privacy
 - No secrets in client bundles; write operations occur only in functions.
