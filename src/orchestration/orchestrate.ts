@@ -5,6 +5,7 @@ import { runBusinessPersonas } from '../agents/business-persona.agent';
 import { runDMPersonas } from '../agents/dm-persona.agent';
 import { runBusinessDiscovery } from '../agents/business-discovery.agent';
 import { runMarketResearch } from '../agents/market-research.agent';
+import { runAdvancedMarketResearch } from '../agents/market-research-advanced.agent';
 
 export async function orchestrate(search_id: string, _user_id: string, sendUpdate?: (type: string, data: unknown) => void) {
   logger.info('Starting optimized parallel orchestration', { search_id });
@@ -14,14 +15,17 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
   
   try {
     const search = await loadSearch(search_id);
-    
+    const useAdvancedResearch = (search as any)?.use_advanced_research;
+
     // Initialize progress
     await updateSearchProgress(search_id, 5, 'starting', 'in_progress');
     updateFn('PROGRESS', { phase: 'starting', progress: 5 });
 
     // 🚀 PHASE 1: Launch ALL agents in parallel immediately
     logger.debug('Launching all agents in parallel');
-    
+
+    const marketResearchTask = useAdvancedResearch ? runAdvancedMarketResearch : runMarketResearch;
+
     const parallelTasks = [
       // Task 1: Business Personas (fast for UI)
       runBusinessPersonas(search).then(() => {
@@ -55,8 +59,8 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
       }),
       
       // Task 4: Market Research (runs independently, provides investor-grade data)
-      runMarketResearch(search).then(() => {
-        logger.info('Market research completed', { search_id });
+      marketResearchTask(search).then(() => {
+        logger.info(`${useAdvancedResearch ? 'Advanced' : 'Standard'} market research completed`, { search_id });
         updateFn('MARKET_RESEARCH_READY', { search_id });
         return 'market_research_done';
       }).catch(err => {
@@ -75,7 +79,7 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
     
     // Log results
     results.forEach((result, index) => {
-      const taskNames = ['Business Personas', 'DM Personas', 'Business Discovery', 'Market Research'];
+      const taskNames = ['Business Personas', 'DM Personas', 'Business Discovery', useAdvancedResearch ? 'Advanced Market Research' : 'Market Research'];
       if (result.status === 'fulfilled') {
         logger.debug(`${taskNames[index]} finished`, { result: result.value });
       } else {
