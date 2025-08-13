@@ -1,5 +1,5 @@
 import { loadSearch } from '../tools/db.read';
-import { updateSearchProgress } from '../tools/db.write';
+import { updateSearchProgress, mergeAgentMetadata } from '../tools/db.write';
 import logger from '../lib/logger';
 import { runBusinessPersonas } from '../agents/business-persona.agent';
 import { runDMPersonas } from '../agents/dm-persona.agent';
@@ -21,6 +21,9 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
 
     // 🚀 PHASE 1: Launch ALL agents in parallel immediately
     logger.debug('Launching all agents in parallel');
+
+
+    const taskStatus: Record<string, 'pending' | 'success' | 'failed'> = {
 
     
     const statusMap: Record<string, 'done' | 'failed'> = {};
@@ -56,7 +59,6 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
       dm_personas: 'pending',
       business_discovery: 'pending',
       market_research: 'pending'
-
 
     };
 
@@ -123,13 +125,20 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         taskStatus.business_personas = 'succeeded';
         updateFn('PERSONAS_READY', { type: 'business', search_id });
 
+        taskStatus.business_personas = 'success';
+
+
         await recordStatus('business_personas', 'done');
 
         updateFn('TASK_STATUS', { task: 'business_personas', status: 'succeeded' });
 
+
         return 'business_personas_done';
       }).catch(async err => {
         logger.warn('Business personas failed', { error: err?.message || err });
+
+        taskStatus.business_personas = 'failed';
+
 
         await recordStatus('business_personas', 'failed');
 
@@ -144,6 +153,8 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         logger.info('DM personas completed', { search_id });
         taskStatus.dm_personas = 'succeeded';
         updateFn('PERSONAS_READY', { type: 'dm', search_id });
+        taskStatus.dm_personas = 'success';
+
 
         await recordStatus('dm_personas', 'done');
 
@@ -152,6 +163,8 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         return 'dm_personas_done';
       }).catch(async err => {
         logger.warn('DM personas failed', { error: err?.message || err });
+        taskStatus.dm_personas = 'failed';
+
 
         await recordStatus('dm_personas', 'failed');
 
@@ -165,6 +178,8 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         logger.info('Business discovery completed', { search_id });
         taskStatus.business_discovery = 'succeeded';
         updateFn('BUSINESSES_FOUND', { search_id });
+        taskStatus.business_discovery = 'success';
+
         await recordStatus('business_discovery', 'done');
 
 
@@ -172,6 +187,7 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         return 'business_discovery_done';
       }).catch(async err => {
         logger.warn('Business discovery failed', { error: err?.message || err });
+        taskStatus.business_discovery = 'failed';
         await recordStatus('business_discovery', 'failed');
         taskStatus.business_discovery = 'failed';
         updateFn('TASK_STATUS', { task: 'business_discovery', status: 'failed', error: err?.message || err });
@@ -183,6 +199,13 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         logger.info('Market research completed', { search_id });
         taskStatus.market_research = 'succeeded';
         updateFn('MARKET_RESEARCH_READY', { search_id });
+        taskStatus.market_research = 'success';
+        return 'market_research_done';
+      }).catch(async err => {
+        logger.warn('Market research failed', { error: err?.message || err });
+        taskStatus.market_research = 'failed';
+        try { await mergeAgentMetadata(search_id, { market_research_warning: true }); } catch (e: any) { logger.warn('Failed to set market research warning', { error: e?.message || e }); }
+
         await recordStatus('market_research', 'done');
 
         updateFn('TASK_STATUS', { task: 'market_research', status: 'succeeded' });
@@ -216,6 +239,10 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
     });
 
     // Mark as completed only if at least one task succeeded; otherwise mark failed
+    const anySuccess = Object.values(taskStatus).some(s => s === 'success');
+    if (anySuccess) {
+      await updateSearchProgress(search_id, 100, 'completed', 'completed');
+
     const anySuccess = Object.values(statusMap).some(s => s === 'done');
     const criticalAgents = ['market_research'];
     const criticalFailure = criticalAgents.some(a => statusMap[a] === 'failed');
@@ -261,6 +288,8 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
     }
     
     logger.info('Optimized orchestration finished', { search_id });
+    return { success: true, search_id, task_status: taskStatus };
+
     return { success: true, search_id, results: statusMap };
     
   } catch (error: any) {
