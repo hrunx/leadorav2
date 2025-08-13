@@ -6,6 +6,7 @@ import { loadDMPersonas } from '../tools/db.read';
 import { mapDMToPersona } from '../tools/util';
 import logger from '../lib/logger';
 import { mapDecisionMakersToPersonas } from '../tools/persona-mapper';
+import { hasSeenQuery, markSeenQuery } from '../tools/query-cache';
 
 interface Employee {
   name: string;
@@ -21,20 +22,6 @@ interface Employee {
 }
 
 type SerperItem = { link?: string; title?: string; snippet?: string };
-
-// Simple in-memory de-duplication of repeated search queries across invocations
-const seenQueries = new Set<string>();
-function hasSeen(company: string, query: string) {
-  const key = `${company}::${query}`.toLowerCase();
-  return seenQueries.has(key);
-}
-function markSeen(company: string, query: string) {
-  const key = `${company}::${query}`.toLowerCase();
-  if (seenQueries.size > 5000) {
-    seenQueries.clear();
-  }
-  seenQueries.add(key);
-}
 
 const linkedinSearchTool = tool({
   name: 'linkedinSearch',
@@ -76,8 +63,8 @@ const linkedinSearchTool = tool({
       // Search for employees in different roles
       for (const query of queries) {
         try {
-          // Skip if we've already executed this query for this company in this process
-          if (hasSeen(company_name, query)) {
+          // Skip if we've already executed this query for this company recently
+          if (await hasSeenQuery(company_name, query)) {
             continue;
           }
           const result = await serperSearch(query, company_country, 10);
@@ -114,7 +101,7 @@ const linkedinSearchTool = tool({
             allEmployees.push(...employees);
           }
           // Mark this query as seen to prevent future duplicates
-          markSeen(company_name, query);
+          await markSeenQuery(company_name, query);
           
           // Small delay between searches to avoid rate limiting
           const jitter = 300 + Math.floor(Math.random() * 300);
