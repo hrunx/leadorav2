@@ -1,13 +1,15 @@
 import { Agent, tool, run } from '@openai/agents';
-import { serperPlaces } from '../tools/serper';
+import { serperPlaces, retryWithBackoff } from '../tools/serper';
 import logger from '../lib/logger';
 import { resolveModel } from './clients';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
+import { loadBusinesses } from '../tools/db.read';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
 import { mapBusinessesToPersonas } from '../tools/persona-mapper';
 import { triggerInstantDMDiscovery, processBusinessForDM, initDMDiscoveryProgress } from '../tools/instant-dm-discovery';
 import type { Business } from '../tools/instant-dm-discovery';
+import pLimit from 'p-limit';
 
 // Generate semantic variations of search queries using synonyms and industry jargon
 // removed multi-query generator to enforce a single precise query flow per user request
@@ -32,7 +34,7 @@ const serperPlacesTool = tool({
     const startTime = Date.now();
     try {
       const capped = Math.max(1, Math.min(Number(limit) || 5, 15));
-      const places = await serperPlaces(q, gl, capped);
+      const places = await retryWithBackoff(() => serperPlaces(q, gl, capped));
       const endTime = Date.now();
 
       // Log API usage (with error handling)
@@ -139,6 +141,7 @@ const storeBusinessesTool = tool({
     additionalProperties: false
   } as const,
   execute: async (input: unknown) => {
+
     const { search_id, user_id, items } = input as {
       search_id: string;
       user_id: string;
@@ -169,6 +172,61 @@ const storeBusinessesTool = tool({
         recent_activity: b.recent_activity || []
       })
     );
+
+    const { search_id, user_id, industry, country, items } = input as {
+      search_id: string;
+      user_id: string;
+      industry: string;
+      country: string;
+      items: Business[]
+    };
+    // Deduplicate by website/phone (case-insensitive):
+    // - Seed sets with existing DB values for this search
+    // - Skip items whose website or phone already exists in sets
+    // - Add each unique website/phone to catch duplicates within the batch
+    const existing = await loadBusinesses(search_id);
+    const seenWeb = new Set(
+      (existing || []).map(b => (b.website || '').toLowerCase()).filter(Boolean)
+    );
+    const seenPhone = new Set(
+      (existing || []).map(b => (b.phone || '').toLowerCase()).filter(Boolean)
+    );
+    const unique = items.filter(b => {
+      const w = (b.website || '').toLowerCase();
+      const p = (b.phone || '').toLowerCase();
+      if (w && seenWeb.has(w)) return false;
+      if (p && seenPhone.has(p)) return false;
+      if (w) seenWeb.add(w);
+      if (p) seenPhone.add(p);
+      return true;
+    });
+
+    // After deduplication, insert immediately without enrichment for fastest UI paint
+    const capped = unique.slice(0, 5);
+    const rows = capped.map((b: Business) => buildBusinessData({
+      search_id,
+      user_id,
+      persona_id: b.persona_id || null, // Use null if no persona mapping yet (will be updated later)
+      name: b.name,
+      industry,
+      country,
+      address: b.address || '',
+      city: b.city || (b.address?.split(',')?.[0] || country),
+      phone: b.phone || undefined,
+      website: b.website || undefined,
+      rating: b.rating ?? undefined,
+      size: b.size || 'Unknown',
+      revenue: b.revenue || 'Unknown',
+      description: b.description || 'Business discovered via search',
+      match_score: b.match_score || 75,
+      persona_type: 'business_candidate',
+      relevant_departments: b.relevant_departments || [],
+      key_products: b.key_products || [],
+      recent_activity: b.recent_activity || []
+    }));
+
+    // rows are already deduplicated; insert only new businesses
+
     logger.info('Inserting businesses', { count: rows.length, search_id });
     const insertedBusinesses = await insertBusinesses(rows);
     // Only increment the running DM discovery total with this batch if there are new businesses
@@ -181,6 +239,7 @@ const storeBusinessesTool = tool({
     if (insertedBusinesses.length > 0) {
       initDMDiscoveryProgress(search_id, insertedBusinesses.length);
     }
+
     const results = await Promise.allSettled(
       insertedBusinesses.map(async (business) => {
         return await processBusinessForDM(search_id, user_id, business);
@@ -191,6 +250,38 @@ const storeBusinessesTool = tool({
         .map((r, idx) => (r.status === 'fulfilled' && r.value ? insertedBusinesses[idx].id : null))
         .filter(Boolean) as string[]
     );
+
+
+    // Limit DM lookups to avoid hammering external APIs.
+    // With a batch size of 3 and a 500ms gap, expected throughput is ~6 businesses/sec.
+    const limit = pLimit(3);
+    const batchSize = 3;
+    const succeededIds = new Set<string>();
+
+    for (let i = 0; i < insertedBusinesses.length; i += batchSize) {
+      const batch = insertedBusinesses.slice(i, i + batchSize);
+
+      await Promise.all(
+        batch.map((business) =>
+          limit(async () => {
+            const ok = await processBusinessForDM(search_id, user_id, {
+              ...business,
+              country,
+              industry
+            });
+            if (ok) {
+              succeededIds.add(business.id);
+            }
+          })
+        )
+      );
+
+      // simple backoff between batches to ease external API pressure
+      if (i + batchSize < insertedBusinesses.length) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+
 
     // Fallback: trigger batch discovery only for businesses not processed individually
     const pendingBusinesses = insertedBusinesses.filter(b => !succeededIds.has(b.id));
@@ -287,7 +378,8 @@ export async function runBusinessDiscovery(search: {
     const countriesToSearch = (search.countries || []).slice(0, 3);
     const industry = search.industries?.[0] || '';
     const intent = search.search_type === 'customer' ? 'buyers need use purchase adopt' : 'vendors suppliers sell provide manufacture distribute';
-    const { serperPlaces } = await import('../tools/serper');
+    const { serperPlaces, retryWithBackoff } = await import('../tools/serper');
+
 
     const perCountryResults = await Promise.all(
       countriesToSearch.map(async (country) => {
@@ -297,17 +389,32 @@ export async function runBusinessDiscovery(search: {
       })
     );
 
-    // Flatten and de-duplicate by website+name
+    const perCountryResults = await Promise.all(countriesToSearch.map(async (country) => {
+      const q = `${search.product_service} ${industry} ${intent} ${country}`.trim();
+      return await retryWithBackoff(() => serperPlaces(q, country, 8)).catch(() => [] as any[]);
+    }));
+
+
+    // Flatten and deduplicate by website/phone (case-insensitive), also excluding existing DB entries
     const allPlaces = perCountryResults.flat();
-    const seen = new Set<string>();
-    const deduped = allPlaces.filter((p: any) => {
-      const key = `${(p.website||'').toLowerCase()}::${(p.name||'').toLowerCase()}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+    const existing = await loadBusinesses(search.id);
+    const seenWeb = new Set(
+      (existing || []).map(b => (b.website || '').toLowerCase()).filter(Boolean)
+    );
+    const seenPhone = new Set(
+      (existing || []).map(b => (b.phone || '').toLowerCase()).filter(Boolean)
+    );
+    const unique = allPlaces.filter((p: any) => {
+      const w = (p.website || '').toLowerCase();
+      const ph = (p.phone || '').toLowerCase();
+      if (w && seenWeb.has(w)) return false;
+      if (ph && seenPhone.has(ph)) return false;
+      if (w) seenWeb.add(w);
+      if (ph) seenPhone.add(ph);
       return true;
     });
 
-    const selected = deduped.slice(0, 10);
+    const selected = unique.slice(0, 10);
     if (selected.length > 0) {
       const rows = selected.map((p: any) =>
         buildBusinessData({
