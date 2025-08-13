@@ -43,6 +43,17 @@ export const loadDMPersonas = async (search_id: string) => {
 export const loadBusinesses = async (search_id: string) => {
   const supa = getSupabaseClient();
   const { data, error } = await supa.from('businesses').select('id,name,description,country,city,address,phone,website,rating').eq('search_id', search_id);
-  if (error) throw error; 
+  if (error) throw error;
   return data||[];
+};
+
+export const loadPersonaCache = async (cache_key: string) => {
+  const supa = getSupabaseClient();
+  const { data, error } = await supa
+    .from('persona_cache')
+    .select('personas')
+    .eq('cache_key', cache_key)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as any)?.personas || null;
 };
