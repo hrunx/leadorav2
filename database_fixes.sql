@@ -3,8 +3,8 @@
 -- =====================================================
 
 -- 1. FIX MARKET_INSIGHTS TABLE - Add missing columns
-ALTER TABLE market_insights 
-ADD COLUMN IF NOT EXISTS sources jsonb DEFAULT '[]',
+ALTER TABLE market_insights
+ADD COLUMN IF NOT EXISTS sources jsonb DEFAULT '[]', -- [{title,text,url,text,date,text}]
 ADD COLUMN IF NOT EXISTS analysis_summary text DEFAULT '',
 ADD COLUMN IF NOT EXISTS research_methodology text DEFAULT '',
 ADD COLUMN IF NOT EXISTS raw_analysis text DEFAULT '';
