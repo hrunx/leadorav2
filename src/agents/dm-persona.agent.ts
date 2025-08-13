@@ -2,6 +2,7 @@ import { Agent, tool } from '@openai/agents';
 import { insertDMPersonas, updateSearchProgress } from '../tools/db.write';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
+import Ajv, { JSONSchemaType } from 'ajv';
 
 interface DMPersona {
   title: string;
@@ -38,6 +39,65 @@ interface StoreDMPersonasToolInput {
   user_id: string;
   personas: DMPersona[];
 }
+
+const ajv = new Ajv({ allErrors: true });
+
+const dmPersonaSchema: JSONSchemaType<DMPersona> = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    rank: { type: 'number' },
+    match_score: { type: 'number' },
+    demographics: {
+      type: 'object',
+      properties: {
+        level: { type: 'string' },
+        department: { type: 'string' },
+        experience: { type: 'string' },
+        geography: { type: 'string' }
+      },
+      required: ['level', 'department', 'experience', 'geography'],
+      additionalProperties: false
+    },
+    characteristics: {
+      type: 'object',
+      properties: {
+        responsibilities: { type: 'array', items: { type: 'string' } },
+        painPoints: { type: 'array', items: { type: 'string' } },
+        motivations: { type: 'array', items: { type: 'string' } },
+        challenges: { type: 'array', items: { type: 'string' } },
+        decisionFactors: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['responsibilities', 'painPoints', 'motivations', 'challenges', 'decisionFactors'],
+      additionalProperties: false
+    },
+    behaviors: {
+      type: 'object',
+      properties: {
+        decisionMaking: { type: 'string' },
+        communicationStyle: { type: 'string' },
+        buyingProcess: { type: 'string' },
+        preferredChannels: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['decisionMaking', 'communicationStyle', 'buyingProcess', 'preferredChannels'],
+      additionalProperties: false
+    },
+    market_potential: {
+      type: 'object',
+      properties: {
+        totalDecisionMakers: { type: 'number' },
+        avgInfluence: { type: 'number' },
+        conversionRate: { type: 'number' }
+      },
+      required: ['totalDecisionMakers', 'avgInfluence', 'conversionRate'],
+      additionalProperties: false
+    }
+  },
+  required: ['title', 'rank', 'match_score', 'demographics', 'characteristics', 'behaviors', 'market_potential'],
+  additionalProperties: false
+};
+
+const validateDMPersona = ajv.compile<DMPersona>(dmPersonaSchema);
 
 const storeDMPersonasTool = tool({
   name: 'storeDMPersonas',
@@ -123,8 +183,13 @@ const storeDMPersonasTool = tool({
       throw new Error('Expected exactly 3 personas.');
     }
     for (const p of personas) {
-      for (const k of ['title','rank','match_score','demographics','characteristics','behaviors','market_potential']) {
-        if (!(k in p)) throw new Error(`persona missing key: ${k}`);
+      if (!validateDMPersona(p)) {
+        import('../lib/logger')
+          .then(({ default: logger }) =>
+            logger.error('DM persona validation failed', { errors: validateDMPersona.errors, persona: p })
+          )
+          .catch(() => {});
+        throw new Error('Invalid DM persona structure.');
       }
     }
     const rows = personas.slice(0,3).map((p: DMPersona) => ({
@@ -276,6 +341,15 @@ CRITICAL: Each persona must have:
       } catch {}
     }
     if (personas.length) {
+      const allValid = personas.every(p => validateDMPersona(p));
+      if (!allValid) {
+        import('../lib/logger')
+          .then(({ default: logger }) => logger.error('DM persona schema validation failed', { errors: validateDMPersona.errors }))
+          .catch(() => {});
+        personas = [];
+      }
+    }
+    if (personas.length) {
       const rows = personas.slice(0, 3).map((p: DMPersona) => ({
         search_id: search.id,
         user_id: search.user_id,
@@ -289,16 +363,14 @@ CRITICAL: Each persona must have:
       }));
       await insertDMPersonas(rows);
       await updateSearchProgress(search.id, 20, 'dm_personas');
-    import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
+      import('../lib/logger').then(({ default: logger }) => logger.info('Completed DM persona generation', { search_id: search.id })).catch(()=>{});
       return;
     }
     // All LLMs failed, insert 3 deterministic DM personas
     import('../lib/logger').then(({ default: logger }) => logger.error('[DMPersona] All LLMs failed, inserting deterministic personas', { search_id: search.id })).catch(()=>{});
     const [countryA] = search.countries.length ? search.countries : ['Global'];
-    const rows = [
+    const fallback: DMPersona[] = [
       {
-        search_id: search.id,
-        user_id: search.user_id,
         title: 'Chief Technology Officer',
         rank: 1,
         match_score: 92,
@@ -308,8 +380,6 @@ CRITICAL: Each persona must have:
         market_potential: { totalDecisionMakers: 1500, avgInfluence: 90, conversionRate: 8 }
       },
       {
-        search_id: search.id,
-        user_id: search.user_id,
         title: 'VP Operations',
         rank: 2,
         match_score: 88,
@@ -319,8 +389,6 @@ CRITICAL: Each persona must have:
         market_potential: { totalDecisionMakers: 3000, avgInfluence: 75, conversionRate: 12 }
       },
       {
-        search_id: search.id,
-        user_id: search.user_id,
         title: 'Head of Procurement',
         rank: 3,
         match_score: 84,
@@ -330,7 +398,26 @@ CRITICAL: Each persona must have:
         market_potential: { totalDecisionMakers: 5000, avgInfluence: 60, conversionRate: 15 }
       }
     ];
-    await insertDMPersonas(rows as any);
+    for (const p of fallback) {
+      if (!validateDMPersona(p)) {
+        import('../lib/logger')
+          .then(({ default: logger }) => logger.error('Fallback DM persona validation failed', { errors: validateDMPersona.errors, persona: p }))
+          .catch(() => {});
+        throw new Error('Invalid fallback DM persona.');
+      }
+    }
+    const rows = fallback.map((p: DMPersona) => ({
+      search_id: search.id,
+      user_id: search.user_id,
+      title: p.title,
+      rank: p.rank,
+      match_score: p.match_score,
+      demographics: p.demographics,
+      characteristics: p.characteristics,
+      behaviors: p.behaviors,
+      market_potential: p.market_potential
+    }));
+    await insertDMPersonas(rows);
     await updateSearchProgress(search.id, 20, 'dm_personas');
     import('../lib/logger').then(({ default: logger }) => logger.info('Inserted deterministic DM personas', { search_id: search.id })).catch(()=>{});
   } catch (error) {
