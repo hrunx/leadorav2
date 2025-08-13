@@ -3,6 +3,57 @@ import logger from '../lib/logger';
 import { insertMarketInsights, markSearchCompleted, logApiUsage } from '../tools/db.write';
 import { extractJson } from '../tools/json';
 import { serperSearch } from '../tools/serper';
+import * as cheerio from 'cheerio';
+
+function parseCurrencyToNumber(value: string): number | null {
+  if (!value) return null;
+  const match = value
+    .replace(/[$,]/g, '')
+    .match(/([\d.]+)\s*(B|M|K|billion|million|thousand)?/i);
+  if (!match) return null;
+  let num = parseFloat(match[1]);
+  const unit = match[2]?.toLowerCase();
+  if (unit) {
+    if (unit.startsWith('b')) num *= 1e9;
+    else if (unit.startsWith('m')) num *= 1e6;
+    else if (unit.startsWith('k') || unit.startsWith('t')) num *= 1e3;
+  }
+  return isNaN(num) ? null : num;
+}
+
+async function fetchNumberFromSource(url: string, expected: number | null): Promise<number | null> {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    const text = $('body').text();
+    const matches = text.match(/[$€£]?\s?[\d,.]+\s?(?:billion|million|thousand|bn|m|k|B|M|K)?/gi) || [];
+    const numbers = matches.map(m => parseCurrencyToNumber(m)).filter(n => n !== null) as number[];
+    if (expected !== null) {
+      const found = numbers.find(n => Math.abs(n - expected) / expected < 0.1);
+      return found ?? null;
+    }
+    return numbers[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function verifyEntry(entry: any): Promise<{ verified: boolean; confidence: number }> {
+  if (!entry || !entry.value || !entry.source) {
+    return { verified: false, confidence: 0.1 };
+  }
+  const expected = parseCurrencyToNumber(entry.value);
+  const found = await fetchNumberFromSource(entry.source, expected);
+  if (found !== null && expected !== null) {
+    const diff = Math.abs(found - expected) / expected;
+    if (diff < 0.1) return { verified: true, confidence: 0.9 };
+    return { verified: false, confidence: 0.3 };
+  }
+  return { verified: false, confidence: 0.2 };
+}
+
 
 export async function runMarketResearch(search: {
   id:string; 
@@ -188,6 +239,52 @@ OUTPUT JSON SCHEMA EXACTLY:
         request: { model: modelMini, sources_candidate_count: sources.length },
         response: { text_length: text.length }
       });
+
+      // Verify market size entries against cited sources
+      const mismatched: string[] = [];
+      const tamCheck = await verifyEntry(data.tam_data || {});
+      data.tam_data = { ...(data.tam_data || {}), confidence: tamCheck.confidence, verified: tamCheck.verified };
+      if (!tamCheck.verified) mismatched.push('TAM');
+      const samCheck = await verifyEntry(data.sam_data || {});
+      data.sam_data = { ...(data.sam_data || {}), confidence: samCheck.confidence, verified: samCheck.verified };
+      if (!samCheck.verified) mismatched.push('SAM');
+      const somCheck = await verifyEntry(data.som_data || {});
+      data.som_data = { ...(data.som_data || {}), confidence: somCheck.confidence, verified: somCheck.verified };
+      if (!somCheck.verified) mismatched.push('SOM');
+
+      // If any numbers failed verification, attempt regeneration with stricter prompts
+      if (mismatched.length) {
+        const strictPrompt = `${prompt}\nThe previous response contained incorrect or unverified values for: ${mismatched.join(', ')}. Cross-check the cited URLs and regenerate accurate numbers. Output ONLY valid JSON.`;
+        try {
+          let regenText = await callOpenAIChatJSON({
+            model: modelMini,
+            system: 'You are an expert market research analyst that outputs ONLY valid JSON per the user specification.',
+            user: strictPrompt,
+            temperature: 0.2,
+            maxTokens: 5000,
+            requireJsonObject: true,
+            verbosity: 'low'
+          });
+          regenText = (regenText || '').trim();
+          let regenJson: any;
+          try {
+            regenJson = JSON.parse(regenText);
+          } catch {
+            regenJson = extractJson(regenText);
+          }
+          if (regenJson) {
+            data = regenJson;
+            const tCheck = await verifyEntry(data.tam_data || {});
+            data.tam_data = { ...(data.tam_data || {}), confidence: tCheck.confidence, verified: tCheck.verified };
+            const sCheck = await verifyEntry(data.sam_data || {});
+            data.sam_data = { ...(data.sam_data || {}), confidence: sCheck.confidence, verified: sCheck.verified };
+            const soCheck = await verifyEntry(data.som_data || {});
+            data.som_data = { ...(data.som_data || {}), confidence: soCheck.confidence, verified: soCheck.verified };
+          }
+        } catch (e) {
+          logger.warn('Regeneration attempt failed', { error: (e as any)?.message });
+        }
+      }
 
       const row = {
         search_id: search.id,
