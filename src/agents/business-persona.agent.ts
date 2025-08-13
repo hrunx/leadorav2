@@ -1,38 +1,20 @@
 import { Agent, tool } from '@openai/agents';
-import { insertBusinessPersonas, updateSearchProgress } from '../tools/db.write';
+import { insertBusinessPersonas, updateSearchProgress, insertPersonaCache } from '../tools/db.write';
+import { loadPersonaCache } from '../tools/db.read';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
 import { ensureUniqueTitles } from './business-persona.helpers';
 
-interface Persona {
-  title: string;
-  rank: number;
-  match_score: number;
-  demographics: {
-    industry: string;
-    companySize: string;
-    geography: string;
-    revenue: string;
-  };
-  characteristics: {
-    painPoints: string[];
-    motivations: string[];
-    challenges: string[];
-    decisionFactors: string[];
-  };
-  behaviors: {
-    buyingProcess: string;
-    decisionTimeline: string;
-    budgetRange: string;
-    preferredChannels: string[];
-  };
-  market_potential: {
-    totalCompanies: number;
-    avgDealSize: string;
-    conversionRate: number;
-  };
-  locations: string[];
-}
+import {
+  sanitizePersona,
+  isRealisticPersona,
+  isGenericTitle,
+  BusinessPersona as Persona,
+} from '../tools/persona-validation';
+=======
+import Ajv, { JSONSchemaType } from 'ajv';
+
+
 
 interface StoreBusinessPersonasToolInput {
   search_id: string;
@@ -45,6 +27,65 @@ interface StoreBusinessPersonasToolOutput {
   message?: string;
   inserted_count?: number;
 }
+
+const ajv = new Ajv({ allErrors: true });
+
+const personaSchema: JSONSchemaType<Persona> = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    rank: { type: 'number' },
+    match_score: { type: 'number' },
+    demographics: {
+      type: 'object',
+      properties: {
+        industry: { type: 'string' },
+        companySize: { type: 'string' },
+        geography: { type: 'string' },
+        revenue: { type: 'string' }
+      },
+      required: ['industry', 'companySize', 'geography', 'revenue'],
+      additionalProperties: false
+    },
+    characteristics: {
+      type: 'object',
+      properties: {
+        painPoints: { type: 'array', items: { type: 'string' } },
+        motivations: { type: 'array', items: { type: 'string' } },
+        challenges: { type: 'array', items: { type: 'string' } },
+        decisionFactors: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['painPoints', 'motivations', 'challenges', 'decisionFactors'],
+      additionalProperties: false
+    },
+    behaviors: {
+      type: 'object',
+      properties: {
+        buyingProcess: { type: 'string' },
+        decisionTimeline: { type: 'string' },
+        budgetRange: { type: 'string' },
+        preferredChannels: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['buyingProcess', 'decisionTimeline', 'budgetRange', 'preferredChannels'],
+      additionalProperties: false
+    },
+    market_potential: {
+      type: 'object',
+      properties: {
+        totalCompanies: { type: 'number' },
+        avgDealSize: { type: 'string' },
+        conversionRate: { type: 'number' }
+      },
+      required: ['totalCompanies', 'avgDealSize', 'conversionRate'],
+      additionalProperties: false
+    },
+    locations: { type: 'array', items: { type: 'string' } }
+  },
+  required: ['title', 'rank', 'match_score', 'demographics', 'characteristics', 'behaviors', 'market_potential', 'locations'],
+  additionalProperties: false
+};
+
+const validatePersona = ajv.compile<Persona>(personaSchema);
 
 const storeBusinessPersonasTool = tool({
   name: 'storeBusinessPersonas',
@@ -132,15 +173,20 @@ const storeBusinessPersonasTool = tool({
       throw new Error('Expected exactly 3 personas.');
     }
     for (const p of personas) {
-      for (const k of ['title','rank','match_score','demographics','characteristics','behaviors','market_potential','locations']) {
-        if (!(k in p)) throw new Error(`persona missing key: ${k}`);
+      if (!validatePersona(p)) {
+        import('../lib/logger')
+          .then(({ default: logger }) =>
+            logger.error('Business persona validation failed', { errors: validatePersona.errors, persona: p })
+          )
+          .catch(() => {});
+        throw new Error('Invalid business persona structure.');
       }
     }
 
     const rows = personas.slice(0,3).map((p:Persona)=>({
-      search_id, 
-      user_id, 
-      title:p.title, 
+      search_id,
+      user_id,
+      title:p.title,
       rank:p.rank, 
       match_score:p.match_score,
       demographics:p.demographics||{}, 
@@ -211,6 +257,45 @@ function isRealisticPersona(persona: Persona): boolean {
   }
 }
 
+// --- Helper: ensure market potential numbers are sane ---
+function validateMarketPotential(persona: Persona, searchId: string): Persona | null {
+  const mp = persona.market_potential || { totalCompanies: 0, avgDealSize: '', conversionRate: 0 };
+  const errors: string[] = [];
+
+  if (typeof mp.totalCompanies !== 'number' || mp.totalCompanies <= 0) {
+    errors.push(`totalCompanies:${mp.totalCompanies}`);
+    mp.totalCompanies = Math.max(1, Number(mp.totalCompanies) || 1);
+  }
+  if (typeof mp.conversionRate !== 'number' || mp.conversionRate < 0 || mp.conversionRate > 100) {
+    errors.push(`conversionRate:${mp.conversionRate}`);
+    mp.conversionRate = Math.min(100, Math.max(0, Number(mp.conversionRate) || 0));
+  }
+
+  if (errors.length) {
+    import('../lib/logger')
+      .then(({ default: logger }) => logger.warn('[BusinessPersona] Persona market_potential corrected', {
+        search_id: searchId,
+        title: persona.title,
+        errors,
+        corrected: { totalCompanies: mp.totalCompanies, conversionRate: mp.conversionRate }
+      }))
+      .catch(() => {});
+  }
+
+  if (mp.totalCompanies <= 0 || mp.conversionRate < 0 || mp.conversionRate > 100) {
+    import('../lib/logger')
+      .then(({ default: logger }) => logger.error('[BusinessPersona] Persona rejected after validation', {
+        search_id: searchId,
+        title: persona.title,
+        market_potential: mp
+      }))
+      .catch(() => {});
+    return null;
+  }
+
+  return { ...persona, market_potential: mp };
+}
+
 export async function runBusinessPersonas(search: {
   id:string; 
   user_id:string; 
@@ -222,6 +307,66 @@ export async function runBusinessPersonas(search: {
   try {
     await updateSearchProgress(search.id, 10, 'business_personas', 'in_progress');
     let personas: Persona[] = [];
+
+    const cacheKey = [
+      search.product_service,
+      [...search.industries].sort().join(','),
+      [...search.countries].sort().join(',')
+    ].join('|').toLowerCase();
+
+    const sanitizePersona = (p: any, index: number): Persona => ({
+      title: String(p?.title || `${search.search_type==='customer'?'Buyer':'Supplier'} Archetype ${index+1} - ${search.industries[0] || 'General'}`),
+      rank: typeof p?.rank === 'number' ? p.rank : index + 1,
+      match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
+      demographics: {
+        industry: String(p?.demographics?.industry || (search.industries[0] || 'General')),
+        companySize: String(p?.demographics?.companySize || ''),
+        geography: String(p?.demographics?.geography || (search.countries[0] || 'Global')),
+        revenue: String(p?.demographics?.revenue || '')
+      },
+      characteristics: {
+        painPoints: Array.isArray(p?.characteristics?.painPoints) ? p.characteristics.painPoints : [],
+        motivations: Array.isArray(p?.characteristics?.motivations) ? p.characteristics.motivations : [],
+        challenges: Array.isArray(p?.characteristics?.challenges) ? p.characteristics.challenges : [],
+        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) ? p.characteristics.decisionFactors : []
+      },
+      behaviors: {
+        buyingProcess: String(p?.behaviors?.buyingProcess || ''),
+        decisionTimeline: String(p?.behaviors?.decisionTimeline || ''),
+        budgetRange: String(p?.behaviors?.budgetRange || ''),
+        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) ? p.behaviors.preferredChannels : []
+      },
+      market_potential: {
+        totalCompanies: typeof p?.market_potential?.totalCompanies === 'number' ? p.market_potential.totalCompanies : 0,
+        avgDealSize: String(p?.market_potential?.avgDealSize || ''),
+        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 0
+      },
+      locations: Array.isArray(p?.locations) ? p.locations : [search.countries[0] || 'Global']
+    });
+
+    const cached = await loadPersonaCache(cacheKey);
+    if (Array.isArray(cached) && cached.length) {
+      const accepted = cached.slice(0,3).map((p, i) => sanitizePersona(p, i));
+      if (accepted.length === 3 && accepted.every(p => isRealisticPersona(p))) {
+        const rows = accepted.map((p: Persona) => ({
+          search_id: search.id,
+          user_id: search.user_id,
+          title: p.title,
+          rank: p.rank,
+          match_score: p.match_score,
+          demographics: p.demographics || {},
+          characteristics: p.characteristics || {},
+          behaviors: p.behaviors || {},
+          market_potential: p.market_potential || {},
+          locations: p.locations || []
+        }));
+        await insertBusinessPersonas(rows);
+        await updateSearchProgress(search.id, 20, 'business_personas');
+        import('../lib/logger').then(({ default: logger }) => logger.info('Loaded business personas from cache', { search_id: search.id })).catch(()=>{});
+        return;
+      }
+    }
+
     const improvedPrompt = `Generate 3 business personas (COMPANY ARCHETYPES) for:
 - search_id=${search.id}
 - user_id=${search.user_id}
@@ -257,45 +402,13 @@ CRITICAL: Each persona must have:
       }
     };
 
-    const sanitizePersona = (p: any, index: number): Persona => ({
-      title: String(p?.title || `${search.search_type==='customer'?'Buyer':'Supplier'} Archetype ${index+1} - ${search.industries[0] || 'General'}`),
-      rank: typeof p?.rank === 'number' ? p.rank : index + 1,
-      match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
-      demographics: {
-        industry: String(p?.demographics?.industry || (search.industries[0] || 'General')),
-        companySize: String(p?.demographics?.companySize || ''),
-        geography: String(p?.demographics?.geography || (search.countries[0] || 'Global')),
-        revenue: String(p?.demographics?.revenue || '')
-      },
-      characteristics: {
-        painPoints: Array.isArray(p?.characteristics?.painPoints) ? p.characteristics.painPoints : [],
-        motivations: Array.isArray(p?.characteristics?.motivations) ? p.characteristics.motivations : [],
-        challenges: Array.isArray(p?.characteristics?.challenges) ? p.characteristics.challenges : [],
-        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) ? p.characteristics.decisionFactors : []
-      },
-      behaviors: {
-        buyingProcess: String(p?.behaviors?.buyingProcess || ''),
-        decisionTimeline: String(p?.behaviors?.decisionTimeline || ''),
-        budgetRange: String(p?.behaviors?.budgetRange || ''),
-        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) ? p.behaviors.preferredChannels : []
-      },
-      market_potential: {
-        totalCompanies: typeof p?.market_potential?.totalCompanies === 'number' ? p.market_potential.totalCompanies : 0,
-        avgDealSize: String(p?.market_potential?.avgDealSize || ''),
-        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 0
-      },
-      locations: Array.isArray(p?.locations) ? p.locations : [search.countries[0] || 'Global']
-    });
-
     const acceptPersonas = (arr: any[]): Persona[] => {
       const three = (arr || []).slice(0,3);
       if (three.length !== 3) return [];
-      const sanitized = three.map((p, i) => sanitizePersona(p, i));
-      return sanitized;
+      return three.map((p, i) => sanitizePersona('business', p, i, search));
     };
 
     const hasGenericTitles = (arr: Persona[]): boolean => {
-      const bad = ['persona', 'profile', 'archetype'];
       const titles = arr.map(p => (p.title || '').toLowerCase());
       const duplicates = new Set<string>();
       let dup = false;
@@ -303,7 +416,7 @@ CRITICAL: Each persona must have:
         if (duplicates.has(t)) { dup = true; break; }
         duplicates.add(t);
       }
-      return titles.some(t => bad.some(b => t.includes(b))) || dup;
+      return arr.some(p => isGenericTitle(p.title)) || dup;
     };
 
     try {
@@ -366,9 +479,37 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
     }
 
     if (personas.length) {
+      // Schema validation for market potential figures
+      const validated = personas
+        .map(p => validateMarketPotential(p, search.id))
+        .filter((p): p is Persona => Boolean(p));
+      if (validated.length !== personas.length) {
+        import('../lib/logger')
+          .then(({ default: logger }) =>
+            logger.error('[BusinessPersona] Persona count changed after validation', {
+              search_id: search.id,
+              before: personas.length,
+              after: validated.length
+            })
+          )
+          .catch(() => {});
+      }
+      personas = validated.length === 3 ? validated : [];
+    }
+
+    if (personas.length) {
       // Validate realism before persisting to avoid low-quality data
-      const allRealistic = personas.every(p => isRealisticPersona(p));
+      const allRealistic = personas.every(p => isRealisticPersona('business', p));
       if (!allRealistic) {
+        personas = [];
+      }
+    }
+    if (personas.length) {
+      const allValid = personas.every(p => validatePersona(p));
+      if (!allValid) {
+        import('../lib/logger')
+          .then(({ default: logger }) => logger.error('Business persona schema validation failed', { errors: validatePersona.errors }))
+          .catch(() => {});
         personas = [];
       }
     }
@@ -386,6 +527,7 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
         market_potential: p.market_potential || {},
         locations: p.locations || []
       }));
+      await insertPersonaCache(cacheKey, personas);
       await insertBusinessPersonas(rows);
       await updateSearchProgress(search.id, 20, 'business_personas');
       import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
@@ -427,6 +569,14 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
           locations: [countryA]
         }
       ];
+      for (const p of fallback) {
+        if (!validatePersona(p)) {
+          import('../lib/logger')
+            .then(({ default: logger }) => logger.error('Fallback business persona validation failed', { errors: validatePersona.errors, persona: p }))
+            .catch(() => {});
+          throw new Error('Invalid fallback business persona.');
+        }
+      }
       const rows = fallback.map((p: Persona) => ({
         search_id: search.id,
         user_id: search.user_id,
@@ -439,6 +589,7 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
         market_potential: p.market_potential,
         locations: p.locations
       }));
+      await insertPersonaCache(cacheKey, fallback);
       await insertBusinessPersonas(rows);
       await updateSearchProgress(search.id, 20, 'business_personas');
     }
