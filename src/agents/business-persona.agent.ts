@@ -2,6 +2,7 @@ import { Agent, tool } from '@openai/agents';
 import { insertBusinessPersonas, updateSearchProgress } from '../tools/db.write';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
+import { ensureUniqueTitles } from './business-persona.helpers';
 
 interface Persona {
   title: string;
@@ -359,6 +360,9 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
           personas = personas.map((p, i) => ({ ...p, title: String(newTitles[i]) }));
         }
       } catch {}
+    }
+    if (personas.length === 3) {
+      personas = await ensureUniqueTitles(personas, { id: search.id });
     }
 
     if (personas.length) {
