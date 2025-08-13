@@ -216,3 +216,10 @@ export interface CampaignRecipient {
   replied_at?: string;
   created_at: string;
 }
+
+export interface LinkedinQueryCache {
+  search_id: string;
+  company: string;
+  query: string;
+  created_at: string;
+}
