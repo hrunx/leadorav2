@@ -58,10 +58,8 @@ export default function BusinessPersonas() {
   
   // Real-time data hook for progressive loading
   const realTimeData = useRealTimeSearch(currentSearch?.id || null);
-  // Prefer business personas; if none yet, fallback to DM personas so UI does not block
-  const personasSource = (realTimeData.businessPersonas && realTimeData.businessPersonas.length > 0)
-    ? realTimeData.businessPersonas
-    : realTimeData.dmPersonas;
+  // ONLY show business personas here. Do NOT fallback to DM personas to avoid role/person mix-up in UI
+  const personasSource = useMemo(() => realTimeData.businessPersonas || [], [realTimeData.businessPersonas]);
   
   // UI state
   const [selectedPersona, setSelectedPersona] = useState<PersonaData | null>(null);
@@ -707,6 +705,43 @@ export default function BusinessPersonas() {
         <div className="space-y-4">
           <h2 className="text-xl font-semibold text-gray-900">Ranked Business Personas</h2>
           
+          {personas.length === 0 && (
+            <div className="space-y-4">
+              {/* Loading skeletons when personas haven't arrived yet */}
+              {realTimeData.progress.phase !== 'completed' ? (
+                [0,1,2].map((i) => (
+                  <div key={`skeleton-${i}`} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-start space-x-4 w-full">
+                        <div className="w-12 h-12 rounded-full bg-gray-200" />
+                        <div className="flex-1 space-y-2">
+                          <div className="h-4 bg-gray-200 rounded w-1/3" />
+                          <div className="h-3 bg-gray-100 rounded w-1/2" />
+                          <div className="h-3 bg-gray-100 rounded w-1/4" />
+                        </div>
+                      </div>
+                      <div className="w-20 h-6 bg-gray-200 rounded" />
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 text-sm mb-4">
+                      <div className="h-4 bg-gray-100 rounded" />
+                      <div className="h-4 bg-gray-100 rounded" />
+                      <div className="h-4 bg-gray-100 rounded" />
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="h-6 w-20 bg-gray-100 rounded" />
+                      <div className="h-6 w-24 bg-gray-100 rounded" />
+                      <div className="h-6 w-16 bg-gray-100 rounded" />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
+                  <p className="text-gray-700">No business personas were generated for this search.</p>
+                  <p className="text-gray-500 text-sm mt-1">You can proceed to view businesses or run a new search.</p>
+                </div>
+              )}
+            </div>
+          )}
           {personas.map((persona) => (
             <div key={persona.id} className="bg-white rounded-xl shadow-sm border border-gray-200">
               <div

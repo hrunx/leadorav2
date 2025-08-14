@@ -3,6 +3,7 @@ import logger from '../../lib/logger';
 import { User, Building, Save, Edit, Camera, Shield, CreditCard, Crown, CheckCircle, Clock } from 'lucide-react';
 import { useProfile } from '../../hooks/useProfile';
 import { useSubscription } from '../../hooks/useSubscription';
+import { useAuth } from '../../context/AuthContext';
 
 // Removed unused demo constants
 
@@ -13,6 +14,7 @@ export default function ProfilePage() {
   // Only call hooks for real users to avoid auth errors
   const { profile, loading: profileLoading, error: profileError, updateProfile } = useProfile();
   const { subscription, loading: subLoading, isActive, isTrialing, currentPlan, planLimits, trialDaysLeft } = useSubscription();
+  const { logout } = useAuth();
   
   const [activeTab, setActiveTab] = useState('profile');
 
@@ -94,12 +96,20 @@ export default function ProfilePage() {
     );
   }
 
-  if (profileError) {
+  if (profileError || !profile) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Error Loading Profile</h2>
-          <p className="text-gray-600">{profileError}</p>
+        <div className="text-center max-w-md">
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Sign in required</h2>
+          <p className="text-gray-600 mb-4">{profileError || 'Your session is missing or expired. Please sign in again to access account settings.'}</p>
+          <button
+            onClick={() => {
+              logout();
+            }}
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Sign in
+          </button>
         </div>
       </div>
     );

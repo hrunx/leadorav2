@@ -78,6 +78,13 @@ export default function MarketingInsights() {
   const marketBlocks = isDemo
     ? (demoMarketData ? { tam: demoMarketData.tam, sam: demoMarketData.sam, som: demoMarketData.som } : null)
     : (marketRow ? { tam: marketRow.tam_data, sam: marketRow.sam_data, som: marketRow.som_data } : null);
+  // Always render placeholders so the UI is not empty when insights are missing
+  const fallbackBlocks = useMemo(() => ({
+    tam: { value: 'N/A', growth: '', description: 'Total Addressable Market' },
+    sam: { value: 'N/A', growth: '', description: 'Serviceable Addressable Market' },
+    som: { value: 'N/A', growth: '', description: 'Serviceable Obtainable Market' }
+  }), []);
+  const blocksToRender = marketBlocks || fallbackBlocks;
 
   // Stop loading once the run is completed, even if no row exists (show retry UI instead)
   const isLoading = isDemo
@@ -190,24 +197,7 @@ export default function MarketingInsights() {
     );
   }
 
-  if (hasError) {
-    return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="text-center max-w-md">
-          <BarChart3 className="w-24 h-24 text-red-300 mx-auto mb-6" />
-          <h3 className="text-2xl font-semibold text-gray-900 mb-2">Market Research Unavailable</h3>
-          <p className="text-gray-600 mb-6">We couldn't complete the market analysis. Please retry.</p>
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('retryMarketResearch'))}
-            className="inline-flex items-center space-x-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-          >
-            <span>Retry Market Research</span>
-            <ArrowRight className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Do not early-return on error; render the page with placeholders and a retry banner
 
   // Show empty state for real users without any searches
   if (!hasSearch && !isDemoUser(authState.user?.id, authState.user?.email)) {
@@ -250,6 +240,20 @@ export default function MarketingInsights() {
           <ArrowRight className="w-5 h-5" />
         </button>
       </div>
+
+      {hasError && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-yellow-800 text-sm font-medium">No validated market insights yet. Retry to populate charts and tables.</p>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('retryMarketResearch'))}
+              className="px-3 py-1.5 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700"
+            >
+              Retry Market Research
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Controls */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
@@ -311,7 +315,7 @@ export default function MarketingInsights() {
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-6">Market Size Analysis</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {marketBlocks && Object.entries(marketBlocks).map(([key, data]) => (
+                  {Object.entries(blocksToRender).map(([key, data]) => (
                     <div key={key} className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-200">
                       <div className="flex items-center justify-between mb-4">
                         <h4 className="font-semibold text-gray-900">{data?.description || ''}</h4>
@@ -369,6 +373,11 @@ export default function MarketingInsights() {
                   <div>
                     <h4 className="font-semibold text-gray-900 mb-4">Key Competitors</h4>
                     <div className="space-y-4">
+                      {competitorData.length === 0 && (
+                        <div className="bg-white border border-dashed border-gray-300 rounded-lg p-6 text-center text-gray-500">
+                          No competitor data yet. Retry market research to populate this section.
+                        </div>
+                      )}
                       {competitorData.map((competitor, index) => (
                         <div key={index} className="bg-white border border-gray-200 rounded-lg p-4">
                           <div className="flex items-center justify-between mb-2">
@@ -402,6 +411,11 @@ export default function MarketingInsights() {
             <div className="space-y-6">
               <h3 className="text-xl font-semibold text-gray-900">Market Trends & Drivers</h3>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {trends.length === 0 && (
+                  <div className="col-span-1 lg:col-span-2 bg-white border border-dashed border-gray-300 rounded-xl p-6 text-center text-gray-500">
+                    No trend data yet. Retry market research to populate this section.
+                  </div>
+                )}
                 {trends.map((trend, index) => (
                   <div key={index} className="bg-white border border-gray-200 rounded-xl p-6">
                     <div className="flex items-start justify-between mb-4">
@@ -445,63 +459,41 @@ export default function MarketingInsights() {
                     </div>
                   </div>
 
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                    <h4 className="font-semibold text-blue-900 mb-4">Geographic Expansion</h4>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-blue-800">European Union</span>
-                        <span className="font-medium text-blue-900">$180M potential</span>
+                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-6">
+                    <h4 className="font-semibold text-purple-900 mb-4">Emerging Opportunities</h4>
+                    {trends.length === 0 ? (
+                      <div className="text-sm text-purple-800">No opportunities extracted yet. Retry market research.</div>
+                    ) : (
+                      <div className="space-y-4">
+                        {trends.slice(0, 3).map((t, i) => (
+                          <div key={i}>
+                            <h5 className="font-medium text-purple-800 mb-1">{t.trend}</h5>
+                            <p className="text-sm text-purple-700">{t.description || 'Emerging area based on trends'}</p>
+                            <span className="text-xs text-purple-600">{t.growth || ''}</span>
+                          </div>
+                        ))}
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-blue-800">Asia-Pacific</span>
-                        <span className="font-medium text-blue-900">$220M potential</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-blue-800">Latin America</span>
-                        <span className="font-medium text-blue-900">$95M potential</span>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="space-y-6">
-                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-6">
-                    <h4 className="font-semibold text-purple-900 mb-4">Emerging Opportunities</h4>
-                    <div className="space-y-4">
-                      <div>
-                        <h5 className="font-medium text-purple-800 mb-1">AI Integration Services</h5>
-                        <p className="text-sm text-purple-700">Growing demand for AI-powered business solutions</p>
-                        <span className="text-xs text-purple-600">+65% growth potential</span>
-                      </div>
-                      <div>
-                        <h5 className="font-medium text-purple-800 mb-1">Compliance Automation</h5>
-                        <p className="text-sm text-purple-700">Increasing regulatory requirements driving automation</p>
-                        <span className="text-xs text-purple-600">+42% growth potential</span>
-                      </div>
-                      <div>
-                        <h5 className="font-medium text-purple-800 mb-1">Mobile-First Solutions</h5>
-                        <p className="text-sm text-purple-700">Shift towards mobile-optimized business tools</p>
-                        <span className="text-xs text-purple-600">+38% growth potential</span>
-                      </div>
-                    </div>
-                  </div>
-
                   <div className="bg-orange-50 border border-orange-200 rounded-xl p-6">
                     <h4 className="font-semibold text-orange-900 mb-4">Recommended Actions</h4>
-                    <div className="space-y-3">
-                      <div className="flex items-start space-x-3">
-                        <div className="w-2 h-2 bg-orange-500 rounded-full mt-2"></div>
-                        <span className="text-sm text-orange-800">Focus on enterprise segment for highest ROI</span>
+                    {competitorData.length === 0 && trends.length === 0 ? (
+                      <div className="text-sm text-orange-800">Actions will appear once analysis is available.</div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-start space-x-3">
+                          <div className="w-2 h-2 bg-orange-500 rounded-full mt-2"></div>
+                          <span className="text-sm text-orange-800">Focus on segments with highest opportunity</span>
+                        </div>
+                        <div className="flex items-start space-x-3">
+                          <div className="w-2 h-2 bg-orange-500 rounded-full mt-2"></div>
+                          <span className="text-sm text-orange-800">Prioritize features aligned with trends</span>
+                        </div>
                       </div>
-                      <div className="flex items-start space-x-3">
-                        <div className="w-2 h-2 bg-orange-500 rounded-full mt-2"></div>
-                        <span className="text-sm text-orange-800">Develop AI-powered features to stay competitive</span>
-                      </div>
-                      <div className="flex items-start space-x-3">
-                        <div className="w-2 h-2 bg-orange-500 rounded-full mt-2"></div>
-                        <span className="text-sm text-orange-800">Consider European expansion within 12 months</span>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>

@@ -9,6 +9,7 @@ import { SearchService } from '../../services/searchService';
 import { supabase } from '../../lib/supabase';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL } from '../../constants/demo';
+import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 
 interface UIDecisionMaker {
   id: string;
@@ -73,6 +74,9 @@ export default function DecisionMakerMapping() {
   const [hasSearch, setHasSearch] = useState(false);
   const subscriptionRef = useRef<any>(null);
   const currentSearchIdRef = useRef<string | null>(null);
+
+  const currentSearch = getCurrentSearch();
+  const realTimeData = useRealTimeSearch(currentSearch?.id || null);
 
 // Disable auto-filter so all decision makers show by default
   // If you want to re-enable filtering when a persona chip is clicked elsewhere,
@@ -673,13 +677,38 @@ export default function DecisionMakerMapping() {
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'insights' }));
   };
 
-  if (isLoading) {
+  const showLoading = isLoading || (!!currentSearch && realTimeData.progress.phase !== 'completed' && decisionMakers.length === 0);
+
+  if (showLoading) {
     return (
       <div className="flex items-center justify-center min-h-96">
-        <div className="text-center">
+        <div className="text-center max-w-md">
           <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <h3 className="text-lg font-semibold text-gray-900">Loading decision makers...</h3>
-          <p className="text-gray-600">Discovering key contacts from your searched businesses</p>
+          <h3 className="text-lg font-semibold text-gray-900">Discovering decision makers...</h3>
+          <p className="text-gray-600 mb-4">AI agents are searching LinkedIn for key decision makers at target companies</p>
+          <div className="space-y-2 text-sm text-gray-500">
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span>{realTimeData.businesses.length > 0 ? 'Target businesses identified' : 'Identifying target businesses...'}</span>
+            </div>
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span>{realTimeData.dmPersonas.length > 0 ? 'Decision maker personas created' : 'Generating decision maker personas...'}</span>
+            </div>
+            <div className="flex items-center justify-center space-x-2">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <span>Searching LinkedIn for decision makers...</span>
+            </div>
+          </div>
+          <div className="mt-6 text-xs text-gray-400">{realTimeData.decisionMakers.length} profiles discovered so far</div>
+          <div className="mt-6 space-y-3">
+            {[0,1,2].map(i => (
+              <div key={i} className="animate-pulse bg-white rounded-lg p-4 border border-gray-200">
+                <div className="h-4 bg-gray-200 rounded w-1/3 mb-2"></div>
+                <div className="h-3 bg-gray-100 rounded w-1/2"></div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -723,6 +752,9 @@ export default function DecisionMakerMapping() {
               : 'Individual decision maker profiles with personalized approach strategies'
             }
           </p>
+          {decisionMakers.length === 0 && (
+            <p className="text-sm text-gray-500 mt-1">No profiles yet. Streaming live as they are discovered…</p>
+          )}
         </div>
         <div className="flex space-x-3">
           <button
@@ -868,6 +900,17 @@ export default function DecisionMakerMapping() {
               </div>
               );
             })}
+            {filteredDecisionMakers.length === 0 && (
+              <div className="space-y-3">
+                {[0,1,2].map(i => (
+                  <div key={i} className="animate-pulse bg-white rounded-lg p-4 border border-gray-200">
+                    <div className="h-4 bg-gray-200 rounded w-1/3 mb-2"></div>
+                    <div className="h-3 bg-gray-100 rounded w-1/2"></div>
+                  </div>
+                ))}
+                <div className="text-sm text-gray-500">Waiting for profiles…</div>
+              </div>
+            )}
         </div>
 
         {/* Detailed Individual Persona */}
