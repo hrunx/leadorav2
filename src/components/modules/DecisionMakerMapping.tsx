@@ -72,6 +72,7 @@ export default function DecisionMakerMapping() {
   const [decisionMakers, setDecisionMakers] = useState<UIDecisionMaker[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasSearch, setHasSearch] = useState(false);
+  const [showFirstArrivalToast, setShowFirstArrivalToast] = useState(false);
   const subscriptionRef = useRef<any>(null);
   const currentSearchIdRef = useRef<string | null>(null);
 
@@ -304,6 +305,17 @@ export default function DecisionMakerMapping() {
   useEffect(() => {
     loadDecisionMakers();
   }, [getCurrentSearch, authState.user, loadDecisionMakers]);
+
+  // Show a toast the first time profiles arrive
+  const prevCountRef = useRef<number>(0);
+  useEffect(() => {
+    if (decisionMakers.length > 0 && prevCountRef.current === 0) {
+      setShowFirstArrivalToast(true);
+      const t = setTimeout(() => setShowFirstArrivalToast(false), 2500);
+      return () => clearTimeout(t);
+    }
+    prevCountRef.current = decisionMakers.length;
+  }, [decisionMakers.length]);
 
   const getStaticDecisionMakers = (): UIDecisionMaker[] => [
     {
@@ -738,6 +750,11 @@ export default function DecisionMakerMapping() {
 
   return (
     <div className="space-y-8">
+      {showFirstArrivalToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-white border border-blue-200 shadow-lg rounded-lg px-4 py-3 text-sm text-blue-800">
+          New decision maker profiles are arriving…
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
