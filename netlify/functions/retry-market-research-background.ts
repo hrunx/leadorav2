@@ -37,7 +37,9 @@ export const handler: Handler = async (event) => {
           countries: search.countries || [],
           search_type: (search.search_type as 'customer' | 'supplier') || 'customer'
         });
-      } catch (e) {}
+      } catch {
+        // ignore
+      }
     }, 0);
     return { statusCode: 202, headers: cors, body: JSON.stringify({ ok: true, background: true }) };
   } catch (e: any) {

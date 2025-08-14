@@ -74,7 +74,11 @@ export function isGenericTitle(title: string): boolean {
 }
 
 function isNonEmptyString(v: any): v is string {
-  return typeof v === 'string' && v.trim() && !['unknown', 'n/a', 'default', 'none'].includes(v.trim().toLowerCase());
+  if (typeof v !== 'string') return false;
+  const trimmed = v.trim();
+  if (trimmed.length === 0) return false;
+  const lowered = trimmed.toLowerCase();
+  return !['unknown', 'n/a', 'default', 'none'].includes(lowered);
 }
 function isNonEmptyArray(v: any): v is string[] {
   return Array.isArray(v) && v.length > 0 && v.every(isNonEmptyString);

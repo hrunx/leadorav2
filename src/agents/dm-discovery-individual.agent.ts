@@ -132,6 +132,26 @@ const linkedinSearchTool = tool({
             // Store employees immediately with enrichment_status: 'pending'
             allEmployees.push(...employees);
           }
+          // If search returned none, try a broader Google CSE pass with company filter
+          if (!result || !result.success || !Array.isArray(result.items) || result.items.length === 0) {
+            const alt = await serperSearch(`site:linkedin.com/in/ ${company_name} ${primaryTitle}${suffix}`, company_country, 10);
+            if (alt && alt.success && Array.isArray(alt.items) && alt.items.length) {
+              const employees = alt.items
+                .filter((item: SerperItem) => item.link?.includes('linkedin.com/in/'))
+                .map((item: SerperItem): Employee => ({
+                  name: extractNameFromLinkedInTitle(item.title || ''),
+                  title: extractTitleFromLinkedInTitle(item.title || ''),
+                  company: company_name,
+                  linkedin: item.link || '',
+                  email: null,
+                  phone: null,
+                  bio: item.snippet || '',
+                  location: company_country || 'Unknown',
+                  enrichment_status: 'pending'
+                }));
+              allEmployees.push(...employees);
+            }
+          }
 
           // Mark this query as seen to prevent future duplicates
           await markSeen(company_name, query);
