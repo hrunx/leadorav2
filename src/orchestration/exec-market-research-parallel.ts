@@ -67,7 +67,7 @@ Use these sources when relevant (do not quote text, just use as references):\n${
         request: { model: modelId, product: searchData.product_service, industries: searchData.industries, countries: searchData.countries },
         response: { text_length: analysis.length }
       });
-    } catch (e: any) {
+    } catch {
       // Fallback to Gemini
       provider = 'gemini';
       try {
@@ -83,7 +83,7 @@ Use these sources when relevant (do not quote text, just use as references):\n${
           request: { model: 'gemini-1.5-pro', product: searchData.product_service },
           response: { text_length: analysis.length }
         });
-      } catch (e2: any) {
+      } catch {
         provider = 'fallback';
         analysis = JSON.stringify({
           sources: webFindings.map(s => s.url),
