@@ -1,4 +1,5 @@
 import { loadSearch } from '../tools/db.read';
+import { loadBusinesses } from '../tools/db.read';
 import { updateSearchProgress, mergeAgentMetadata } from '../tools/db.write';
 import logger from '../lib/logger';
 import { runBusinessPersonas } from '../agents/business-persona.agent';
@@ -72,7 +73,24 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         key: 'business_discovery',
         weight: weights.business_discovery,
         phase: 'business_discovery' as const,
-        run: () => runBusinessDiscovery(agentSearch),
+        run: async () => {
+          // Run main discovery flow
+          await runBusinessDiscovery(agentSearch);
+          // Guard: if still 0 businesses, call debug endpoint to force insert from aggregated candidates
+          const after = await loadBusinesses(search_id).catch(() => [] as any[]);
+          if (!after || after.length === 0) {
+            try {
+              const res = await fetch(`${process.env.LOCAL_BASE_URL || 'http://localhost:9999'}/.netlify/functions/debug-business-discovery`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ search_id, insert: true })
+              });
+              if (!res.ok) throw new Error(`debug-business-discovery status ${res.status}`);
+            } catch (e: any) {
+              logger.warn('debug-business-discovery guard failed', { error: e?.message || e });
+            }
+          }
+        },
         onSuccess: () => updateFn('BUSINESSES_FOUND', { search_id }),
       },
       {

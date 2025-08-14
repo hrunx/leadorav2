@@ -1,5 +1,5 @@
 // import { executeAdvancedMarketResearch } from '../agents/market-research-advanced.agent';
-import { openai, resolveModel, callGeminiText } from '../agents/clients';
+import { openai, resolveModel, callGeminiText, callDeepseekChatJSON } from '../agents/clients';
 import { serperSearch } from '../tools/serper';
 import { loadSearch } from '../tools/db.read';
 import { insertMarketInsights, logApiUsage } from '../tools/db.write';
@@ -83,7 +83,7 @@ Use these references when relevant (add additional reputable sources if needed):
 Return ONLY valid JSON with keys: tam_data, sam_data, som_data, competitor_data, trends, opportunities, sources, analysis_summary, research_methodology.`;
 
     let analysis = '';
-    let provider: 'openai' | 'gemini' | 'fallback' = 'openai';
+    let provider: 'openai' | 'gemini' | 'deepseek' | 'fallback' = 'openai';
     try {
       const res = await openai.chat.completions.create({
         model: modelId,
@@ -121,12 +121,29 @@ Return ONLY valid JSON with keys: tam_data, sam_data, som_data, competitor_data,
           response: { text_length: analysis.length }
         });
       } catch {
-        provider = 'fallback';
-        analysis = JSON.stringify({
-          sources: webFindings.map((s: any) => s.url),
-          analysis_summary: 'Heuristic insights constructed from available web links due to LLM failures',
-          research_methodology: 'Serper web search and heuristic extraction'
-        });
+        // Fallback to DeepSeek
+        provider = 'deepseek';
+        try {
+          const dsText = await callDeepseekChatJSON({ user: `${systemPrompt}\n\n${basePrompt}`, temperature: 0.3, maxTokens: 4000, timeoutMs: 20000, retries: 1 });
+          analysis = dsText || '';
+          await logApiUsage({
+            user_id: String(search.user_id || ''),
+            search_id: String(search.id || ''),
+            provider: 'deepseek',
+            endpoint: 'chat.completions',
+            status: 200,
+            ms: Date.now() - startTime,
+            request: { model: String(process.env.DEEPSEEK_MODEL || 'deepseek-chat'), product: productStr },
+            response: { text_length: analysis.length }
+          });
+        } catch {
+          provider = 'fallback';
+          analysis = JSON.stringify({
+            sources: webFindings.map((s: any) => s.url),
+            analysis_summary: 'Heuristic insights constructed from available web links due to LLM failures',
+            research_methodology: 'Serper web search and heuristic extraction'
+          });
+        }
       }
     }
 
