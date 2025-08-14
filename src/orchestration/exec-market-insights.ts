@@ -12,17 +12,30 @@ export async function execMarketInsights(payload: {
   if (!search) throw new Error(`Search ${payload.search_id} not found`);
 
   const [bp, biz, dmp] = await Promise.all([
-    loadBusinessPersonas(search.id),
-    loadBusinesses(search.id),
-    loadDMPersonas(search.id),
+    loadBusinessPersonas((search as any).id),
+    loadBusinesses((search as any).id),
+    loadDMPersonas((search as any).id),
   ]);
+
+  // Normalize search fields for safe typing
+  const s = {
+    id: String((search as any)?.id || payload.search_id),
+    user_id: String((search as any)?.user_id || payload.user_id),
+    product_service: String((search as any)?.product_service || ''),
+    industries: Array.isArray((search as any)?.industries) ? ((search as any).industries as string[]) : [],
+    countries: Array.isArray((search as any)?.countries) ? ((search as any).countries as string[]) : [],
+    search_type: ((search as any)?.search_type === 'supplier' ? 'supplier' : 'customer') as 'customer' | 'supplier'
+  };
+
+  const primaryIndustry = s.industries[0] || 'General';
+  const countriesList = s.countries.join(', ');
 
   const prompt = `
 You are a market research analyst. Create comprehensive market insights for the UI.
 
-Product/Service: ${search.product_service}
-Industry: ${search.industries[0]}
-Target Countries: ${search.countries.join(', ')}
+Product/Service: ${s.product_service}
+Industry: ${primaryIndustry}
+Target Countries: ${countriesList}
 
 Business Context:
 - Found ${bp.length} business personas: ${bp.map((p:any) => p.title).join(', ')}
@@ -86,8 +99,8 @@ Return only valid JSON, no other text.`;
     
     // Log successful API usage
     await logApiUsage({
-      user_id: search.user_id,
-      search_id: search.id,
+      user_id: s.user_id,
+      search_id: s.id,
       provider: 'gemini',
       endpoint: 'generateContent',
       status: 200,
@@ -114,8 +127,8 @@ Return only valid JSON, no other text.`;
 
     // Store in database
     return await insertMarketInsights({
-      search_id: search.id,
-      user_id: search.user_id,
+      search_id: s.id,
+      user_id: s.user_id,
       tam_data: valid.tam_data,
       sam_data: valid.sam_data,
       som_data: valid.som_data,
@@ -130,8 +143,8 @@ Return only valid JSON, no other text.`;
   } catch (error: any) {
     // Log failed API usage
     await logApiUsage({
-      user_id: search.user_id,
-      search_id: search.id,
+      user_id: s.user_id,
+      search_id: s.id,
       provider: 'gemini',
       endpoint: 'generateContent',
       status: 500,

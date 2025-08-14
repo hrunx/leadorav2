@@ -98,6 +98,8 @@ export async function callOpenAIChatJSON(params: {
   maxTokens?: number;
   requireJsonObject?: boolean;
   verbosity?: 'low' | 'medium' | 'high';
+  timeoutMs?: number;
+  retries?: number;
 }): Promise<string> {
   const payload: any = {
     model: params.model,
@@ -124,14 +126,52 @@ export async function callOpenAIChatJSON(params: {
   if (isGpt5 && params.verbosity) {
     payload.verbosity = params.verbosity;
   }
-  const res = await openai.chat.completions.create(payload);
-  return (res.choices?.[0]?.message?.content || '').trim();
+  const doCall = async () => {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), params.timeoutMs || 0);
+    try {
+      const res = await openai.chat.completions.create(payload as any, { signal: controller.signal as any });
+      return (res.choices?.[0]?.message?.content || '').trim();
+    } finally {
+      clearTimeout(t);
+    }
+  };
+  const maxRetries = params.retries ?? 0;
+  let attempt = 0;
+  // simple linear retry
+  while (true) {
+    try {
+      return await doCall();
+    } catch (e) {
+      attempt++;
+      if (attempt > maxRetries) throw e;
+      await new Promise(r => setTimeout(r, 500 * attempt));
+    }
+  }
 }
 
-export async function callGeminiText(modelId: string, prompt: string): Promise<string> {
+export async function callGeminiText(modelId: string, prompt: string, timeoutMs = 0, retries = 0): Promise<string> {
   const model = gemini.getGenerativeModel({ model: modelId });
-  const r = await model.generateContent([{ text: prompt }]);
-  return (r.response.text() || '').trim();
+  const doCall = async () => {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), timeoutMs || 0);
+    try {
+      const r = await model.generateContent([{ text: prompt }] as any);
+      return (r.response.text() || '').trim();
+    } finally {
+      clearTimeout(t);
+    }
+  };
+  let attempt = 0;
+  while (true) {
+    try {
+      return await doCall();
+    } catch (e) {
+      attempt++;
+      if (attempt > retries) throw e;
+      await new Promise(r => setTimeout(r, 500 * attempt));
+    }
+  }
 }
 
 export async function callDeepseekChatJSON(params: {
@@ -139,15 +179,36 @@ export async function callDeepseekChatJSON(params: {
   user: string;
   temperature?: number;
   maxTokens?: number;
+  timeoutMs?: number;
+  retries?: number;
 }): Promise<string> {
   if (!process.env.DEEPSEEK_API_KEY || !deepseek) {
     throw new Error('DeepSeek not configured');
   }
-  const res = await deepseek.chat.completions.create({
-    model: params.model || process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-    messages: [{ role: 'user', content: params.user }],
-    temperature: params.temperature,
-    max_tokens: params.maxTokens,
-  });
-  return (res.choices?.[0]?.message?.content || '').trim();
+  const doCall = async () => {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), params.timeoutMs || 0);
+    try {
+      const res = await deepseek.chat.completions.create({
+        model: params.model || process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+        messages: [{ role: 'user', content: params.user }],
+        temperature: params.temperature,
+        max_tokens: params.maxTokens,
+      } as any, { signal: controller.signal as any });
+      return (res.choices?.[0]?.message?.content || '').trim();
+    } finally {
+      clearTimeout(t);
+    }
+  };
+  const maxRetries = params.retries ?? 0;
+  let attempt = 0;
+  while (true) {
+    try {
+      return await doCall();
+    } catch (e) {
+      attempt++;
+      if (attempt > maxRetries) throw e;
+      await new Promise(r => setTimeout(r, 500 * attempt));
+    }
+  }
 }

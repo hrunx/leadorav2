@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useReducer, ReactNode, useEffect, useCallback } from 'react';
 import logger from '../lib/logger';
 import { useAuth } from './AuthContext';
 import { isDemoUser } from '../constants/demo';
@@ -71,14 +71,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(userDataReducer, initialState);
   const { state: authState } = useAuth();
 
-  useEffect(() => {
-    if (authState.isAuthenticated && authState.user && !isDemoUser(authState.user.id, authState.user.email)) {
-      loadUserDataFromDB();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authState.isAuthenticated, authState.user]);
-
-  const loadUserDataFromDB = async () => {
+  const loadUserDataFromDB = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', payload: true });
     
     try {
@@ -108,7 +101,13 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       import('../lib/logger').then(({ default: logger }) => logger.error('Error loading user data', { error: (error as any)?.message || error })).catch(()=>{});
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [authState.user]);
+
+  useEffect(() => {
+    if (authState.isAuthenticated && authState.user && !isDemoUser(authState.user.id, authState.user.email)) {
+      void loadUserDataFromDB();
+    }
+  }, [authState.isAuthenticated, authState.user, loadUserDataFromDB]);
 
   const createSearch = async (searchData: any): Promise<string> => {
     if (!authState.user) {

@@ -73,7 +73,7 @@ export class SearchService {
         return cached.data as any;
       }
 
-       let searches: any[] = [];
+       let searches: UserSearch[] = [];
        try {
           const { data: { session } } = await supabase.auth.getSession();
           const token = session?.access_token;
@@ -81,7 +81,7 @@ export class SearchService {
           method: 'GET', headers: { 'Accept': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, credentials: 'omit'
         });
         if (proxyResp.ok) {
-          searches = await proxyResp.json();
+          searches = await proxyResp.json() as UserSearch[];
         } else {
           const { data, error } = await supabase
             .from('user_searches')
@@ -89,7 +89,7 @@ export class SearchService {
             .eq('user_id', targetUserId)
             .order('created_at', { ascending: false });
           if (error) throw error;
-          searches = Array.isArray(data) ? data : [];
+           searches = Array.isArray(data) ? data as UserSearch[] : [];
         }
       } catch {
         const { data } = await supabase
@@ -97,11 +97,11 @@ export class SearchService {
           .select('*')
           .eq('user_id', targetUserId)
           .order('created_at', { ascending: false });
-        searches = Array.isArray(data) ? data : [];
+        searches = Array.isArray(data) ? data as UserSearch[] : [];
       }
 
       // Normalize progress and totals
-      const normalized = searches.map((s: any) => ({
+      const normalized = searches.map((s: UserSearch & any) => ({
         ...s,
         progress: { phase: s.phase, progress_pct: s.progress_pct, status: s.status },
         totals: s.totals || { business_personas:0, dm_personas:0, businesses:0, decision_makers:0, market_insights:0 },
@@ -118,7 +118,7 @@ export class SearchService {
           .sort((a, b) => a[1].ts - b[1].ts)[0]?.[0];
         if (oldestKey) this.searchesCacheByUser.delete(oldestKey);
       }
-      return normalized as any;
+      return normalized as unknown as UserSearch[];
     } catch (error: any) {
       // Fallback to proxy if direct Supabase call fails (CORS issues)
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
@@ -133,10 +133,11 @@ export class SearchService {
             credentials: 'omit'
           });
           if (!response.ok) throw new Error(`Proxy request failed: ${response.status}`);
-          return await response.json();
-        } catch {
-          import('../lib/logger').then(({ default: logger }) => logger.warn('Proxy also failed for user searches; returning empty')).catch(()=>{});
-          return []; // Return empty array as final fallback
+          const out = await response.json();
+          return Array.isArray(out) ? out as UserSearch[] : [];
+        } catch (e:any) {
+          import('../lib/logger').then(({ default: logger }) => logger.warn('Proxy also failed for user searches; returning empty', { error: e?.message || e })).catch(()=>{});
+          return [] as UserSearch[]; // Return empty array as final fallback
         }
       }
       throw error;

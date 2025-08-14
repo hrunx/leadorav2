@@ -1,4 +1,4 @@
-import React from 'react';
+// React import not needed for JSX in modern setups
 import { Search, Building, Users, UserCheck, UserCog, TrendingUp, Mail, HelpCircle, Home, User, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 

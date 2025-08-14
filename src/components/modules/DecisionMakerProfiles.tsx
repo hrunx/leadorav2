@@ -203,6 +203,7 @@ export default function DecisionMakerProfiles() {
   };
 
   const rerunEnrichment = async (_employee: DecisionMaker) => {
+    let attempts = 0;
     try {
       setEnriching(true);
       let enrichUrl = '/.netlify/functions/enrich-decision-makers';
@@ -211,7 +212,6 @@ export default function DecisionMakerProfiles() {
       } else if (typeof window !== 'undefined' && window.location) {
         enrichUrl = `${window.location.origin}/.netlify/functions/enrich-decision-makers`;
       }
-      let attempts = 0;
       await retryWithBackoff(async () => {
         attempts++;
         return fetch(enrichUrl, {

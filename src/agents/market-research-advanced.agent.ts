@@ -1,5 +1,5 @@
-// @ts-nocheck
-import { GoogleGenerativeAI } from '@google/generative-ai';
+// Enable type checking; remove blanket suppression
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { serperSearch } from '../tools/serper';
 import logger from '../lib/logger';
 // import { logApiUsage } from '../tools/db.write';
@@ -13,14 +13,14 @@ const webSearchTool = {
   name: 'web_search',
   description: 'Search the web for current market information, financial data, and industry insights',
   parameters: {
-    type: 'object' as const,
+    type: SchemaType.OBJECT,
     properties: {
       query: {
-        type: 'string' as const,
+        type: SchemaType.STRING,
         description: 'Search query to find market data'
       },
       focus: {
-        type: 'string' as const,
+        type: SchemaType.STRING,
         description: 'Focus area: market_size, competitors, trends, financial_data, industry_reports'
       }
     },
@@ -33,17 +33,17 @@ const marketCalculatorTool = {
   name: 'calculate_market_size',
   description: 'Calculate TAM, SAM, SOM based on gathered data',
   parameters: {
-    type: 'object' as const,
+    type: SchemaType.OBJECT,
     properties: {
-      industry: { type: 'string' as const },
-      country: { type: 'string' as const },
-      product_service: { type: 'string' as const },
+      industry: { type: SchemaType.STRING },
+      country: { type: SchemaType.STRING },
+      product_service: { type: SchemaType.STRING },
       data_sources: {
-        type: 'array' as const,
-        items: { type: 'string' as const },
+        type: SchemaType.ARRAY,
+        items: { type: SchemaType.STRING },
         description: 'Sources of data used for calculation'
       },
-      methodology: { type: 'string' as const, description: 'Calculation methodology' }
+      methodology: { type: SchemaType.STRING, description: 'Calculation methodology' }
     },
     required: ['industry', 'country', 'product_service', 'data_sources', 'methodology']
   }
@@ -54,13 +54,13 @@ const competitorAnalysisTool = {
   name: 'analyze_competitors',
   description: 'Analyze competitive landscape with financial data',
   parameters: {
-    type: 'object' as const,
+    type: SchemaType.OBJECT,
     properties: {
-      industry: { type: 'string' as const },
-      country: { type: 'string' as const },
+      industry: { type: SchemaType.STRING },
+      country: { type: SchemaType.STRING },
       search_queries: {
-        type: 'array' as const,
-        items: { type: 'string' as const },
+        type: SchemaType.ARRAY,
+        items: { type: SchemaType.STRING },
         description: 'Search queries used to find competitors'
       }
     },
@@ -73,13 +73,13 @@ const trendAnalysisTool = {
   name: 'analyze_trends',
   description: 'Analyze market trends and future opportunities',
   parameters: {
-    type: 'object' as const,
+    type: SchemaType.OBJECT,
     properties: {
-      industry: { type: 'string' as const },
-      time_horizon: { type: 'string' as const, description: '1-year, 3-year, 5-year' },
+      industry: { type: SchemaType.STRING },
+      time_horizon: { type: SchemaType.STRING, description: '1-year, 3-year, 5-year' },
       focus_areas: {
-        type: 'array' as const,
-        items: { type: 'string' as const },
+        type: SchemaType.ARRAY,
+        items: { type: SchemaType.STRING },
         description: 'Areas to analyze: technology, regulations, consumer_behavior, etc.'
       }
     },
@@ -151,9 +151,9 @@ function extractMarketSizeFromSearch(searchResults: any[], args: any): any {
   };
 }
 
-function extractCompetitorsFromSearch(searchResults: any[]): any {
+function extractCompetitorsFromSearch(searchResults: any[]): { competitors: Array<{ name: string; source: string; description: string; found_in: string }>; total_found: number; sources: string[]; note: string; confidence: string } {
   // Extract company names and competitive information
-  const competitors = [];
+  const competitors: Array<{ name: string; source: string; description: string; found_in: string }> = [];
   const companyRegex = /\b[A-Z][a-zA-Z\s&]+(?:Inc|LLC|Corp|Company|Ltd|Group)\b/g;
   
   for (const result of searchResults.slice(0, 10)) {
@@ -188,12 +188,12 @@ function extractTrendsFromSearch(searchResults: any[]): any {
   const trendKeywords = ['trend', 'growth', 'forecast', 'outlook', 'future', 'emerging', 'rising', 'increasing', 'adoption'];
   const trends = [];
   
-  for (const result of searchResults.slice(0, 8)) {
+    for (const result of searchResults.slice(0, 8)) {
     const text = `${result.title} ${result.snippet}`.toLowerCase();
     
-    for (const keyword of trendKeywords) {
+      for (const keyword of trendKeywords) {
       if (text.includes(keyword)) {
-        const sentences = result.snippet.split('.').filter(s => 
+          const sentences = result.snippet.split('.').filter((s: string) => 
           s.toLowerCase().includes(keyword) && s.length > 20
         );
         
@@ -274,7 +274,7 @@ Start by searching for current market data, then analyze competitors, and finall
   // Handle function calls
   let finalResult = result;
   const functionCalls = result.response.functionCalls();
-  let functionResponses = []; // Initialize outside if block
+  let functionResponses: Array<{ name: string; response: any }> = []; // Initialize outside if block
   
   if (functionCalls && functionCalls.length > 0) {
     functionResponses = await Promise.all(
@@ -286,7 +286,8 @@ Start by searching for current market data, then analyze competitors, and finall
             // Search across all countries for comprehensive results
             const allCountryResults = [];
             for (const country of searchData.countries) {
-              const countryResults = await performWebSearch(call.args?.query, call.args?.focus, country);
+              const args = (call as any).args as any;
+              const countryResults = await performWebSearch(args?.query, args?.focus, country);
               allCountryResults.push(...countryResults);
             }
             response = allCountryResults;
@@ -302,7 +303,7 @@ Start by searching for current market data, then analyze competitors, and finall
               );
               allMarketResults.push(...marketSearchResults);
             }
-            response = extractMarketSizeFromSearch(allMarketResults, call.args);
+            response = extractMarketSizeFromSearch(allMarketResults, (call as any).args);
             break;
           case 'analyze_competitors':
             // Use web search for competitor analysis across all countries
@@ -350,17 +351,19 @@ Start by searching for current market data, then analyze competitors, and finall
   }
 
   // Aggregate all sources from function responses
-  const allSources = [];
+  const allSources: { title: string; url: string }[] = [];
   if (functionCalls && functionCalls.length > 0) {
-    functionResponses.forEach(fr => {
+    functionResponses.forEach((fr) => {
       if (fr.response && Array.isArray(fr.response)) {
         // For web search results
-        fr.response.forEach(result => {
-          if (result.url) allSources.push(result.url);
+        (fr.response as any[]).forEach((r: any) => {
+          if (r.url) allSources.push({ title: r.title || new URL(r.url).hostname, url: r.url });
         });
       } else if (fr.response && fr.response.sources) {
         // For analysis results with sources
-        allSources.push(...fr.response.sources);
+        (fr.response.sources as string[]).forEach((u: string) => {
+          if (u) allSources.push({ title: new URL(u).hostname, url: u });
+        });
       }
     });
   }
@@ -396,6 +399,14 @@ export async function runAdvancedMarketResearch(search: {
     const competitors = result.functionResponses.find((fr: any) => fr.name === 'analyze_competitors')?.response || {};
     const trends = result.functionResponses.find((fr: any) => fr.name === 'analyze_trends')?.response || {};
 
+    const normalizedSources = Array.isArray(result.sources)
+      ? (result.sources as any[]).map((s: any) =>
+          typeof s === 'string'
+            ? { title: new URL(s).hostname, url: s }
+            : { title: s.title || (s.url ? new URL(s.url).hostname : 'source'), url: s.url }
+        )
+      : [];
+
     const row = {
       search_id: search.id,
       user_id: search.user_id,
@@ -426,7 +437,7 @@ export async function runAdvancedMarketResearch(search: {
       competitor_data: competitors.competitors || [],
       trends: trends.trends || [],
       opportunities: {},
-      sources: result.sources,
+      sources: normalizedSources,
       analysis_summary: result.analysis,
       research_methodology: 'Advanced web-grounded market research'
     };

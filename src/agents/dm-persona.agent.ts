@@ -3,7 +3,7 @@ import { insertDMPersonas, updateSearchProgress } from '../tools/db.write';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
 
-import { sanitizePersona, isRealisticPersona } from '../tools/persona-validation';
+import { sanitizePersona, isRealisticPersona, DMPersona } from '../tools/persona-validation';
 
 import Ajv, { JSONSchemaType } from 'ajv';
 

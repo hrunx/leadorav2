@@ -420,7 +420,7 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       } catch {}
     }
     if (personas.length === 3) {
-      personas = await ensureUniqueTitles(personas, { id: search.id });
+      personas = await ensureUniqueTitles<Persona>(personas, { id: search.id });
     }
 
     if (personas.length) {

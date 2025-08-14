@@ -10,20 +10,22 @@ function buildCorsHeaders(origin?: string, requestHeaders?: string, requestMetho
   const allowMethods = (requestMethod && requestMethod.length > 0)
     ? requestMethod
     : 'GET, POST, OPTIONS, PUT, PATCH, DELETE';
-  const finalOrigin = origin || '*';
-  return {
+  const hasOrigin = !!origin && String(origin).length > 0;
+  const finalOrigin = hasOrigin ? String(origin) : '*';
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Origin': finalOrigin,
     'Access-Control-Allow-Headers': allowHeaders,
     'Access-Control-Allow-Methods': allowMethods,
     'Access-Control-Max-Age': '86400',
-    // Allow credentials if browser decides to send cookies/authorization
-    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Private-Network': 'true',
     'Access-Control-Expose-Headers': '*',
     'Cross-Origin-Resource-Policy': 'cross-origin',
     'Timing-Allow-Origin': '*',
     'Vary': 'Origin'
-  } as Record<string,string>;
+  };
+  // Credentials are only valid if a specific origin is echoed back
+  if (hasOrigin) headers['Access-Control-Allow-Credentials'] = 'true';
+  return headers;
 }
 
 export const handler: Handler = async (event) => {

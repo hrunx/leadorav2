@@ -65,11 +65,16 @@ const linkedinSearchTool = tool({
 
       // Cleanup old cached queries (non-blocking)
       const cacheExpiryIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      void sharedSupa
-        .from('linkedin_query_cache')
-        .delete()
-        .lt('created_at', cacheExpiryIso)
-        .catch(() => {});
+      void (async () => {
+        try {
+          await sharedSupa
+            .from('linkedin_query_cache')
+            .delete()
+            .lt('created_at', cacheExpiryIso);
+        } catch {
+          // ignore cache cleanup errors
+        }
+      })();
 
       // Search for employees in different roles
       for (const query of queries) {

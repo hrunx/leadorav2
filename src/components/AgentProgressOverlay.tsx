@@ -93,9 +93,14 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
           return normalizedPhase;
         })();
         setCurrentPhase(derivedPhase);
-        // Auto-dismiss overlay when first rows are visible to switch user to live screens quickly
-        const anyVisible = (data.data_counts.business_personas > 0 && data.data_counts.dm_personas > 0) || data.data_counts.businesses > 0;
-        if (!firstDataSeen && !hasNavigatedEarly && (anyVisible || pct >= 40) && onEarlyNavigation) {
+        // Auto-dismiss overlay only when we actually have visible rows to avoid blank intermediate screen
+        const anyVisible =
+          data.data_counts.market_insights > 0 ||
+          data.data_counts.decision_makers > 0 ||
+          data.data_counts.businesses > 0 ||
+          data.data_counts.business_personas > 0 ||
+          data.data_counts.dm_personas > 0;
+        if (!firstDataSeen && !hasNavigatedEarly && anyVisible && onEarlyNavigation) {
           setFirstDataSeen(true);
           setHasNavigatedEarly(true);
           onEarlyNavigation();
@@ -139,6 +144,7 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
   };
 
   const currentPhaseIndex = getCurrentPhaseIndex();
+  const progressPct: number = typeof progress?.progress_pct === 'number' ? progress.progress_pct : 0;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -159,12 +165,12 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-medium text-gray-700">Overall Progress</span>
-            <span className="text-sm font-medium text-gray-900">{progress?.progress_pct || 0}%</span>
+            <span className="text-sm font-medium text-gray-900">{`${progressPct}%`}</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3">
             <div 
               className="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${progress?.progress_pct || 0}%` }}
+              style={{ width: `${progressPct}%` }}
             />
           </div>
         </div>
@@ -249,13 +255,13 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
         </div>
 
         {/* Error State */}
-        {progress?.status === 'error' && progress?.error && (
+        {progress?.status === 'error' && !!progress?.error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
             <div className="flex items-center">
               <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
               <span className="text-red-700 font-medium">Processing Error</span>
             </div>
-            <p className="text-red-600 text-sm mt-1">{progress.error.message}</p>
+            <p className="text-red-600 text-sm mt-1">{String((progress.error as any)?.message || progress.error)}</p>
           </div>
         )}
 
