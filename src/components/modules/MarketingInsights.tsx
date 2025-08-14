@@ -56,17 +56,25 @@ export default function MarketingInsights() {
     return v;
   };
   // Use real-time data for real users, demo data for demo users
-  const marketRowRaw = isDemo ? demoMarketData : (realTimeData.marketInsights.length > 0 ? realTimeData.marketInsights[0] : null);
-  const marketRow: any = marketRowRaw ? {
-    ...marketRowRaw,
-    tam_data: parseMaybeJSON((marketRowRaw as any).tam_data),
-    sam_data: parseMaybeJSON((marketRowRaw as any).sam_data),
-    som_data: parseMaybeJSON((marketRowRaw as any).som_data),
-    competitor_data: parseMaybeJSON((marketRowRaw as any).competitor_data),
-    trends: parseMaybeJSON((marketRowRaw as any).trends),
-    opportunities: parseMaybeJSON((marketRowRaw as any).opportunities),
-    sources: parseMaybeJSON((marketRowRaw as any).sources)
-  } : null;
+  const marketRowRaw = useMemo(() => {
+    return isDemo
+      ? demoMarketData
+      : (realTimeData.marketInsights.length > 0 ? realTimeData.marketInsights[0] : null);
+  }, [isDemo, demoMarketData, realTimeData.marketInsights]);
+
+  const marketRow: any = useMemo(() => {
+    if (!marketRowRaw) return null;
+    return {
+      ...marketRowRaw,
+      tam_data: parseMaybeJSON((marketRowRaw as any).tam_data),
+      sam_data: parseMaybeJSON((marketRowRaw as any).sam_data),
+      som_data: parseMaybeJSON((marketRowRaw as any).som_data),
+      competitor_data: parseMaybeJSON((marketRowRaw as any).competitor_data),
+      trends: parseMaybeJSON((marketRowRaw as any).trends),
+      opportunities: parseMaybeJSON((marketRowRaw as any).opportunities),
+      sources: parseMaybeJSON((marketRowRaw as any).sources)
+    };
+  }, [marketRowRaw]);
   // Derive normalized blocks for rendering (tam/sam/som)
   const marketBlocks = isDemo
     ? (demoMarketData ? { tam: demoMarketData.tam, sam: demoMarketData.sam, som: demoMarketData.som } : null)
