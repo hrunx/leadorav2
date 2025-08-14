@@ -34,10 +34,34 @@ function redactPII(input: unknown): unknown {
   return out;
 }
 
-// Silence lints: keep references for future extension without console output
-void shouldLog;
-void redactPII;
-function emit(_level: LogLevel, _args: unknown[]) {}
+function safeSerialize(arg: unknown): unknown {
+  try {
+    if (arg instanceof Error) {
+      return { name: arg.name, message: arg.message, stack: arg.stack };
+    }
+    if (typeof arg === 'string') return redactPII(arg);
+    if (typeof arg === 'object' && arg !== null) return JSON.parse(JSON.stringify(arg));
+    return arg;
+  } catch {
+    return String(arg);
+  }
+}
+
+function emit(level: LogLevel, args: unknown[]) {
+  if (!shouldLog(level)) return;
+  const ts = new Date().toISOString();
+  const method = level === 'debug' ? console.debug
+    : level === 'info' ? console.info
+    : level === 'warn' ? console.warn
+    : console.error;
+  try {
+    const payload = args.map(safeSerialize);
+    method(`[${ts}] [${level.toUpperCase()}]`, ...payload);
+  } catch (e) {
+    // Last-resort logging
+    try { console.error(`[${ts}] [LOGGER-ERROR]`, e); } catch {}
+  }
+}
 
 export const logger = {
   debug: (...args: unknown[]) => emit('debug', args),

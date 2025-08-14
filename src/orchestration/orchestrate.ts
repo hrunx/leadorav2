@@ -14,6 +14,15 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
 
   try {
     const search = await loadSearch(search_id);
+    // Normalize shape for agents
+    const agentSearch = {
+      id: String((search as any)?.id || search_id),
+      user_id: String((search as any)?.user_id || ''),
+      product_service: String((search as any)?.product_service || ''),
+      industries: Array.isArray((search as any)?.industries) ? ((search as any).industries as string[]) : [],
+      countries: Array.isArray((search as any)?.countries) ? ((search as any).countries as string[]) : [],
+      search_type: ((search as any)?.search_type === 'supplier' ? 'supplier' : 'customer') as 'customer' | 'supplier',
+    };
     const useAdvancedResearch = Boolean((search as any)?.use_advanced_research);
 
     await updateSearchProgress(search_id, 5, 'starting', 'in_progress');
@@ -49,28 +58,28 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         key: 'business_personas',
         weight: weights.business_personas,
         phase: 'business_personas' as const,
-        run: () => runBusinessPersonas(search),
+        run: () => runBusinessPersonas(agentSearch),
         onSuccess: () => updateFn('PERSONAS_READY', { type: 'business', search_id }),
       },
       {
         key: 'dm_personas',
         weight: weights.dm_personas,
         phase: 'dm_personas' as const,
-        run: () => runDMPersonas(search),
+        run: () => runDMPersonas(agentSearch),
         onSuccess: () => updateFn('PERSONAS_READY', { type: 'dm', search_id }),
       },
       {
         key: 'business_discovery',
         weight: weights.business_discovery,
         phase: 'business_discovery' as const,
-        run: () => runBusinessDiscovery(search),
+        run: () => runBusinessDiscovery(agentSearch),
         onSuccess: () => updateFn('BUSINESSES_FOUND', { search_id }),
       },
       {
         key: 'market_research',
         weight: weights.market_research,
         phase: 'market_research' as const,
-        run: () => marketResearchTask(search),
+        run: () => marketResearchTask(agentSearch),
         onSuccess: () => updateFn('MARKET_RESEARCH_READY', { search_id }),
         onError: () => mergeAgentMetadata(search_id, { market_research_warning: true }),
       },

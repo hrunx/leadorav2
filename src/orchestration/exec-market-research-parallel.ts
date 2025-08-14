@@ -28,22 +28,59 @@ export async function execMarketResearchParallel(payload: {
     // Execute market research via OpenAI GPT-5 with robust fallbacks
     const modelId = resolveModel('primary');
 
-    // Pre-fetch web sources via Serper for each country (low token footprint: pass only URLs and short titles)
+    // Normalize inputs
+    const productStr: string = String(searchData.product_service || '');
+    const industriesList: string[] = Array.isArray(searchData.industries) ? (searchData.industries as string[]).map(String) : [];
+    const countriesList: string[] = Array.isArray(searchData.countries) ? (searchData.countries as string[]).map(String) : [];
+
+    // Pre-fetch authoritative web sources using multiple intents per country
+    const queryTemplates = [
+      'market size TAM SAM SOM',
+      'CAGR growth forecast',
+      'competitors market share',
+      'industry report 2024 2025',
+      'trend analysis opportunities'
+    ];
     const webFindings = (
       await Promise.all(
-        (searchData.countries || []).slice(0, 3).map(async (country: string) => {
-          const q = `${searchData.product_service} ${searchData.industries.join(' ')} market size competitors trends ${country}`;
-          const r = await serperSearch(q, country, 4).catch(() => ({ success: false, items: [] } as any));
-          return (r && (r as any).success ? (r as any).items : []).map((i: { title: string; link: string }) => ({ title: i.title, url: i.link }));
+        countriesList.slice(0, 3).map(async (country: string) => {
+          const perCountry = await Promise.all(
+            queryTemplates.map(async (qt) => {
+              const industriesStr = industriesList.join(' ');
+              const q = `${productStr} ${industriesStr} ${qt} ${country}`.trim();
+              const r = await serperSearch(q, country, 4).catch(() => ({ success: false, items: [] } as any));
+              return (r && (r as any).success ? (r as any).items : [])
+                .map((i: { title: string; link: string }) => ({ title: i.title, url: i.link }));
+            })
+          );
+          return perCountry.flat();
         })
       )
-    ).flat().slice(0, 8);
+    ).flat();
+    // Deduplicate by URL and cap
+    const seenUrl = new Set<string>();
+    const uniqueFindings = webFindings.filter((s: any) => {
+      if (!s?.url || seenUrl.has(s.url)) return false;
+      seenUrl.add(s.url);
+      return true;
+    }).slice(0, 12);
 
-    const sourcesForPrompt = webFindings.map(s => `- ${s.title} (${s.url})`).join('\n');
-    const basePrompt = `Generate structured market insights JSON for ${searchData.product_service} targeting ${searchData.industries.join(', ')} in ${searchData.countries.join(', ')}.
+    const sourcesForPrompt = uniqueFindings.map((s: any) => `- ${s.title} (${s.url})`).join('\n');
+    const systemPrompt = `You are a Senior Partner at a top-tier strategy firm. Produce investor-grade market research grounded in real, reputable sources.
+STRICTLY output ONLY JSON matching the schema provided by the user. Do not include markdown fences.`;
+    const basePrompt = `Analyze the ${productStr} market for industries: ${industriesList.join(', ')} across: ${countriesList.join(', ')}.
 
-Return ONLY valid JSON that conforms to the following sections: tam_data, sam_data, som_data, competitor_data (array), trends (array), opportunities (object or array), sources (array of URLs), analysis_summary, research_methodology.
-Use these sources when relevant (do not quote text, just use as references):\n${sourcesForPrompt}`;
+REQUIREMENTS:
+- Provide TAM, SAM, SOM as currency strings like "$2.4B", with a brief calculation methodology and a direct source URL per each (field: source).
+- List 4-6 real competitors with marketShare (percentage string), revenue (currency string), growth (percentage string), and a source URL per item.
+- Provide 4-6 trends with impact and growth (percentage string), each with a source URL.
+- Provide opportunities as either an object (summary, playbook, market_gaps, timing) or array of items with quantified potential.
+- Include a sources array of objects: { title, url, date?, used_for? } referencing the above.
+- Analysis summary and research methodology must be concise and professional.
+
+Use these references when relevant (add additional reputable sources if needed):\n${sourcesForPrompt}
+
+Return ONLY valid JSON with keys: tam_data, sam_data, som_data, competitor_data, trends, opportunities, sources, analysis_summary, research_methodology.`;
 
     let analysis = '';
     let provider: 'openai' | 'gemini' | 'fallback' = 'openai';
@@ -51,42 +88,42 @@ Use these sources when relevant (do not quote text, just use as references):\n${
       const res = await openai.chat.completions.create({
         model: modelId,
         messages: [
-          { role: 'system', content: 'You output ONLY valid JSON for market insights per the user spec.' },
+          { role: 'system', content: systemPrompt },
           { role: 'user', content: basePrompt }
         ],
         response_format: { type: 'json_object' }
       });
       analysis = res.choices?.[0]?.message?.content || '';
       await logApiUsage({
-        user_id: search.user_id,
-        search_id: search.id,
+        user_id: String(search.user_id || ''),
+        search_id: String(search.id || ''),
         provider: 'openai',
         endpoint: 'chat.completions',
         status: 200,
         ms: Date.now() - startTime,
-        request: { model: modelId, product: searchData.product_service, industries: searchData.industries, countries: searchData.countries },
+        request: { model: String(modelId), product: productStr, industries: industriesList, countries: countriesList },
         response: { text_length: analysis.length }
       });
     } catch {
       // Fallback to Gemini
       provider = 'gemini';
       try {
-        const gText = await callGeminiText('gemini-1.5-pro', basePrompt);
+        const gText = await callGeminiText('gemini-1.5-pro', `${systemPrompt}\n\n${basePrompt}`);
         analysis = gText || '';
         await logApiUsage({
-          user_id: search.user_id,
-          search_id: search.id,
+          user_id: String(search.user_id || ''),
+          search_id: String(search.id || ''),
           provider: 'gemini',
           endpoint: 'generateContent',
           status: 200,
           ms: Date.now() - startTime,
-          request: { model: 'gemini-1.5-pro', product: searchData.product_service },
+          request: { model: 'gemini-1.5-pro', product: productStr },
           response: { text_length: analysis.length }
         });
       } catch {
         provider = 'fallback';
         analysis = JSON.stringify({
-          sources: webFindings.map(s => s.url),
+          sources: webFindings.map((s: any) => s.url),
           analysis_summary: 'Heuristic insights constructed from available web links due to LLM failures',
           research_methodology: 'Serper web search and heuristic extraction'
         });
@@ -94,7 +131,7 @@ Use these sources when relevant (do not quote text, just use as references):\n${
     }
 
     // Parse the analysis to extract structured data
-    const insights = await parseMarketAnalysis(analysis, webFindings.map(s => s.url));
+    const insights = await parseMarketAnalysis(analysis, uniqueFindings.map((s: any) => s.url));
 
     const parsed = MarketInsightsSchema.safeParse(insights);
     if (!parsed.success) {
@@ -105,46 +142,30 @@ Use these sources when relevant (do not quote text, just use as references):\n${
 
     // Store in database with sources and methodology
     return await insertMarketInsights({
-      search_id: search.id,
-      user_id: search.user_id,
-      tam_data: valid.tam_data,
-      sam_data: valid.sam_data,
-      som_data: valid.som_data,
-      competitor_data: valid.competitor_data,
-      trends: valid.trends,
-      opportunities: valid.opportunities,
-      sources: valid.sources || [],
+      search_id: String(search.id || ''),
+      user_id: String(search.user_id || ''),
+      tam_data: valid.tam_data as any,
+      sam_data: valid.sam_data as any,
+      som_data: valid.som_data as any,
+      competitor_data: valid.competitor_data as any,
+      trends: valid.trends as any,
+      opportunities: valid.opportunities as any,
+      sources: (valid.sources || []) as any,
       analysis_summary: valid.analysis_summary || (provider === 'fallback' ? 'Heuristic market insights' : 'Market research completed'),
       research_methodology: valid.research_methodology || (provider === 'fallback' ? 'Serper web search and heuristic extraction' : 'AI-powered analysis with multi-country web search and competitive intelligence')
     });
 
   } catch (error: any) {
-    // Final failure: attempt to store a minimal placeholder so UI can proceed
-    try {
-      await insertMarketInsights({
-        search_id: search.id,
-        user_id: search.user_id,
-        tam_data: { value: 'Data not available', growth: 'Unknown', description: 'Total Addressable Market', calculation: 'Insufficient data', data_quality: 'unavailable' },
-        sam_data: { value: 'Data not available', growth: 'Unknown', description: 'Serviceable Addressable Market', calculation: 'Insufficient data', data_quality: 'unavailable' },
-        som_data: { value: 'Data not available', growth: 'Unknown', description: 'Serviceable Obtainable Market', calculation: 'Insufficient data', data_quality: 'unavailable' },
-        competitor_data: [],
-        trends: [],
-        opportunities: { summary: 'Insufficient data', playbook: [], market_gaps: [], timing: 'Unknown' },
-        sources: [],
-        analysis_summary: 'Market research failed due to provider errors',
-        research_methodology: 'Fallback placeholder due to API failure'
-      });
-    } catch {}
-
+    // Do not insert placeholder rows anymore to avoid false "Insights ready". Log and propagate.
     // Log failed API usage (provider: openai)
     await logApiUsage({
-      user_id: search.user_id,
-      search_id: search.id,
+      user_id: String(search.user_id || ''),
+      search_id: String(search.id || ''),
       provider: 'openai',
       endpoint: 'chat.completions',
       status: 500,
       ms: Date.now() - startTime,
-      request: { model: resolveModel('primary'), product: searchData.product_service },
+      request: { model: String(resolveModel('primary')), product: String(search.product_service || '') },
       response: { error: error.message }
     });
     
@@ -153,6 +174,60 @@ Use these sources when relevant (do not quote text, just use as references):\n${
 }
 
 async function parseMarketAnalysis(analysis: string, _sources: any[]): Promise<any> {
+  const ensureString = (v: any, fallback: string) => (typeof v === 'string' && v.trim().length > 0 ? v : fallback);
+  const ensureUrl = (v: any) => (typeof v === 'string' && /^https?:\/\//i.test(v) ? v : '');
+  const sanitizeMarketSize = (x: any, defaultDescription: string) => {
+    const value = ensureString(x?.value, 'Data not available');
+    const description = ensureString(x?.description, defaultDescription);
+    const growth = typeof x?.growth === 'string' ? x.growth : 'Unknown';
+    const calculation = typeof x?.calculation === 'string' ? x.calculation : (value === 'Data not available' ? `Insufficient data for reliable ${defaultDescription.toLowerCase()} calculation` : 'Derived from cited sources');
+    const source = ensureUrl(x?.source || '');
+    const out: any = { value, description };
+    if (growth) out.growth = growth;
+    if (calculation) out.calculation = calculation;
+    if (source) out.source = source;
+    return out;
+  };
+  const sanitizeCompetitors = (arr: any[]) =>
+    (Array.isArray(arr) ? arr : [])
+      .filter((c) => typeof c?.name === 'string' && c.name.trim().length > 0)
+      .map((c) => ({
+        name: ensureString(c.name, 'Unknown'),
+        marketShare: typeof c.marketShare === 'number' || typeof c.marketShare === 'string' ? c.marketShare : undefined,
+        revenue: typeof c.revenue === 'string' ? c.revenue : undefined,
+        growth: typeof c.growth === 'string' ? c.growth : undefined,
+        notes: typeof c.notes === 'string' ? c.notes : undefined,
+        description: typeof c.description === 'string' ? c.description : undefined,
+        strengths: Array.isArray(c.strengths) ? c.strengths : undefined,
+        weaknesses: Array.isArray(c.weaknesses) ? c.weaknesses : undefined,
+        source: ensureUrl(c.source || '') || undefined
+      }));
+  const sanitizeTrends = (arr: any[]) =>
+    (Array.isArray(arr) ? arr : []).map((t) => ({
+      trend: typeof t.trend === 'string' ? t.trend : undefined,
+      title: typeof t.title === 'string' ? t.title : undefined,
+      impact: typeof t.impact === 'string' ? t.impact : undefined,
+      growth: typeof t.growth === 'string' ? t.growth : undefined,
+      description: typeof t.description === 'string' ? t.description : undefined,
+      timeline: typeof t.timeline === 'string' ? t.timeline : undefined,
+      source: ensureUrl(t.source || '') || undefined
+    }));
+  const sanitizeOpportunities = (opp: any) => {
+    if (Array.isArray(opp)) {
+      return opp.map((o) => ({
+        title: ensureString(o?.title, 'Opportunity'),
+        description: ensureString(o?.description, 'Descriptive opportunity'),
+        potential: ensureString(o?.potential, 'Unknown'),
+        timeframe: ensureString(o?.timeframe, 'Unknown')
+      }));
+    }
+    return {
+      summary: ensureString(opp?.summary, 'Market research incomplete - requires additional data sources'),
+      playbook: Array.isArray(opp?.playbook) ? opp.playbook : [],
+      market_gaps: Array.isArray(opp?.market_gaps) ? opp.market_gaps : [],
+      timing: ensureString(opp?.timing, 'Cannot determine without reliable market data')
+    };
+  };
   // Try to extract JSON from the analysis
   let insights;
   
@@ -180,39 +255,22 @@ async function parseMarketAnalysis(analysis: string, _sources: any[]): Promise<a
     .filter(Boolean);
 
   // Return only real data - no fake placeholders
+  const tam = sanitizeMarketSize(insights?.tam_data ?? {}, 'Total Addressable Market');
+  const sam = sanitizeMarketSize(insights?.sam_data ?? {}, 'Serviceable Addressable Market');
+  const som = sanitizeMarketSize(insights?.som_data ?? {}, 'Serviceable Obtainable Market');
+  const competitors = sanitizeCompetitors(insights?.competitor_data ?? []);
+  const trends = sanitizeTrends(insights?.trends ?? []);
+  const opportunities = sanitizeOpportunities(insights?.opportunities ?? null);
   return {
-    tam_data: insights.tam_data || {
-      value: "Data not available",
-      growth: "Unknown",
-      description: "Total Addressable Market",
-      calculation: "Insufficient data for reliable market size calculation",
-      data_quality: "unavailable"
-    },
-    sam_data: insights.sam_data || {
-      value: "Data not available", 
-      growth: "Unknown",
-      description: "Serviceable Addressable Market",
-      calculation: "Insufficient data for reliable market segmentation",
-      data_quality: "unavailable"
-    },
-    som_data: insights.som_data || {
-      value: "Data not available",
-      growth: "Unknown",
-      description: "Serviceable Obtainable Market",
-      calculation: "Insufficient data for realistic capture estimation",
-      data_quality: "unavailable"
-    },
-    competitor_data: insights.competitor_data || [],
-    trends: insights.trends || [],
-    opportunities: insights.opportunities || {
-      summary: "Market research incomplete - requires additional data sources",
-      playbook: [],
-      market_gaps: [],
-      timing: "Cannot determine without reliable market data"
-    },
+    tam_data: tam,
+    sam_data: sam,
+    som_data: som,
+    competitor_data: competitors,
+    trends,
+    opportunities,
     sources: normalizedSources,
-    analysis_summary: insights.analysis_summary || "Market research incomplete due to insufficient data",
-    research_methodology: insights.research_methodology || "Limited data available - requires industry reports and market intelligence"
+    analysis_summary: ensureString(insights?.analysis_summary, 'Market research generated with grounded sources'),
+    research_methodology: ensureString(insights?.research_methodology, 'AI-powered analysis grounded in web sources')
   };
 }
 

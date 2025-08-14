@@ -3,21 +3,12 @@ import logger from '../../lib/logger';
 import { User, Building, Save, Edit, Camera, Shield, CreditCard, Crown, CheckCircle, Clock } from 'lucide-react';
 import { useProfile } from '../../hooks/useProfile';
 import { useSubscription } from '../../hooks/useSubscription';
-import { useAuth } from '../../context/AuthContext';
 
-import { DEMO_USER_ID, DEMO_USER_EMAIL } from '../../constants/demo';
+// Removed unused demo constants
 
 export default function ProfilePage() {
-  const { state: authState } = useAuth();
   
-  // Demo user detection
-  const isDemoUser = (userId?: string | null, userEmail?: string | null) => {
-    return userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL;
-  };
-  
-  // Keep demo detection available for future; suppress unused warning
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+  // Demo detection not used in this component; prune unused demo code
 
   // Only call hooks for real users to avoid auth errors
   const { profile, loading: profileLoading, error: profileError, updateProfile } = useProfile();
@@ -25,20 +16,7 @@ export default function ProfilePage() {
   
   const [activeTab, setActiveTab] = useState('profile');
 
-  // Demo subscription data for demo users
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const demoSubscription = {
-    id: 'demo-sub',
-    user_id: 'demo-user',
-    provider: 'demo',
-    plan: 'demo',
-    status: 'active',
-    period_start: '2024-01-01T00:00:00.000Z',
-    period_end: '2024-12-31T23:59:59.000Z',
-    trial_end: null,
-    seats: 1,
-    meta: {}
-  };
+  // Removed unused demo subscription placeholder
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

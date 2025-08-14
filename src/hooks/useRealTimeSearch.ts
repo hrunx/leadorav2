@@ -355,6 +355,14 @@ export function useRealTimeSearch(searchId: string | null) {
     return () => clearInterval(interval);
   }, [searchId, data.progress.phase, loadSearchData]);
 
+  // Force one final refresh when backend marks the run completed to capture any late inserts
+  useEffect(() => {
+    if (!searchId) return;
+    if (data.progress.phase === 'completed') {
+      void loadSearchData(searchId);
+    }
+  }, [searchId, data.progress.phase, loadSearchData]);
+
   // Helper function to get decision makers for a specific persona
   const getDecisionMakersForPersona = (personaId: string) => {
     return data.decisionMakers.filter(dm => dm.persona_id === personaId);

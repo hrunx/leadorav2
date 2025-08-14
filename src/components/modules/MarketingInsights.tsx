@@ -3,8 +3,7 @@ import { TrendingUp, Globe, Target, BarChart3, PieChart, ArrowRight, ArrowUp, Ar
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
-// import { SearchService } from '../../services/searchService';
-//
+// Cleaned stale commented imports
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 
 import { isDemoUser } from '../../constants/demo';
@@ -80,8 +79,15 @@ export default function MarketingInsights() {
     ? (demoMarketData ? { tam: demoMarketData.tam, sam: demoMarketData.sam, som: demoMarketData.som } : null)
     : (marketRow ? { tam: marketRow.tam_data, sam: marketRow.sam_data, som: marketRow.som_data } : null);
 
-  const isLoading = isDemo ? isLoadingDemo : (realTimeData.isLoading || (!marketRow && !realTimeData.progress.market_insights_ready));
-  const hasError = !isDemo && (!isLoading) && !marketRow && realTimeData.progress.phase !== 'completed' && realTimeData.progress.phase !== 'idle';
+  // Stop loading once the run is completed, even if no row exists (show retry UI instead)
+  const isLoading = isDemo
+    ? isLoadingDemo
+    : (
+      realTimeData.isLoading ||
+      (!marketRow && realTimeData.progress.phase !== 'completed' && !realTimeData.progress.market_insights_ready)
+    );
+  // If completed with no row, show the retry panel
+  const hasError = !isDemo && !marketRow && realTimeData.progress.phase === 'completed';
   const hasSearch = isDemo ? !!demoMarketData : !!currentSearch;
   const [competitorData, setCompetitorData] = useState<any[]>([]);
   const [trends, setTrends] = useState<any[]>([]);

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Building, MapPin, Users, DollarSign, Star, ArrowRight, Filter, Target, ExternalLink } from 'lucide-react';
+import { Building, MapPin, Users, DollarSign, Star, ArrowRight, Filter, Target, ExternalLink, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
@@ -38,9 +38,7 @@ export default function BusinessResults() {
   // Real-time data hook for progressive loading
   const realTimeData = useRealTimeSearch(currentSearch?.id || null);
 
-  // Internal visualization status
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [discoveryStatus, setDiscoveryStatus] = useState<'discovering' | 'completed'>('discovering');
+  // Removed unused discovery status state
 
   // UI state
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
@@ -87,10 +85,7 @@ export default function BusinessResults() {
   // Treat 404/empty proxy responses as non-blocking: only show spinner on very first load
   const isLoading = !isDemo && realTimeData.isLoading;
 
-  useEffect(() => {
-    const completed = businesses.length > 0 || realTimeData.progress.phase === 'completed';
-    setDiscoveryStatus(completed ? 'completed' : 'discovering');
-  }, [businesses.length, realTimeData.progress.phase]);
+  // Removed effect tied to unused discovery status
 
   // rely on useRealTimeSearch subscriptions; avoid duplicative subscriptions here to prevent render loops
 

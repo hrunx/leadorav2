@@ -14,12 +14,13 @@ export async function execBusinessDiscovery(payload: {
   // We don't need to iterate countries here - let the agent handle all countries
   
   // Use the standard business discovery agent which stores businesses directly
-  return await runBusinessDiscovery({
-    id: search.id,
-    user_id: search.user_id,
-    product_service: search.product_service,
-    industries: search.industries || [],
-    countries: search.countries, // Pass all countries to the agent
-    search_type: search.search_type
-  });
+  const agentSearch = {
+    id: String((search as any)?.id || payload.search_id),
+    user_id: String((search as any)?.user_id || payload.user_id),
+    product_service: String((search as any)?.product_service || ''),
+    industries: Array.isArray((search as any)?.industries) ? ((search as any).industries as string[]) : [],
+    countries: Array.isArray((search as any)?.countries) ? ((search as any).countries as string[]) : [],
+    search_type: ((search as any)?.search_type === 'supplier' ? 'supplier' : 'customer') as 'customer' | 'supplier'
+  };
+  return await runBusinessDiscovery(agentSearch);
 }

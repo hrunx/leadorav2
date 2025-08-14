@@ -1,17 +1,12 @@
 
-export interface Persona {
-  title: string;
-  rank: number;
-  demographics: { industry: string };
-  [key: string]: any;
-}
+export type TitleConstrained = { title: string; rank: number; demographics: { industry: string } };
 
-export async function ensureUniqueTitles(
-  personas: Persona[],
+export async function ensureUniqueTitles<T extends TitleConstrained>(
+  personas: T[],
   search: { id: string },
   existingTitles?: string[],
   refineFn?: (prompt: string) => Promise<string>
-): Promise<Persona[]> {
+): Promise<T[]> {
   let existingSet: Set<string>;
   if (Array.isArray(existingTitles)) {
     existingSet = new Set(existingTitles.map(t => String(t).toLowerCase()));
@@ -24,7 +19,7 @@ export async function ensureUniqueTitles(
       existingSet = new Set();
     }
   }
-  let result = personas;
+  let result: T[] = personas;
   const dupWithExisting = result.some(p => existingSet.has((p.title || '').toLowerCase()));
   if (dupWithExisting) {
     const refinePrompt = `Some titles duplicate existing personas (${Array.from(existingSet).join('; ')}). Rewrite ONLY the titles to be unique and descriptive. Return JSON: {"personas": [{"title":"..."}]}`;
@@ -49,13 +44,13 @@ export async function ensureUniqueTitles(
         ? obj.personas.map((x: any) => x?.title).filter(Boolean)
         : [];
       if (newTitles.length === result.length) {
-        result = result.map((p, i) => ({ ...p, title: String(newTitles[i]) }));
+        result = result.map((p, i) => ({ ...p, title: String(newTitles[i]) } as T));
       }
     } catch {}
   }
 
   const seen = new Set(existingSet);
-  result = result.map(p => {
+  result = result.map((p) => {
     let title = p.title;
     let key = title.toLowerCase();
     if (seen.has(key)) {
@@ -67,7 +62,7 @@ export async function ensureUniqueTitles(
       key = title.toLowerCase();
     }
     seen.add(key);
-    return { ...p, title };
+    return { ...p, title } as T;
   });
 
   return result;

@@ -40,9 +40,13 @@ export class CampaignService {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
         credentials: 'omit'
       });
-      if (!response.ok) return [];
+      if (!response.ok) {
+        logger.warn('getUserCampaigns proxy failed', { status: response.status });
+        return [];
+      }
       return await response.json();
-    } catch {
+    } catch (e: any) {
+      logger.error('getUserCampaigns error', { error: e?.message || e });
       return [];
     }
   }

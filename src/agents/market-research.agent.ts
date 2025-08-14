@@ -3,14 +3,13 @@ import logger from '../lib/logger';
 import { insertMarketInsights, markSearchCompleted, logApiUsage } from '../tools/db.write';
 import { extractJson } from '../tools/json';
 import { serperSearch } from '../tools/serper';
-let cheerio: any;
-try {
-// Optional in Netlify runtime; if not present, verification gracefully degrades
-// Using conditional require; allowed in Node functions
-  // @ts-ignore: runtime optional require for Node
-  cheerio = require('cheerio');
-} catch {
-  cheerio = null;
+async function getCheerio(): Promise<null | typeof import('cheerio')> {
+  try {
+    const mod = await import('cheerio');
+    return mod;
+  } catch {
+    return null;
+  }
 }
 
 function parseCurrencyToNumber(value: string): number | null {
@@ -34,8 +33,9 @@ async function fetchNumberFromSource(url: string, expected: number | null): Prom
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     if (!res.ok) return null;
     const html = await res.text();
-    if (!cheerio) return null;
-    const $ = cheerio.load(html);
+    const ch = await getCheerio();
+    if (!ch) return null;
+    const $ = ch.load(html);
     const text = $('body').text();
     const matches = text.match(/[$€£]?\s?[\d,.]+\s?(?:billion|million|thousand|bn|m|k|B|M|K)?/gi) || [];
     const numbers = matches.map(m => parseCurrencyToNumber(m)).filter(n => n !== null) as number[];
@@ -186,7 +186,9 @@ OUTPUT JSON SCHEMA EXACTLY:
           temperature: 0.3,
           maxTokens: 5000,
           requireJsonObject: true,
-          verbosity: 'low'
+          verbosity: 'low',
+          timeoutMs: 20000,
+          retries: 2
         });
         providerUsed = 'openai';
       } catch (e) {
@@ -195,7 +197,7 @@ OUTPUT JSON SCHEMA EXACTLY:
       // 2) Gemini 2.0 Flash
       if (!text) {
         try {
-          text = await callGeminiText('gemini-2.0-flash', prompt);
+          text = await callGeminiText('gemini-2.0-flash', prompt, 20000, 2);
           providerUsed = 'gemini';
         } catch (e) {
           logger.warn('[MarketResearch] gemini-2.0-flash failed', { error: (e as any)?.message });
@@ -204,7 +206,7 @@ OUTPUT JSON SCHEMA EXACTLY:
       // 3) DeepSeek
       if (!text) {
         try {
-          text = await callDeepseekChatJSON({ user: prompt, temperature: 0.4, maxTokens: 3500 });
+          text = await callDeepseekChatJSON({ user: prompt, temperature: 0.4, maxTokens: 3500, timeoutMs: 20000, retries: 1 });
           providerUsed = 'deepseek';
         } catch (e) {
           logger.warn('[MarketResearch] deepseek failed', { error: (e as any)?.message });
@@ -328,6 +330,7 @@ OUTPUT JSON SCHEMA EXACTLY:
       response: { error: error.message }
     });
     // Propagate standardized error; the orchestrator will handle downstream status
+    logger.error('Market research provider chain failed', { search_id: search.id, provider: providerUsed, error: error?.message || error });
     throw new Error('MARKET_RESEARCH_FAILED');
   }
   } catch (error) {
