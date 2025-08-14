@@ -16,9 +16,10 @@ export const handler: Handler = async (event) => {
       return { statusCode: 400, headers: cors, body: JSON.stringify({ ok:false, error:'search_id and user_id required' }) };
     }
 
-    // Call the background runner (same path but -background)
-    // Netlify invokes it async and returns 202 immediately.
-    await fetch(`${process.env.URL}/.netlify/functions/orchestrator-run-background`, {
+    // Call the background runner
+    // Use local fallback when URL/DEPLOY_URL is not set (functions:serve/dev)
+    const base = process.env.URL || process.env.DEPLOY_URL || 'http://localhost:9999';
+    await fetch(`${base}/.netlify/functions/orchestrator-run-background`, {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({ search_id, user_id })

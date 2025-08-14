@@ -177,7 +177,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     }
     
     const data = await r.json();
-      let places = (data.places || []).slice(0, limit).map((p: any) => {
+    let places = (data.places || []).slice(0, limit).map((p: any) => {
       // Extract city from address
       let city = '';
       if (p.address) {
@@ -225,6 +225,20 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
         city: (p.address?.split(',')?.[0] || country)
       }));
       places = relaxed.slice(0, Math.max(limit, 5));
+    }
+    // If still no places, attempt Google CSE fallback to synthesize place-like entries
+    if (places.length === 0) {
+      const fallback = await googleCseSearch(q, gl, Math.min(limit, 10));
+      if (fallback.success && fallback.items.length > 0) {
+        places = fallback.items.slice(0, limit).map((x: any) => ({
+          name: x.title || 'Unknown Business',
+          address: x.snippet || '',
+          phone: '',
+          website: x.link || '',
+          rating: null,
+          city: country
+        }));
+      }
     }
     // After filtering, cap to requested limit, but if only 1 remains and we requested 5+, allow up to 8 to improve UX
     const cap = places.length <= 1 && limit >= 5 ? 8 : limit;

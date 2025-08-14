@@ -1,5 +1,5 @@
 import { Agent, tool, run } from '@openai/agents';
-import { serperPlaces, retryWithBackoff } from '../tools/serper';
+import { serperPlaces, serperSearch, retryWithBackoff } from '../tools/serper';
 import logger from '../lib/logger';
 import { resolveModel } from './clients';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
@@ -345,14 +345,21 @@ export async function runBusinessDiscovery(search: {
     // Multi-country search: run up to first 3 countries in parallel
     const countriesToSearch = (search.countries || []).slice(0, 3);
     const industry = search.industries?.[0] || '';
-    const intent = search.search_type === 'customer' ? 'buyers need use purchase adopt' : 'vendors suppliers sell provide manufacture distribute';
+    // Use place-friendly intents to improve hit rate
+    const intent = search.search_type === 'customer'
+      ? 'company vendor provider solutions'
+      : 'software company vendor provider reseller';
     const { serperPlaces, retryWithBackoff } = await import('../tools/serper');
 
 
     const perCountryResults = await Promise.all(
       countriesToSearch.map(async (country) => {
-        const q = `${search.product_service} ${industry} ${intent} ${country}`.trim();
-        return await retryWithBackoff(() => serperPlaces(q, country, 8)).catch(() => [] as any[]);
+        const baseQ = `${search.product_service} ${industry} ${country}`.trim();
+        const intentQ = `${search.product_service} ${industry} ${intent} ${country}`.trim();
+        const first = await retryWithBackoff(() => serperPlaces(intentQ, country, 12)).catch(() => [] as any[]);
+        if (first.length >= 3) return first;
+        const second = await retryWithBackoff(() => serperPlaces(baseQ, country, 12)).catch(() => [] as any[]);
+        return second;
       })
     );
 
@@ -429,6 +436,64 @@ export async function runBusinessDiscovery(search: {
  - Call serperPlaces ONCE with q="${placesQuery}", gl="${gl}", limit=5, search_id="${search.id}", user_id="${search.user_id}"
   - Immediately call storeBusinesses with ALL returned places (cap 5). Each place must include industry="${industry || industriesCsv}" and country="${firstCountry || countriesCsv}"`;
       await run(BusinessDiscoveryAgent, [{ role: 'user', content: msg }]);
+
+      // If agent also produced no businesses, use Google CSE fallback to synthesize basic place entries
+      const afterAgent = await loadBusinesses(search.id);
+      if (!afterAgent || afterAgent.length === 0) {
+        logger.warn('No businesses after agent flow; using CSE fallback');
+        const queries = [
+          `${search.product_service} ${industry} ${firstCountry} company`,
+          `${search.product_service} ${firstCountry} provider vendor`,
+          `${search.product_service} ${industry} ${firstCountry} distributor reseller`
+        ];
+        let aggregated: any[] = [];
+        for (const q of queries) {
+          const chunk = await serperSearch(q, firstCountry || 'United States', 10).catch(() => ({ success:false, items:[] as any[] }));
+          if (chunk && chunk.success && Array.isArray(chunk.items)) aggregated.push(...chunk.items);
+          if (aggregated.length >= 12) break;
+        }
+        // Deduplicate by link
+        const seenLinks = new Set<string>();
+        const uniqueItems = aggregated.filter((x:any) => {
+          const link = String(x.link || '').toLowerCase();
+          if (!link) return false;
+          if (seenLinks.has(link)) return false;
+          seenLinks.add(link);
+          return true;
+        });
+        if (uniqueItems.length) {
+          const rows = uniqueItems.slice(0, 8).map((x: any) => buildBusinessData({
+            search_id: search.id,
+            user_id: search.user_id,
+            persona_id: null,
+            name: x.title || 'Unknown Business',
+            industry: industry || 'General',
+            country: firstCountry || countriesCsv.split(',')[0] || 'Global',
+            address: x.snippet || '',
+            city: (x.snippet?.split(',')?.[0] || '') as string,
+            phone: undefined,
+            website: x.link || undefined,
+            rating: undefined,
+            size: 'Unknown',
+            revenue: 'Unknown',
+            description: 'Business discovered via web search',
+            match_score: 75,
+            persona_type: 'business_candidate',
+            relevant_departments: [],
+            key_products: [],
+            recent_activity: []
+          }));
+          try {
+            const inserted = await insertBusinesses(rows as any);
+            if (inserted.length > 0) {
+              initDMDiscoveryProgress(search.id, inserted.length);
+              await Promise.allSettled(inserted.map((b:any)=>processBusinessForDM(search.id, search.user_id, b)));
+            }
+          } catch (e:any) {
+            logger.warn('CSE fallback insert failed', { error: e?.message || e });
+          }
+        }
+      }
     }
 
     logger.info('Completed business discovery', { search_id: search.id });
