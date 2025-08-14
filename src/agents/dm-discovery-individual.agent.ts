@@ -56,10 +56,14 @@ const linkedinSearchTool = tool({
     try {
       // Single precise search per company to limit API usage
       const personas = await loadDMPersonas(search_id);
-      const primaryTitle = (Array.isArray(personas) && personas[0]?.title) ? String(personas[0].title).trim() : 'Head of';
+      const topTitles: string[] = Array.isArray(personas)
+        ? personas.slice(0, 3).map((p: any) => String(p?.title || '').trim()).filter(Boolean)
+        : [];
+      const fallbackTitles = ['Head of', 'Director', 'VP'];
+      const titles = topTitles.length ? topTitles : fallbackTitles;
       const ctx = (product_service || '').trim();
       const suffix = ctx ? ` ${ctx}` : '';
-      const queries = [`"${company_name}" site:linkedin.com/in/ ${primaryTitle}${suffix}`];
+      const queries = titles.map(t => `"${company_name}" site:linkedin.com/in/ ${t}${suffix}`);
 
       const allEmployees: Employee[] = [];
 
@@ -169,7 +173,7 @@ const linkedinSearchTool = tool({
 
 
           // Small delay between searches to avoid rate limiting
-          const jitter = 300 + Math.floor(Math.random() * 300);
+          const jitter = 200 + Math.floor(Math.random() * 200);
           await new Promise(resolve => setTimeout(resolve, jitter));
 
           // No hard cap; accept as many as returned from the single search
