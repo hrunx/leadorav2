@@ -106,16 +106,15 @@ export function sanitizePersona(
   ctx: SearchContext
 ): AnyPersona {
   if (type === 'business') {
+    // Drop generator fallbacks; enforce LLM-provided values only
     return {
-      title: String(
-        p?.title || `${ctx.search_type === 'customer' ? 'Buyer' : 'Supplier'} Archetype ${index + 1} - ${(ctx.industries[0] || 'General')}`
-      ),
+      title: String(p?.title || ''),
       rank: typeof p?.rank === 'number' ? p.rank : index + 1,
       match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
       demographics: {
-        industry: String(p?.demographics?.industry || ctx.industries[0] || 'General'),
+        industry: String(p?.demographics?.industry || ''),
         companySize: String(p?.demographics?.companySize || ''),
-        geography: String(p?.demographics?.geography || ctx.countries[0] || 'Global'),
+        geography: String(p?.demographics?.geography || ''),
         revenue: String(p?.demographics?.revenue || '')
       },
       characteristics: {
@@ -135,7 +134,7 @@ export function sanitizePersona(
         avgDealSize: String(p?.market_potential?.avgDealSize || ''),
         conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 0
       },
-      locations: Array.isArray(p?.locations) ? p.locations : [ctx.countries[0] || 'Global']
+      locations: Array.isArray(p?.locations) ? p.locations : []
     } as BusinessPersona;
   }
   // dm persona
