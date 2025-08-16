@@ -340,13 +340,21 @@ export default function MarketingInsights() {
               {/* Market Growth Chart */}
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-6">Market Growth Projection</h3>
-                <div className="bg-gray-50 rounded-xl p-8 text-center">
-                  <div className="w-full h-64 bg-white rounded-lg border border-gray-200 flex items-center justify-center">
-                    <div className="text-center">
-                      <BarChart3 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                      <p className="text-gray-500">Interactive market growth chart would be displayed here</p>
-                      <p className="text-sm text-gray-400 mt-2">Showing 5-year projection with key milestones</p>
-                    </div>
+                <div className="bg-gray-50 rounded-xl p-4 sm:p-6">
+                  <div className="w-full h-64 bg-white rounded-lg border border-gray-200 overflow-hidden">
+                    {/* Minimal area chart using inline SVG as a placeholder until a chart lib is added */}
+                    {marketRow?.tam_data?.series?.length ? (
+                      <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="w-full h-full">
+                        <polyline
+                          fill="none"
+                          stroke="#2563eb"
+                          strokeWidth="2"
+                          points={(marketRow.tam_data.series as number[]).map((v: number, i: number) => `${(i/(marketRow.tam_data.series.length-1))*100},${40 - (Math.max(0, Math.min(100, v))/100)*40}`).join(' ')}
+                        />
+                      </svg>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-500">No growth data yet</div>
+                    )}
                   </div>
                 </div>
               </div>

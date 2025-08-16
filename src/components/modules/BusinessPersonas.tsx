@@ -115,10 +115,10 @@ export default function BusinessPersonas() {
         rank: (p as any).rank as number,
         matchScore: (p as any).match_score as number,
         demographics: {
-          industry: (p as any).demographics?.industry ?? 'Technology',
-          companySize: (p as any).demographics?.companySize ?? '100-1000 employees',
-          geography: (p as any).demographics?.geography ?? 'Global',
-          revenue: (p as any).demographics?.revenue ?? '$10M-100M'
+          industry: (p as any).demographics?.industry ?? '',
+          companySize: (p as any).demographics?.companySize ?? '',
+          geography: (p as any).demographics?.geography ?? '',
+          revenue: (p as any).demographics?.revenue ?? ''
         },
         characteristics: {
           painPoints: (p as any).characteristics?.painPoints ?? [],
@@ -127,9 +127,9 @@ export default function BusinessPersonas() {
           decisionFactors: (p as any).characteristics?.decisionFactors ?? []
         },
         behaviors: {
-          buyingProcess: (p as any).behaviors?.buyingProcess ?? 'Standard evaluation process',
-          decisionTimeline: (p as any).behaviors?.decisionTimeline ?? '3-6 months',
-          budgetRange: (p as any).behaviors?.budgetRange ?? '$50K-500K',
+          buyingProcess: (p as any).behaviors?.buyingProcess ?? '',
+          decisionTimeline: (p as any).behaviors?.decisionTimeline ?? '',
+          budgetRange: (p as any).behaviors?.budgetRange ?? '',
           preferredChannels: (p as any).behaviors?.preferredChannels ?? []
         },
          marketPotential: {
@@ -757,8 +757,16 @@ export default function BusinessPersonas() {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900 text-lg">{persona.title}</h3>
-                      <p className="text-gray-600 mt-1">{persona.demographics.industry} • {persona.demographics.companySize}</p>
-                      <p className="text-sm text-gray-500">{persona.demographics.geography}</p>
+                      {(persona.demographics.industry || persona.demographics.companySize) ? (
+                        <p className="text-gray-600 mt-1">{persona.demographics.industry}{persona.demographics.industry && persona.demographics.companySize ? ' • ' : ''}{persona.demographics.companySize}</p>
+                      ) : (
+                        <div className="h-3 bg-gray-100 rounded w-1/2 mt-2 animate-pulse" />
+                      )}
+                      {persona.demographics.geography ? (
+                        <p className="text-sm text-gray-500">{persona.demographics.geography}</p>
+                      ) : (
+                        <div className="h-3 bg-gray-100 rounded w-1/3 mt-1 animate-pulse" />
+                      )}
                     </div>
                   </div>
                   <div className="text-right">
@@ -767,7 +775,9 @@ export default function BusinessPersonas() {
                       {persona.matchScore}% match
                     </div>
                     <div className="text-sm text-gray-500">
-                      {persona.marketPotential.totalCompanies.toLocaleString()} companies
+                      {persona.marketPotential.totalCompanies ? persona.marketPotential.totalCompanies.toLocaleString() + ' companies' : (
+                        <span className="inline-block h-3 w-16 bg-gray-100 rounded animate-pulse" />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -775,19 +785,24 @@ export default function BusinessPersonas() {
                 <div className="grid grid-cols-3 gap-4 text-sm mb-4">
                   <div className="flex items-center space-x-2 text-gray-600">
                     <DollarSign className="w-4 h-4" />
-                    <span>{persona.marketPotential.avgDealSize}</span>
+                    <span>{persona.marketPotential.avgDealSize || <span className="inline-block h-3 w-12 bg-gray-100 rounded animate-pulse" />}</span>
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
                     <TrendingUp className="w-4 h-4" />
-                    <span>{persona.marketPotential.conversionRate} conversion</span>
+                    <span>{persona.marketPotential.conversionRate ? `${persona.marketPotential.conversionRate} conversion` : <span className="inline-block h-3 w-20 bg-gray-100 rounded animate-pulse" />}</span>
                   </div>
                   <div className="flex items-center space-x-2 text-gray-600">
                     <Building className="w-4 h-4" />
-                    <span>{persona.demographics.revenue}</span>
+                    <span>{persona.demographics.revenue || <span className="inline-block h-3 w-16 bg-gray-100 rounded animate-pulse" />}</span>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
+                  {persona.characteristics.painPoints.length === 0 && (
+                    [0,1].map(i => (
+                      <span key={`pain-skel-${i}`} className="px-2 py-1 bg-gray-100 text-gray-400 text-xs rounded-full animate-pulse">Loading…</span>
+                    ))
+                  )}
                   {persona.characteristics.painPoints.slice(0, 2).map((point) => (
                     <span key={`${persona.id}-pain-${point.slice(0, 20)}`} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
                       {point}

@@ -861,8 +861,8 @@ export default function DecisionMakerMapping() {
                       {matchScore}% Match
                     </div>
                     {dm.enrichmentStatus === 'pending' && (
-                      <div className="px-2 py-1 rounded-full text-xs font-medium mb-2 bg-orange-100 text-orange-800">
-                        Details Loading...
+                      <div className="w-24 h-2 bg-gray-200 rounded-full mb-2 overflow-hidden">
+                        <div className="h-2 bg-blue-400 animate-[pulse_1.2s_ease-in-out_infinite]" style={{ width: '65%' }} />
                       </div>
                     )}
                     {dm.enrichmentStatus === 'done' && (

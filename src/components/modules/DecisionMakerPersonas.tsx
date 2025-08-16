@@ -148,8 +148,9 @@ export default function DecisionMakerPersonas() {
   };
 
   const getLevelIcon = (level: string) => {
-    if (level.includes('C-Level')) return <Crown className="w-5 h-5 text-purple-600" />;
-    if (level.includes('VP')) return <Shield className="w-5 h-5 text-blue-600" />;
+    const l = (level || '').toLowerCase();
+    if (l.includes('chief') || l.includes('c-') || l.includes('executive')) return <Crown className="w-5 h-5 text-purple-600" />;
+    if (l.includes('vp') || l.includes('vice') || l.includes('director')) return <Shield className="w-5 h-5 text-blue-600" />;
     return <User className="w-5 h-5 text-green-600" />;
   };
 
@@ -184,6 +185,14 @@ export default function DecisionMakerPersonas() {
           <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <h3 className="text-lg font-semibold text-gray-900">Generating decision maker personas...</h3>
           <p className="text-gray-600">AI agents are analyzing decision maker profiles for your search</p>
+          <div className="mt-6 space-y-3">
+            {[0,1,2].map(i => (
+              <div key={i} className="animate-pulse bg-white rounded-lg p-4 border border-gray-200">
+                <div className="h-4 bg-gray-200 rounded w-1/3 mb-2"></div>
+                <div className="h-3 bg-gray-100 rounded w-1/2"></div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
