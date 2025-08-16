@@ -1,4 +1,4 @@
-import { supa, resolveModel, callOpenAIChatJSON, callGeminiText } from '../agents/clients';
+import { supa, resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from '../agents/clients';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { mapDMToPersona } from './util';
 import logger from '../lib/logger';
@@ -115,6 +115,13 @@ Rules:
     } catch (e: any) {
       logger.warn('scoreBusinessToPersonasLLM (gemini) failed', { error: e?.message || e });
     }
+    try {
+      const text = await callDeepseekChatJSON({ user: prompt, temperature: 0.3, maxTokens: 500, timeoutMs: 15000, retries: 0 });
+      const match = parseAiBestMatch(text);
+      if (match) return match;
+    } catch (e: any) {
+      logger.warn('scoreBusinessToPersonasLLM (deepseek) failed', { error: e?.message || e });
+    }
     return null;
   });
 }
@@ -151,6 +158,13 @@ Rules:
       if (match) return match;
     } catch (e: any) {
       logger.warn('scoreDMToPersonasLLM (gemini) failed', { error: e?.message || e });
+    }
+    try {
+      const text = await callDeepseekChatJSON({ user: prompt, temperature: 0.3, maxTokens: 400, timeoutMs: 15000, retries: 0 });
+      const match = parseAiBestMatch(text);
+      if (match) return match;
+    } catch (e: any) {
+      logger.warn('scoreDMToPersonasLLM (deepseek) failed', { error: e?.message || e });
     }
     return null;
   });
