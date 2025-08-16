@@ -151,6 +151,32 @@ export default function MarketingInsights() {
     });
   }, [sources]);
 
+  // ---- Lightweight chart helpers (inline SVG) ----
+  const palette = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+  const toPercent = (val: any): number => {
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string') {
+      const m = val.replace(/[^0-9.+-]/g, '');
+      const n = Number(m);
+      return isNaN(n) ? 0 : n;
+    }
+    return 0;
+  };
+  const hasSeries = (s?: unknown): s is number[] => Array.isArray(s) && s.every(n => typeof n === 'number');
+  const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n));
+
+  // Donut chart arc builder
+  const polarToCartesian = (cx: number, cy: number, r: number, angle: number) => {
+    const rad = ((angle - 90) * Math.PI) / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  };
+  const describeArc = (cx: number, cy: number, r: number, startAngle: number, endAngle: number) => {
+    const start = polarToCartesian(cx, cy, r, endAngle);
+    const end = polarToCartesian(cx, cy, r, startAngle);
+    const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
+    return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
+  };
+
   const handleProceedToCampaigns = () => {
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'campaigns' }));
   };
@@ -342,15 +368,25 @@ export default function MarketingInsights() {
                 <h3 className="text-xl font-semibold text-gray-900 mb-6">Market Growth Projection</h3>
                 <div className="bg-gray-50 rounded-xl p-4 sm:p-6">
                   <div className="w-full h-64 bg-white rounded-lg border border-gray-200 overflow-hidden">
-                    {/* Minimal area chart using inline SVG as a placeholder until a chart lib is added */}
-                    {marketRow?.tam_data?.series?.length ? (
+                    {hasSeries(marketRow?.tam_data?.series) ? (
                       <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="w-full h-full">
-                        <polyline
-                          fill="none"
-                          stroke="#2563eb"
-                          strokeWidth="2"
-                          points={(marketRow.tam_data.series as number[]).map((v: number, i: number) => `${(i/(marketRow.tam_data.series.length-1))*100},${40 - (Math.max(0, Math.min(100, v))/100)*40}`).join(' ')}
-                        />
+                        <defs>
+                          <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#93c5fd" stopOpacity="0.7" />
+                            <stop offset="100%" stopColor="#bfdbfe" stopOpacity="0.2" />
+                          </linearGradient>
+                        </defs>
+                        {(() => {
+                          const series = (marketRow.tam_data.series as number[]);
+                          const points = series.map((v: number, i: number) => `${(i/(series.length-1))*100},${40 - (clamp(v)/100)*40}`).join(' ');
+                          const areaPoints = `0,40 ${points} 100,40`;
+                          return (
+                            <g>
+                              <polyline fill="url(#grad)" stroke="none" points={areaPoints} />
+                              <polyline fill="none" stroke="#2563eb" strokeWidth="2" points={points} />
+                            </g>
+                          );
+                        })()}
                       </svg>
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-500">No growth data yet</div>
@@ -370,10 +406,41 @@ export default function MarketingInsights() {
                   <div>
                     <h4 className="font-semibold text-gray-900 mb-4">Market Share Distribution</h4>
                     <div className="bg-gray-50 rounded-xl p-6">
-                      <div className="w-48 h-48 bg-white rounded-full border border-gray-200 mx-auto flex items-center justify-center mb-4">
-                        <PieChart className="w-24 h-24 text-gray-300" />
-                      </div>
-                      <p className="text-center text-gray-500 text-sm">Market share visualization</p>
+                      {competitorData.length > 0 ? (
+                        <div className="flex flex-col items-center">
+                          <svg viewBox="0 0 120 120" className="w-48 h-48">
+                            {(() => {
+                              const total = competitorData.reduce((s, c) => s + (Number(c.marketShare) || 0), 0) || 1;
+                              let start = 0;
+                              return competitorData.map((c: any, idx: number) => {
+                                const val = Number(c.marketShare) || 0;
+                                const angle = (val/total)*360;
+                                const path = describeArc(60,60,50, start, start+angle);
+                                const el = (
+                                  <path key={idx} d={path} stroke={palette[idx%palette.length]} strokeWidth="20" fill="none" />
+                                );
+                                start += angle;
+                                return el;
+                              });
+                            })()}
+                          </svg>
+                          <div className="mt-4 grid grid-cols-2 gap-2 w-full">
+                            {competitorData.map((c:any, idx:number)=> (
+                              <div key={c.name} className="flex items-center justify-between text-sm">
+                                <div className="flex items-center space-x-2">
+                                  <span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: palette[idx%palette.length] }}></span>
+                                  <span className="text-gray-700">{c.name}</span>
+                                </div>
+                                <span className="text-gray-900 font-medium">{c.marketShare}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-48 h-48 bg-white rounded-full border border-gray-200 mx-auto flex items-center justify-center mb-4">
+                          <PieChart className="w-24 h-24 text-gray-300" />
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -419,27 +486,28 @@ export default function MarketingInsights() {
             <div className="space-y-6">
               <h3 className="text-xl font-semibold text-gray-900">Market Trends & Drivers</h3>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {trends.length === 0 && (
+                {trends.length === 0 ? (
                   <div className="col-span-1 lg:col-span-2 bg-white border border-dashed border-gray-300 rounded-xl p-6 text-center text-gray-500">
                     No trend data yet. Retry market research to populate this section.
                   </div>
-                )}
-                {trends.map((trend, index) => (
-                  <div key={index} className="bg-white border border-gray-200 rounded-xl p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <h4 className="font-semibold text-gray-900">{trend.trend}</h4>
-                      <div className="flex items-center space-x-2">
-                        <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                          trend.impact === 'High' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {trend.impact} Impact
-                        </span>
-                        <span className="text-green-600 font-medium text-sm">{trend.growth}</span>
+                ) : (
+                  trends.map((trend, index) => (
+                    <div key={index} className="bg-white border border-gray-200 rounded-xl p-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <h4 className="font-semibold text-gray-900">{trend.trend}</h4>
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-2 py-1 text-xs rounded-full font-medium ${
+                            trend.impact === 'High' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {trend.impact} Impact
+                          </span>
+                          <span className="text-green-600 font-medium text-sm">{trend.growth}</span>
+                        </div>
                       </div>
+                      <p className="text-gray-600 text-sm">{trend.description}</p>
                     </div>
-                    <p className="text-gray-600 text-sm">{trend.description}</p>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           )}
