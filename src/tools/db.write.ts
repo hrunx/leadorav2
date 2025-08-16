@@ -217,6 +217,29 @@ export async function mergeAgentMetadata(search_id: string, metadata: Record<str
   if (updateError) throw updateError;
 }
 
+// Append a lightweight event record to agent_metadata.last_events (kept to last 10)
+export async function appendAgentEvent(search_id: string, event: string, extra?: Record<string, any>): Promise<void> {
+  try {
+    const supa = getSupabaseClient();
+    const { data } = await supa
+      .from('user_searches')
+      .select('agent_metadata')
+      .eq('id', search_id)
+      .single();
+    const meta = (data as any)?.agent_metadata || {};
+    const list: any[] = Array.isArray(meta?.last_events) ? meta.last_events : [];
+    const entry = { t: Date.now(), e: event, ...(extra || {}) };
+    const next = [...list, entry].slice(-10);
+    const merged = { ...meta, last_events: next };
+    await supa
+      .from('user_searches')
+      .update({ agent_metadata: merged, updated_at: new Date().toISOString() })
+      .eq('id', search_id);
+  } catch (e:any) {
+    logger.warn('appendAgentEvent failed', { error: e?.message || e });
+  }
+}
+
 // enforce allowed phases (must match DB CHECK constraint on user_searches.phase)
 const AllowedPhasesList = [
   'starting',

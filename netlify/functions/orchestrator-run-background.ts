@@ -107,13 +107,15 @@ export const handler: Handler = async (event) => {
       { execDMPersonas },
       { execBusinessDiscovery },
       { execMarketResearchParallel },
-      personaMapper
+      personaMapper,
+      { appendAgentEvent }
     ] = await Promise.all([
       import('../../src/orchestration/exec-business-personas'),
       import('../../src/orchestration/exec-dm-personas'),
       import('../../src/orchestration/exec-business-discovery'),
       import('../../src/orchestration/exec-market-research-parallel'),
-      import('../../src/tools/persona-mapper')
+      import('../../src/tools/persona-mapper'),
+      import('../../src/tools/db.write')
     ]);
     const { startPersonaMappingListener, mapBusinessesToPersonas } = personaMapper;
 
@@ -147,6 +149,7 @@ export const handler: Handler = async (event) => {
         logger.warn('Business persona generation failed (non-blocking)', { error: e?.message || e });
         return null;
       });
+    void appendAgentEvent(search_id, 'STARTED_BUSINESS_PERSONAS');
 
     // Poll for business personas to exist (max ~30s) before starting DM personas to align with requested pipeline
     const waitForBusinessPersonas = async () => {
@@ -172,6 +175,7 @@ export const handler: Handler = async (event) => {
         logger.warn('DM persona generation failed (non-blocking)', { error: e?.message || e });
         return null;
       });
+    void appendAgentEvent(search_id, 'STARTED_DM_PERSONAS', { after_business_personas: haveBusinessPersonas });
 
     // After personas exist, perform initial business→persona mapping in batch
     try {
