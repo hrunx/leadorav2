@@ -422,20 +422,6 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       } catch {}
     }
     if (personas.length === 3) {
-      // Coerce any DM-like titles to business archetype labels
-      const dmLike = /(executive|director|manager|head|chief|officer|lead|vp|vice\s*president)/i;
-      const toArchetype = (p: Persona): Persona => {
-        const industry = String(p?.demographics?.industry || search.industries[0] || 'Industry');
-        const size = String(p?.demographics?.companySize || '').toLowerCase();
-        let segment = '';
-        if (/1000|5000|10000|enterprise|large/.test(size)) segment = 'Enterprise';
-        else if (/200|1000|mid/.test(size)) segment = 'Mid-Market';
-        else if (/10|200|smb|small/.test(size)) segment = 'SMB';
-        const lens = search.search_type === 'customer' ? 'Buyer' : 'Provider';
-        const title = `${segment ? segment + ' ' : ''}${industry} ${lens} Archetype`;
-        return { ...p, title };
-      };
-      personas = personas.map(p => (dmLike.test(p.title) ? toArchetype(p) : p));
       personas = await ensureUniqueTitles<Persona>(personas, { id: search.id });
     }
 
