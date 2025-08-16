@@ -260,7 +260,9 @@ CRITICAL: Each persona must have:
 - Use plausible role titles, levels, departments, experience, geographies, responsibilities, pain points, motivations, challenges, decision factors, decision making, communication styles, buying processes, preferred channels, and market potential for the given industry/country/product.
 - If you cannot fill a field, infer a plausible value based on industry/country context.
 - Do not repeat personas. Each must be unique and relevant.
- - Output as a JSON array of 3 persona objects with all required fields.`;
+- Titles must be specific to ${search.product_service} and ${search.industries.join(', ')} in ${search.countries.join(', ')}; avoid generic 'Executive/Director/Manager' only titles.
+- Avoid generic placeholder lists like ['Budget','Time']; provide concrete, role-relevant items.
+- Output as a JSON object {"personas": [ ...3 items... ]}.`;
     // Sequential fallback: GPT -> Gemini -> DeepSeek, with JSON extraction and sanitization
     const tryParsePersonas = (text: string): any[] => {
       try {
