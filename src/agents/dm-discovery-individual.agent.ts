@@ -138,7 +138,8 @@ const linkedinSearchTool = tool({
           }
           // If search returned none, try a broader Google CSE pass with company filter
           if (!result || !result.success || !Array.isArray(result.items) || result.items.length === 0) {
-            const alt = await serperSearch(`site:linkedin.com/in/ ${company_name} ${primaryTitle}${suffix}`, company_country, 10);
+            // Broader fallback without role to avoid undefined variables and still capture profiles
+            const alt = await serperSearch(`site:linkedin.com/in/ ${company_name}${suffix}`, company_country, 10);
             if (alt && alt.success && Array.isArray(alt.items) && alt.items.length) {
               const employees = alt.items
                 .filter((item: SerperItem) => item.link?.includes('linkedin.com/in/'))
@@ -313,17 +314,49 @@ const storeDMsTool = tool({
       if (!company || typeof company !== 'string' || !company.trim()) {
         company = emp.business_name || 'Unknown Company';
       }
-      // Infer missing fields as needed
-      const level = mappedPersona?.demographics?.level || 'manager';
-      const department = mappedPersona?.demographics?.department || 'General';
-      const influence = mappedPersona?.influence || 50;
+      // Infer missing fields from title when mapping is incomplete
+      const deriveLevel = (title: string): 'executive'|'director'|'manager'|'individual' => {
+        const t = (title || '').toLowerCase();
+        if (/(chief|cfo|ceo|cto|coo|cmo|cio|evp|svp)/.test(t)) return 'executive';
+        if (/(vp|vice|director|head)/.test(t)) return 'director';
+        if (/(manager|lead)/.test(t)) return 'manager';
+        return 'individual';
+      };
+      const deriveDepartment = (title: string): string => {
+        const t = (title || '').toLowerCase();
+        if (/sales|account|revenue|bd|business development/.test(t)) return 'Sales';
+        if (/marketing|brand|growth/.test(t)) return 'Marketing';
+        if (/procure|purchase|sourcing|supply/.test(t)) return 'Procurement';
+        if (/engineer|engineering|technology|it|product|data|software|technical/.test(t)) return 'Technology';
+        if (/operations|ops|plant|manufactur|logistics/.test(t)) return 'Operations';
+        if (/finance|accounting|cfo/.test(t)) return 'Finance';
+        if (/hr|people|talent/.test(t)) return 'HR';
+        return 'General';
+      };
+      const deriveInfluence = (level: string): number => {
+        switch ((level || '').toLowerCase()) {
+          case 'executive': return 95;
+          case 'director': return 80;
+          case 'manager': return 65;
+          default: return 50;
+        }
+      };
+      const level = mappedPersona?.demographics?.level || deriveLevel(emp.title);
+      const department = mappedPersona?.demographics?.department || deriveDepartment(emp.title);
+      const influence = typeof mappedPersona?.influence === 'number' ? mappedPersona.influence : deriveInfluence(level);
       const persona_type = mappedPersona?.title || 'decision_maker';
-      const match_score = mappedPersona?.match_score || 80;
+      const match_score = typeof mappedPersona?.match_score === 'number'
+        ? mappedPersona.match_score
+        : Math.min(95, Math.max(60, (
+            (persona_type && emp.title && persona_type.toLowerCase().split(/\W+/).some((w: string) => emp.title.toLowerCase().includes(w)) ? 15 : 0) +
+            (department !== 'General' ? 10 : 0) +
+            Math.round(influence/3)
+          )));
       const experience = mappedPersona?.demographics?.experience || '';
       const communication_preference = mappedPersona?.behaviors?.communicationStyle || '';
-      const pain_points = mappedPersona?.characteristics?.painPoints || [];
-      const motivations = mappedPersona?.characteristics?.motivations || [];
-      const decision_factors = mappedPersona?.characteristics?.decisionFactors || [];
+      const pain_points = Array.isArray(mappedPersona?.characteristics?.painPoints) ? mappedPersona.characteristics.painPoints : [];
+      const motivations = Array.isArray(mappedPersona?.characteristics?.motivations) ? mappedPersona.characteristics.motivations : [];
+      const decision_factors = Array.isArray(mappedPersona?.characteristics?.decisionFactors) ? mappedPersona.characteristics.decisionFactors : [];
       const company_context = {};
       const personalized_approach = {};
       const enrichment = {};

@@ -60,31 +60,14 @@ export default function CampaignManagement() {
   const [decisionMakers, setDecisionMakers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Helper to build best-effort email addresses
-  const extractDomain = useCallback((company: string, website?: string | null) => {
-    if (website && typeof website === 'string') {
-      try {
-        const u = new URL(website.startsWith('http') ? website : `https://${website}`);
-        const host = u.hostname.replace(/^www\./, '');
-        return host;
-      } catch {}
-    }
-    const simplified = company.toLowerCase().replace(/[^a-z0-9]+/g, '');
-    return `${simplified}.com`;
+  // Only pass through verified emails; do not fabricate domains or addresses
+  const buildBusinessEmail = useCallback((business: any) => {
+    return (business.email && String(business.email).includes('@')) ? String(business.email) : '';
   }, []);
 
-  const buildBusinessEmail = useCallback((business: any) => {
-    if (business.email && String(business.email).includes('@')) return business.email;
-    const domain = extractDomain(business.name, business.website);
-    return `contact@${domain}`;
-  }, [extractDomain]);
-
   const buildDmEmail = useCallback((dm: any) => {
-    if (dm.email && String(dm.email).includes('@')) return dm.email;
-    const domain = extractDomain(dm.company, (dm as any).website);
-    const namePart = (dm.name || '').toLowerCase().replace(/[^a-z]+/g, '.').replace(/\.+/g, '.').replace(/^\.|\.$/g, '') || 'contact';
-    return `${namePart}@${domain}`;
-  }, [extractDomain]);
+    return (dm.email && String(dm.email).includes('@')) ? String(dm.email) : '';
+  }, []);
 
   const loadCampaignData = useCallback(async () => {
     setIsLoading(true);
@@ -827,7 +810,11 @@ Best regards,
                             <div className="flex-1">
                               <h5 className="font-medium text-gray-900">{business.name}</h5>
                               <p className="text-sm text-gray-600">{business.persona}</p>
-                              <p className="text-xs text-gray-500">{business.email}</p>
+                              {business.email ? (
+                                <p className="text-xs text-gray-500">{business.email}</p>
+                              ) : (
+                                <p className="text-xs text-gray-400">N/A</p>
+                              )}
                             </div>
                           </div>
                         ))
@@ -868,7 +855,7 @@ Best regards,
                             <div className="flex-1">
                               <h5 className="font-medium text-gray-900">{dm.name}</h5>
                               <p className="text-sm text-gray-600">{dm.title}</p>
-                              <p className="text-xs text-gray-500">{dm.company} • {dm.email || 'Enriching...'}</p>
+                              <p className="text-xs text-gray-500">{dm.company} • {dm.email ? dm.email : 'N/A'}</p>
                             </div>
                           </div>
                         ))

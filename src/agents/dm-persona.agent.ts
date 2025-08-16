@@ -452,7 +452,7 @@ CRITICAL: Each persona must have:
         title: 'Head of Procurement',
         rank: 3,
         match_score: 84,
-        demographics: { level: levelTemplates[2], department: deptTemplates[2], experience: '8+ years', geography: countryA },
+        demographics: { level: levelTemplates[2], department: deptTemplates[2], experience: 'mid-senior', geography: countryA },
         characteristics: { responsibilities: ['Vendor selection','Negotiation'], painPoints: ['Compliance','Costs'], motivations: ['Savings','Reliability'], challenges: ['Supplier risk','Integration'], decisionFactors: ['TCO','Compliance'] },
         behaviors: { decisionMaking: 'Criteria-based', communicationStyle: 'Formal', buyingProcess: 'RFP/RFQ', preferredChannels: ['RFP','Email'] },
         market_potential: { totalDecisionMakers: 5000, avgInfluence: 60, conversionRate: 15 }
