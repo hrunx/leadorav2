@@ -139,15 +139,37 @@ export const handler: Handler = async (event) => {
       return null;
     });
 
-    // Start personas in parallel (non-blocking). If they time out or fail, do not fail the whole run.
+    // Start business personas first (non-blocking), then DM personas once business personas exist
     await updateProgress(search_id, 'business_personas', 10);
-    logger.info('Starting persona generation...');
-    const personasPromise = retry(() => withTimeout(Promise.all([
-      limiter(()=>execBusinessPersonas({ search_id, user_id })),
-      limiter(()=>execDMPersonas({ search_id, user_id })),
-    ]), 120_000, 'personas'))
+    logger.info('Starting business persona generation...');
+    const businessPersonasPromise = retry(() => withTimeout(limiter(() => execBusinessPersonas({ search_id, user_id })), 120_000, 'business_personas'))
       .catch(e => {
-        logger.warn('Persona generation failed (non-blocking)', { error: e?.message || e });
+        logger.warn('Business persona generation failed (non-blocking)', { error: e?.message || e });
+        return null;
+      });
+
+    // Poll for business personas to exist (max ~30s) before starting DM personas to align with requested pipeline
+    const waitForBusinessPersonas = async () => {
+      const start = Date.now();
+      while (Date.now() - start < 30000) {
+        const { count } = await supa
+          .from('business_personas')
+          .select('id', { count: 'exact', head: true })
+          .eq('search_id', search_id);
+        if ((count || 0) > 0) return true;
+        await sleep(1500);
+      }
+      return false;
+    };
+    const haveBusinessPersonas = await waitForBusinessPersonas();
+    if (!haveBusinessPersonas) {
+      logger.warn('Business personas not detected in time; continuing to start DM personas to avoid delay');
+    }
+    await updateProgress(search_id, 'dm_personas', 12);
+    logger.info('Starting decision-maker persona generation...');
+    const dmPersonasPromise = retry(() => withTimeout(limiter(() => execDMPersonas({ search_id, user_id })), 120_000, 'dm_personas'))
+      .catch(e => {
+        logger.warn('DM persona generation failed (non-blocking)', { error: e?.message || e });
         return null;
       });
 
@@ -174,7 +196,8 @@ export const handler: Handler = async (event) => {
     // Ensure business discovery has finished before marking completed
     await businessDiscoveryPromise;
     // Best-effort wait for personas, but do not block completion
-    try { await personasPromise; } catch {}
+    try { await businessPersonasPromise; } catch {}
+    try { await dmPersonasPromise; } catch {}
     await updateProgress(search_id, 'completed', 100);
     logger.info('Orchestration completed', { search_id });
     return { statusCode: 202, headers: cors, body: 'accepted' };

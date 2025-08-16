@@ -285,8 +285,8 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
       .eq('search_id', searchId)
       .limit(1);
     if (!personaCheck || personaCheck.length === 0) {
-      logger.debug('Business personas not ready yet. Deferring mapping by 5s.', { searchId });
       if (!mappingTimers.has(searchId)) {
+        logger.debug('Business personas not ready yet. Deferring mapping by 5s.', { searchId });
         const t = setTimeout(() => {
           mappingTimers.delete(searchId);
           mapBusinessesToPersonas(searchId, businessId).catch(()=>{});
