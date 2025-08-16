@@ -67,7 +67,16 @@ export default function BusinessResults() {
       city: b.city,
       size: b.size || 'Unknown',
       revenue: b.revenue || 'Unknown',
-      description: b.description || `${b.name} operates in the ${b.industry} industry.`,
+      description: (() => {
+        const raw = (b.description || '').trim();
+        const placeholders = [
+          'Business discovered via Serper Places',
+          'Business discovered via web search',
+          'Synthesized business placeholder'
+        ];
+        if (!raw || placeholders.includes(raw)) return '';
+        return raw;
+      })(),
       matchScore: b.match_score ?? 0,
       relevantDepartments: b.relevant_departments ?? [],
       keyProducts: b.key_products ?? [],
@@ -478,7 +487,9 @@ export default function BusinessResults() {
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                   <h3 className="font-semibold text-gray-900 text-lg">{business.name}</h3>
-                  <p className="text-gray-600 mt-1">{business.description}</p>
+                  {business.description && (
+                    <p className="text-gray-600 mt-1">{business.description}</p>
+                  )}
                   <div className="flex items-center space-x-2 mt-2">
                     <Target className="w-4 h-4 text-blue-600" />
                     <span className="text-sm text-blue-600 font-medium">{business.personaType}</span>
@@ -489,6 +500,13 @@ export default function BusinessResults() {
                   {business.matchScore}% match
                 </div>
               </div>
+
+              {/* Inline loading bar while enrichment fields are empty */}
+              {(business.relevantDepartments.length === 0 && business.keyProducts.length === 0 && business.recentActivity.length === 0) && (
+                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mb-3">
+                  <div className="h-1.5 bg-gradient-to-r from-blue-400 to-purple-400 animate-[pulse_1.2s_ease-in-out_infinite]" style={{ width: '35%' }} />
+                </div>
+              )}
               
               <div className="grid grid-cols-2 gap-4 text-sm mb-4">
                 <div className="flex items-center space-x-2 text-gray-600">
@@ -549,6 +567,11 @@ export default function BusinessResults() {
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-3">Relevant Departments</h3>
                   <div className="flex flex-wrap gap-2">
+                    {selectedBusiness.relevantDepartments.length === 0 && (
+                      [0,1,2].map(i => (
+                        <span key={`dept-skel-${i}`} className="px-3 py-1 bg-gray-100 text-gray-400 text-sm rounded-full animate-pulse">Loading…</span>
+                      ))
+                    )}
                     {selectedBusiness.relevantDepartments.map((dept, index) => (
                       <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
                         {dept}
@@ -562,6 +585,11 @@ export default function BusinessResults() {
                     {state.searchData?.type === 'customer' ? 'Current Products/Services' : 'Products/Services Offered'}
                   </h3>
                   <div className="flex flex-wrap gap-2">
+                    {selectedBusiness.keyProducts.length === 0 && (
+                      [0,1,2].map(i => (
+                        <span key={`prod-skel-${i}`} className="px-3 py-1 bg-gray-100 text-gray-400 text-sm rounded-full animate-pulse">Loading…</span>
+                      ))
+                    )}
                     {selectedBusiness.keyProducts.map((product, index) => (
                       <span key={index} className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
                         {product}
@@ -573,6 +601,14 @@ export default function BusinessResults() {
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-3">Recent Activity</h3>
                   <ul className="space-y-2">
+                    {selectedBusiness.recentActivity.length === 0 && (
+                      [0,1,2].map(i => (
+                        <li key={`act-skel-${i}`} className="flex items-start space-x-2">
+                          <div className="w-2 h-2 bg-gray-300 rounded-full mt-2 flex-shrink-0"></div>
+                          <span className="text-gray-400 text-sm animate-pulse">Loading…</span>
+                        </li>
+                      ))
+                    )}
                     {selectedBusiness.recentActivity.map((activity, index) => (
                       <li key={index} className="flex items-start space-x-2">
                         <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
@@ -595,13 +631,17 @@ export default function BusinessResults() {
                         <span className="truncate">Website</span>
                       </a>
                     )}
-                    {selectedBusiness.phone && (
+                    {selectedBusiness.phone ? (
                       <a
                         className="flex items-center space-x-2 p-3 bg-gray-50 rounded-md border border-gray-200 text-gray-700"
                         href={`tel:${selectedBusiness.phone}`}
                       >
                         <span className="truncate">{selectedBusiness.phone}</span>
                       </a>
+                    ) : (
+                      <div className="flex items-center space-x-2 p-3 bg-gray-50 rounded-md border border-gray-200 text-gray-400">
+                        <span className="truncate">N/A</span>
+                      </div>
                     )}
                     {selectedBusiness.address && (
                       <div className="flex items-center space-x-2 p-3 bg-gray-50 rounded-md border border-gray-200 text-gray-700">
