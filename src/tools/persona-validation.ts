@@ -119,14 +119,14 @@ export function sanitizePersona(
     }
     return [];
   };
-  const coerceNumber = (v: any): number => {
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-    if (typeof v === 'string') {
-      const n = parseFloat(v.replace(/[^0-9.\-]+/g, ''));
-      return Number.isFinite(n) ? n : 0;
-    }
-    return 0;
-  };
+    const coerceNumber = (v: any): number => {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      if (typeof v === 'string') {
+        const n = parseFloat(v.replace(/[^0-9.-]+/g, ''));
+        return Number.isFinite(n) ? n : 0;
+      }
+      return 0;
+    };
   if (type === 'business') {
     const firstIndustry = Array.isArray((ctx as any)?.industries) && (ctx as any).industries.length ? String((ctx as any).industries[0]) : 'General';
     const firstCountry = Array.isArray((ctx as any)?.countries) && (ctx as any).countries.length ? String((ctx as any).countries[0]) : 'Global';
