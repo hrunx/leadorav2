@@ -307,7 +307,7 @@ export async function runBusinessPersonas(search: {
           locations: p.locations || []
         }));
         await insertBusinessPersonas(rows);
-        await updateSearchProgress(search.id, 20, 'business_personas');
+        await updateSearchProgress(search.id, 10, 'business_personas');
         import('../lib/logger').then(({ default: logger }) => logger.info('Loaded business personas from cache', { search_id: search.id })).catch(()=>{});
         return;
       }
@@ -415,7 +415,7 @@ export async function runBusinessPersonas(search: {
           }));
           await insertPersonaCache(cacheKey, accepted);
           await insertBusinessPersonas(rows);
-          await updateSearchProgress(search.id, 20, 'business_personas');
+          await updateSearchProgress(search.id, 10, 'business_personas');
           import('../lib/logger').then(({ default: logger }) => logger.info('[BusinessPersona] Used deterministic-first synthesis', { search_id: search.id })).catch(()=>{});
           return;
         }
@@ -458,9 +458,13 @@ CRITICAL: Each persona must have:
     };
 
     const acceptPersonas = (arr: any[]): Persona[] => {
-      const three = (arr || []).slice(0,3);
+      const three = (arr || []).slice(0, 3);
       if (three.length !== 3) return [];
-      return three.map((p, i) => sanitizePersona('business', p, i, search));
+      const sanitized = three.map((p, i) => sanitizePersona('business', p, i, search));
+      const validated = sanitized
+        .map(p => validateMarketPotential(p, search.id))
+        .filter((p): p is Persona => p !== null);
+      return validated.length === 3 ? validated : [];
     };
 
     const hasGenericTitles = (arr: Persona[]): boolean => {
@@ -586,7 +590,7 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       }));
       await insertPersonaCache(cacheKey, personas);
       await insertBusinessPersonas(rows);
-      await updateSearchProgress(search.id, 20, 'business_personas');
+      await updateSearchProgress(search.id, 10, 'business_personas');
       import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
       return;
     }
@@ -666,7 +670,7 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
             locations: p.locations || []
           }));
           await insertBusinessPersonas(rows);
-          await updateSearchProgress(search.id, 20, 'business_personas');
+          await updateSearchProgress(search.id, 10, 'business_personas');
           import('../lib/logger').then(({ default: logger }) => logger.warn('[BusinessPersona] Used heuristic fallback from businesses', { search_id: search.id })).catch(()=>{});
           return;
         }
