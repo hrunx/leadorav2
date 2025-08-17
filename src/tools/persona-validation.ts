@@ -137,6 +137,19 @@ export function sanitizePersona(
       return 0;
     };
   if (type === 'business') {
+    const firstIndustry = Array.isArray((ctx as any)?.industries) && (ctx as any).industries.length
+      ? String((ctx as any).industries[0])
+      : 'General';
+    const firstCountry = Array.isArray((ctx as any)?.countries) && (ctx as any).countries.length
+      ? String((ctx as any).countries[0])
+      : 'Global';
+    const title = cleanText(p?.title);
+    const demographics = {
+      industry: cleanText(p?.demographics?.industry) || firstIndustry,
+      companySize: cleanText(p?.demographics?.companySize),
+      geography: cleanText(p?.demographics?.geography) || firstCountry,
+      revenue: cleanText(p?.demographics?.revenue)
+
     const firstIndustry = Array.isArray((ctx as any)?.industries) && (ctx as any).industries.length ? String((ctx as any).industries[0]) : '';
     const firstCountry = Array.isArray((ctx as any)?.countries) && (ctx as any).countries.length ? String((ctx as any).countries[0]) : '';
     const title = cleanText(p?.title);
@@ -159,6 +172,18 @@ export function sanitizePersona(
       preferredChannels: coerceStringArray(p?.behaviors?.preferredChannels)
     };
     const market_potential = {
+      totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies)
+        ? p.market_potential.totalCompanies
+        : 0,
+      avgDealSize: cleanText(p?.market_potential?.avgDealSize),
+      conversionRate: isPositiveNumber(p?.market_potential?.conversionRate)
+        ? p.market_potential.conversionRate
+        : 0
+    };
+    const locations = Array.isArray(p?.locations) && p.locations.length
+      ? p.locations.map((l: any) => cleanText(l))
+      : [firstCountry];
+
       totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies) ? p.market_potential.totalCompanies : 0,
       avgDealSize: cleanText(p?.market_potential?.avgDealSize) || '',
       conversionRate: isPositiveNumber(p?.market_potential?.conversionRate) ? p.market_potential.conversionRate : 0
@@ -168,6 +193,7 @@ export function sanitizePersona(
     return {
       title,
       rank: typeof p?.rank === 'number' ? p.rank : index + 1,
+      match_score: coerceNumber(p?.match_score),
       match_score: isPositiveNumber(p?.match_score) ? p.match_score : 0,
       demographics,
       characteristics,
