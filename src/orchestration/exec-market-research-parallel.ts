@@ -66,21 +66,26 @@ export async function execMarketResearchParallel(payload: {
     }).slice(0, 12);
 
     const sourcesForPrompt = uniqueFindings.map((s: any) => `- ${s.title} (${s.url})`).join('\n');
-    const systemPrompt = `You are a Senior Partner at a top-tier strategy firm. Produce investor-grade market research grounded in real, reputable sources.
-STRICTLY output ONLY JSON matching the schema provided by the user. Do not include markdown fences.`;
-    const basePrompt = `Analyze the ${productStr} market for industries: ${industriesList.join(', ')} across: ${countriesList.join(', ')}.
+    const systemPrompt = `You are a Senior Partner (ex-McKinsey/BCG/Bain) generating investor-grade market research. You must ground every figure in reputable sources and be explicit about calculations. STRICTLY output ONLY JSON for the schema the user describes. No markdown fences.`;
+    const basePrompt = `Analyze the ${productStr} market for industries: ${industriesList.join(', ')} in ${countriesList.join(', ')}.
 
-REQUIREMENTS:
-- Provide TAM, SAM, SOM as currency strings like "$2.4B", with a brief calculation methodology and a direct source URL per each (field: source).
-- List 4-6 real competitors with marketShare (percentage string), revenue (currency string), growth (percentage string), and a source URL per item.
-- Provide 4-6 trends with impact and growth (percentage string), each with a source URL.
-- Provide opportunities as either an object (summary, playbook, market_gaps, timing) or array of items with quantified potential.
-- Include a sources array of objects: { title, url, date?, used_for? } referencing the above.
-- Analysis summary and research methodology must be concise and professional.
+WHAT TO RETURN (JSON keys exactly):
+- tam_data: { value:"$X.YB|$Z.M", growth:"+A% YoY", description, calculation:"explicit formula showing assumptions", source:"https://..." }
+- sam_data: same shape; SAM = TAM × (addressable industries share) × (geographies share). Provide calculation and source.
+- som_data: same shape; SOM = SAM × (realistic penetration) × (go-to-market constraints). Provide calculation and source.
+- competitor_data: 4-8 items each { name, marketShare:"N%", revenue:"$M/B", growth:"+K%", description?, strengths?, weaknesses?, source }
+- trends: 4-8 items each { trend|title, impact:"High|Medium|Low", growth:"+%", description, timeline?, source }
+- opportunities: either object { summary, playbook:[strategic actions], market_gaps:[gaps to exploit], timing } or array of quantified items { title, description, potential:"$M/B", timeframe }
+- sources: array of { title, url, date?, used_for?:["TAM","SAM","SOM","competitors","trends","opportunities"] }
+- analysis_summary: 4–8 sentences executive summary
+- research_methodology: bullet-like paragraph citing how TAM/SAM/SOM were computed and how sources were triangulated
 
-Use these references when relevant (add additional reputable sources if needed):\n${sourcesForPrompt}
+DATA RULES:
+- Use current-country data first; if missing, infer with explicit ratio multipliers from regional/global reports (document in calculation).
+- Never return placeholders ("N/A", "Unknown"). If unknown, compute an estimate and justify the math.
+- Prefer currency with units ($, M/B). Prefer percentages with % and YoY/CAGR where relevant.
 
-Return ONLY valid JSON with keys: tam_data, sam_data, som_data, competitor_data, trends, opportunities, sources, analysis_summary, research_methodology.`;
+REFERENCES (augment with additional reputable sources as needed):\n${sourcesForPrompt}`;
 
     let analysis = '';
     let provider: 'openai' | 'gemini' | 'deepseek' | 'fallback' = 'openai';
@@ -191,7 +196,8 @@ Return ONLY valid JSON with keys: tam_data, sam_data, som_data, competitor_data,
 }
 
 async function parseMarketAnalysis(analysis: string, _sources: any[]): Promise<any> {
-  const ensureString = (v: any, fallback: string) => (typeof v === 'string' && v.trim().length > 0 ? v : fallback);
+  const cleanText = (s: string) => s.replace(/[\n\r]+/g, ' ').replace(/\s+/g, ' ').replace(/^"+|"+$/g, '').trim();
+  const ensureString = (v: any, fallback: string) => (typeof v === 'string' && v.trim().length > 0 ? cleanText(v) : fallback);
   const ensureUrl = (v: any) => (typeof v === 'string' && /^https?:\/\//i.test(v) ? v : '');
   const sanitizeMarketSize = (x: any, defaultDescription: string) => {
     const value = ensureString(x?.value, 'Data not available');
@@ -221,8 +227,8 @@ async function parseMarketAnalysis(analysis: string, _sources: any[]): Promise<a
       }));
   const sanitizeTrends = (arr: any[]) =>
     (Array.isArray(arr) ? arr : []).map((t) => ({
-      trend: typeof t.trend === 'string' ? t.trend : undefined,
-      title: typeof t.title === 'string' ? t.title : undefined,
+      trend: typeof t.trend === 'string' ? cleanText(t.trend) : undefined,
+      title: typeof t.title === 'string' ? cleanText(t.title) : undefined,
       impact: typeof t.impact === 'string' ? t.impact : undefined,
       growth: typeof t.growth === 'string' ? t.growth : undefined,
       description: typeof t.description === 'string' ? t.description : undefined,

@@ -139,11 +139,13 @@ export const handler: Handler = async (event) => {
       logger.info('User created via OTP signup', { email });
       // Generate a Supabase magic link token that the client can verify to obtain a session immediately
       const redirectTo = process.env.URL || process.env.DEPLOY_URL || 'http://localhost:8888';
-      const link = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo } as any });
+      const { data: linkData } = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo } as any });
+      const emailOtpSignup = (linkData as any)?.properties?.email_otp || (linkData as any)?.email_otp || null;
+      const actionLinkSignup = (linkData as any)?.properties?.action_link || (linkData as any)?.action_link || null;
       return { 
         statusCode: 200, 
         headers, 
-        body: JSON.stringify({ success: true, user_id: created.user?.id, email_otp: (link as any)?.email_otp || null, action_link: (link as any)?.action_link || null }) 
+        body: JSON.stringify({ success: true, user_id: created.user?.id, email_otp: emailOtpSignup, action_link: actionLinkSignup }) 
       };
     }
 
@@ -153,16 +155,16 @@ export const handler: Handler = async (event) => {
     let actionLink: string | null = null;
     try {
       const redirectTo = process.env.URL || process.env.DEPLOY_URL || 'http://localhost:8888';
-      const link: any = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo } as any });
-      emailOtp = link?.email_otp || null;
-      actionLink = link?.action_link || null;
-  } catch {
+      const { data: linkData } = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo } as any });
+      emailOtp = (linkData as any)?.properties?.email_otp || (linkData as any)?.email_otp || null;
+      actionLink = (linkData as any)?.properties?.action_link || (linkData as any)?.action_link || null;
+    } catch {
       // Fallback: attempt user creation then generate link
       try {
         await supaAdmin.auth.admin.createUser({ email, email_confirm: true });
-        const link2: any = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email });
-        emailOtp = link2?.email_otp || null;
-        actionLink = link2?.action_link || null;
+        const { data: linkData2 } = await supaAdmin.auth.admin.generateLink({ type: 'magiclink', email });
+        emailOtp = (linkData2 as any)?.properties?.email_otp || (linkData2 as any)?.email_otp || null;
+        actionLink = (linkData2 as any)?.properties?.action_link || (linkData2 as any)?.action_link || null;
       } catch {}
     }
 

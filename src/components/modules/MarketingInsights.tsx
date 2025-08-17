@@ -165,6 +165,32 @@ export default function MarketingInsights() {
   const hasSeries = (s?: unknown): s is number[] => Array.isArray(s) && s.every(n => typeof n === 'number');
   const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n));
 
+  // Build a normalized 0-100 series from YoY growth like "+12%" when backend did not provide series
+  const buildSeriesFromGrowth = (growthStr: any, points = 12): number[] => {
+    const g = toPercent(growthStr) / 100; // e.g., 0.12
+    const r = g !== 0 ? Math.pow(1 + g, 1 / points) - 1 : 0; // per-step rate
+    const base = 60; // start index to render a visible area
+    const arr: number[] = [];
+    let v = base;
+    for (let i = 0; i < points; i++) {
+      v = v * (1 + r);
+      arr.push(v);
+    }
+    // Normalize to 20..90 for nicer chart fill
+    const min = Math.min(...arr);
+    const max = Math.max(...arr);
+    const span = max - min || 1;
+    return arr.map(x => 20 + ((x - min) / span) * 70);
+  };
+
+  // Ensure we always have a series to plot for TAM
+  const tamSeries: number[] | null = useMemo(() => {
+    const series = (marketRow as any)?.tam_data?.series;
+    if (hasSeries(series)) return series as number[];
+    const growth = (marketRow as any)?.tam_data?.growth || (marketRow as any)?.sam_data?.growth || '0%';
+    return buildSeriesFromGrowth(growth, 12);
+  }, [marketRow]);
+
   // Donut chart arc builder
   const polarToCartesian = (cx: number, cy: number, r: number, angle: number) => {
     const rad = ((angle - 90) * Math.PI) / 180;
@@ -361,6 +387,21 @@ export default function MarketingInsights() {
                     </div>
                   ))}
                 </div>
+                {/* Methodology/Explanation */}
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-gray-700">
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <div className="font-semibold mb-2">How TAM was calculated</div>
+                    <div>{(marketRow as any)?.tam_data?.calculation || 'Methodology pending – rerun research.'}</div>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <div className="font-semibold mb-2">How SAM was calculated</div>
+                    <div>{(marketRow as any)?.sam_data?.calculation || 'Methodology pending – rerun research.'}</div>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <div className="font-semibold mb-2">How SOM was calculated</div>
+                    <div>{(marketRow as any)?.som_data?.calculation || 'Methodology pending – rerun research.'}</div>
+                  </div>
+                </div>
               </div>
 
               {/* Market Growth Chart */}
@@ -368,7 +409,7 @@ export default function MarketingInsights() {
                 <h3 className="text-xl font-semibold text-gray-900 mb-6">Market Growth Projection</h3>
                 <div className="bg-gray-50 rounded-xl p-4 sm:p-6">
                   <div className="w-full h-64 bg-white rounded-lg border border-gray-200 overflow-hidden">
-                    {hasSeries(marketRow?.tam_data?.series) ? (
+                    {tamSeries && tamSeries.length ? (
                       <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="w-full h-full">
                         <defs>
                           <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
@@ -377,7 +418,7 @@ export default function MarketingInsights() {
                           </linearGradient>
                         </defs>
                         {(() => {
-                          const series = (marketRow.tam_data.series as number[]);
+                          const series = tamSeries as number[];
                           const points = series.map((v: number, i: number) => `${(i/(series.length-1))*100},${40 - (clamp(v)/100)*40}`).join(' ');
                           const areaPoints = `0,40 ${points} 100,40`;
                           return (
@@ -475,6 +516,38 @@ export default function MarketingInsights() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                </div>
+                {/* Positioning Map (Share vs Growth) */}
+                <div className="mt-8">
+                  <h4 className="font-semibold text-gray-900 mb-4">Competitive Positioning (Share vs Growth)</h4>
+                  <div className="bg-gray-50 rounded-xl p-6">
+                    <div className="relative w-full h-72 bg-white border border-gray-200 rounded">
+                      <svg viewBox="0 0 100 60" preserveAspectRatio="none" className="absolute inset-0 w-full h-full">
+                        <line x1="10" y1="50" x2="95" y2="50" stroke="#e5e7eb" strokeWidth="0.8" />
+                        <line x1="10" y1="50" x2="10" y2="5" stroke="#e5e7eb" strokeWidth="0.8" />
+                        <text x="12" y="10" fontSize="3" fill="#6b7280">High Growth</text>
+                        <text x="12" y="58" fontSize="3" fill="#6b7280">Low Growth</text>
+                        <text x="78" y="58" fontSize="3" fill="#6b7280">High Share</text>
+                      </svg>
+                      <div className="absolute inset-0">
+                        {(competitorData || []).map((c: any, idx: number) => {
+                          const share = clamp(Number(String(c.marketShare).replace(/[^0-9.]/g, '')) || 0);
+                          const growthPct = clamp(Number(String(c.growth || '0').replace(/[^0-9.\-]/g, '')) || 0, -20, 50);
+                          const x = 10 + (share/100) * 85;
+                          const y = 50 - ((growthPct + 20) / 70) * 45;
+                          const color = palette[idx % palette.length];
+                          return (
+                            <div key={c.name} style={{ position: 'absolute', left: `${x}%`, top: `${y}%`, transform: 'translate(-50%, -50%)' }}>
+                              <div className="flex items-center space-x-1">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+                                <span className="text-xs text-gray-700 whitespace-nowrap">{c.name}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>

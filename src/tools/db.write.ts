@@ -76,11 +76,21 @@ export const insertBusinessPersonas = async (rows: any[]) => {
 
 export const insertPersonaCache = async (cache_key: string, personas: any[]) => {
   const supa = getSupabaseClient();
-  const { error } = await supa
-    .from('persona_cache')
-    .upsert({ cache_key, personas })
-    .select('cache_key');
-  if (error) throw error;
+  try {
+    const { error } = await supa
+      .from('persona_cache')
+      .upsert({ cache_key, personas })
+      .select('cache_key');
+    if (error) throw error;
+  } catch (e: any) {
+    const msg = String(e?.message || e || '');
+    if ((e && (e.code === '42P01')) || /does not exist/i.test(msg)) {
+      // persona_cache table not present; treat as optional cache and continue silently
+      logger.warn('persona_cache table missing; skipping cache write', { cache_key });
+      return;
+    }
+    throw e;
+  }
 };
 
 // Patch insertBusinesses to guarantee returned objects always include country and industry
@@ -414,6 +424,27 @@ export const updateDecisionMakerEnrichment = async (dmId: string, enrichmentData
     .eq('id', dmId)
     .select('id,name,email,phone');
   
+  if (error) throw error;
+  return data;
+};
+
+// Update business contact details (email/phone/website) safely
+export const updateBusinessContacts = async (
+  businessId: string,
+  updates: { email?: string; phone?: string; website?: string }
+) => {
+  const supa = getSupabaseClient();
+  const payload: Record<string, any> = {};
+  if (typeof updates.email === 'string' && updates.email.includes('@')) payload.email = updates.email;
+  if (typeof updates.phone === 'string' && updates.phone.trim().length > 3) payload.phone = updates.phone.trim();
+  if (typeof updates.website === 'string' && /^https?:\/\//i.test(updates.website)) payload.website = updates.website;
+  if (Object.keys(payload).length === 0) return null;
+  const { data, error } = await supa
+    .from('businesses')
+    .update(payload)
+    .eq('id', businessId)
+    .select('id,email,phone,website')
+    .single();
   if (error) throw error;
   return data;
 };

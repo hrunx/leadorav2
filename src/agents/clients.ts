@@ -29,6 +29,53 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 // Bridge type mismatch between openai and agents-openai by casting
 setDefaultOpenAIClient(openai as unknown as any);
 
+// --- Global OpenAI rate limiter (applies to both direct calls and Agents SDK) ---
+const OPENAI_MAX_CONCURRENT = Math.max(1, Number(process.env.OPENAI_MAX_CONCURRENT || 2));
+const OPENAI_MIN_DELAY_MS = Math.max(0, Number(process.env.OPENAI_MIN_DELAY_MS || 300));
+let openAiRunning = 0;
+const openAiQueue: Array<() => void> = [];
+let lastOpenAiCallAt = 0;
+
+async function withOpenAiLimiter<T>(fn: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const runNext = async () => {
+      openAiRunning++;
+      try {
+        const since = Date.now() - lastOpenAiCallAt;
+        const wait = OPENAI_MIN_DELAY_MS > since ? (OPENAI_MIN_DELAY_MS - since) : 0;
+        if (wait > 0) await new Promise(r => setTimeout(r, wait + Math.floor(Math.random() * 50)));
+        const result = await fn();
+        resolve(result);
+      } catch (e) {
+        reject(e as any);
+      } finally {
+        lastOpenAiCallAt = Date.now();
+        openAiRunning--;
+        const next = openAiQueue.shift();
+        if (next) next();
+      }
+    };
+    if (openAiRunning < OPENAI_MAX_CONCURRENT) runNext(); else openAiQueue.push(runNext);
+  });
+}
+
+// Monkey-patch the OpenAI client to route chat completions through the limiter
+try {
+  const rawChatCreate: (...args: any[]) => Promise<any> = (openai.chat.completions as any).create.bind(openai.chat.completions);
+  (openai.chat.completions as any).create = async (...args: any[]) => {
+    const tupleArgs = args as [any, any?];
+    return withOpenAiLimiter(() => rawChatCreate(...tupleArgs));
+  };
+} catch {}
+
+try {
+  const rawRespCreate: (...args: any[]) => Promise<any> = (openai.responses as any).create.bind(openai.responses);
+  (openai.responses as any).create = async (...args: any[]) => {
+    const tupleArgs = args as [any, any?];
+    return withOpenAiLimiter(() => rawRespCreate(...tupleArgs));
+  };
+} catch {}
+
 // Content generation (unchanged)
 export const deepseek: OpenAI | null = (process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_API_KEY.trim() !== '')
   ? new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY!, baseURL: 'https://api.deepseek.com/v1' })
@@ -130,7 +177,7 @@ export async function callOpenAIChatJSON(params: {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), params.timeoutMs || 0);
     try {
-      const res = await openai.chat.completions.create(payload as any, { signal: controller.signal as any });
+      const res = await withOpenAiLimiter(() => openai.chat.completions.create(payload as any, { signal: controller.signal as any }));
       return (res.choices?.[0]?.message?.content || '').trim();
     } finally {
       clearTimeout(t);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import logger from '../../lib/logger';
-import { Target, Users, Building, ArrowRight, Star, TrendingUp, DollarSign, ChevronDown, ChevronUp, Eye, Search, Plus } from 'lucide-react';
+import { Target, Users, Building, ArrowRight, Star, TrendingUp, DollarSign, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
@@ -149,7 +149,7 @@ export default function BusinessPersonas() {
   const isLoading = isDemo ? isLoadingDemo : (
     personas.length === 0 && realTimeData.businesses.length === 0 && realTimeData.progress.phase !== 'cancelled'
   );
-  const handleRetryBusinessPersonas = async () => {
+  async function handleRetryBusinessPersonas() {
     try {
       if (!currentSearch?.id) return;
       await fetch('/.netlify/functions/retry-business-personas', {
@@ -158,8 +158,8 @@ export default function BusinessPersonas() {
         body: JSON.stringify({ search_id: currentSearch.id })
       });
     } catch {}
-  };
-  const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
+  }
+  // const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
 
   // Load demo data for demo users only
   useEffect(() => {
@@ -182,6 +182,30 @@ export default function BusinessPersonas() {
   }, [realTimeData, currentSearch, isDemo]);
 
   // Legacy function removed - now using real-time data only
+
+  function handleProceedToBusinessResults() {
+    // Pass selected personas to context for filtering in business results
+    updateSelectedPersonas(personas as unknown as any[]);
+    window.dispatchEvent(new CustomEvent('navigate', { detail: 'results' }));
+  }
+
+  const renderCompletedNoPersonas = () => (
+    <div className="flex items-center justify-center min-h-96">
+      <div className="text-center max-w-md">
+        <Users className="w-24 h-24 text-gray-300 mx-auto mb-6" />
+        <h3 className="text-2xl font-semibold text-gray-900 mb-2">No Business Personas</h3>
+        <p className="text-gray-600">No business personas were generated for this search.</p>
+        <div className="mt-6 flex items-center justify-center gap-3">
+          <button onClick={handleRetryBusinessPersonas} className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700">Retry Personas</button>
+          <button onClick={handleProceedToBusinessResults} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">View Businesses</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (!isDemo && !isLoading && realTimeData.progress.phase === 'completed' && personas.length === 0) {
+    return renderCompletedNoPersonas();
+  }
 
   const getStaticPersonas = (): PersonaData[] => [
     {
@@ -617,40 +641,6 @@ export default function BusinessPersonas() {
     }
   ];
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <h3 className="text-lg font-semibold text-gray-900">Generating business personas...</h3>
-          <p className="text-gray-600">AI agents are analyzing your search criteria to create targeted personas</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show empty state for real users without any searches
-  if (!hasSearch && !isDemoUser(authState.user?.id, authState.user?.email)) {
-    return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="text-center max-w-md">
-          <Search className="w-24 h-24 text-gray-300 mx-auto mb-6" />
-          <h3 className="text-2xl font-semibold text-gray-900 mb-4">No Business Personas Yet</h3>
-          <p className="text-gray-600 mb-8">
-            Start a search to discover and analyze business personas that match your product or service.
-          </p>
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'search' }))}
-            className="inline-flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Start New Search</span>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const getMatchScoreColor = (score: number) => {
     if (score >= 90) return 'text-green-600 bg-green-100';
     if (score >= 80) return 'text-blue-600 bg-blue-100';
@@ -672,11 +662,7 @@ export default function BusinessPersonas() {
     );
   };
 
-  const handleProceedToBusinessResults = () => {
-    // Pass selected personas to context for filtering in business results
-    updateSelectedPersonas(personas as unknown as any[]);
-    window.dispatchEvent(new CustomEvent('navigate', { detail: 'results' }));
-  };
+  
 
   const handleViewBusinessesForPersona = (persona: PersonaData) => {
     // Set the selected persona for filtering and navigate to results

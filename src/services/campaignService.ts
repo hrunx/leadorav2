@@ -156,7 +156,23 @@ export class CampaignService {
       .from('email_campaigns')
       .delete()
       .eq('id', campaignId);
-
+ 
     if (error) throw error;
+  }
+
+  // Enrich company contacts for a search via Netlify function
+  static async enrichBusinessContacts(searchId: string): Promise<{ enriched: number }> {
+    try {
+      const response = await fetch('/.netlify/functions/enrich-business-contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id: searchId })
+      });
+      if (!response.ok) return { enriched: 0 };
+      const j = await response.json();
+      return { enriched: Number(j?.enriched || 0) };
+    } catch {
+      return { enriched: 0 };
+    }
   }
 }
