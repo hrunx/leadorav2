@@ -534,7 +534,11 @@ export default function MarketingInsights() {
                       <div className="absolute inset-0">
                         {(competitorData || []).map((c: any, idx: number) => {
                           const share = clamp(Number(String(c.marketShare).replace(/[^0-9.]/g, '')) || 0);
-                          const growthPct = clamp(Number(String(c.growth || '0').replace(/[^0-9.\-]/g, '')) || 0, -20, 50);
+                          const growthPct = clamp(
+                            Number(String(c.growth || '0').replace(/[^0-9.-]/g, '')) || 0,
+                            -20,
+                            50
+                          );
                           const x = 10 + (share/100) * 85;
                           const y = 50 - ((growthPct + 20) / 70) * 45;
                           const color = palette[idx % palette.length];
