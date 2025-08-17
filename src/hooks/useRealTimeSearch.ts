@@ -347,7 +347,7 @@ export function useRealTimeSearch(searchId: string | null) {
   useEffect(() => {
     if (!searchId) return;
     const interval = setInterval(() => {
-      if (data.progress.phase !== 'completed') {
+      if (data.progress.phase !== 'completed' && data.progress.phase !== 'cancelled') {
         // Silent refresh (no loading spinner on subsequent polls)
         loadSearchData(searchId);
       }

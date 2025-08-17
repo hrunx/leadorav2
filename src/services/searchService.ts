@@ -10,6 +10,19 @@ export class SearchService {
   private static readonly MAX_CACHE_ENTRIES = 50;
   private static backfillInFlight = new Set<string>();
 
+  // Expose a cancel endpoint to stop orchestration when navigating away
+  static async cancelOrchestration(searchId: string): Promise<void> {
+    try {
+      await fetch(`${this.functionsBase}/orchestrator-cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id: searchId })
+      });
+    } catch {
+      // best-effort; ignore
+    }
+  }
+
   // Create a new search and trigger agent orchestration
   static async createSearch(userId: string, searchData: {
     search_type: 'customer' | 'supplier';
@@ -70,7 +83,8 @@ export class SearchService {
       // Serve from cache if recent
       const cached = this.searchesCacheByUser.get(targetUserId);
       if (cached && Date.now() - cached.ts < this.TTL_MS) {
-        return cached.data as any;
+        // Ensure descending order by created_at
+        return (cached.data as any[]).sort((a,b)=>new Date(b.created_at||b.timestamp).getTime()-new Date(a.created_at||a.timestamp).getTime()) as any;
       }
 
        let searches: UserSearch[] = [];
@@ -107,6 +121,9 @@ export class SearchService {
         totals: s.totals || { business_personas:0, dm_personas:0, businesses:0, decision_makers:0, market_insights:0 },
         timestamp: s.created_at
       }));
+
+      // Ensure descending order by timestamp
+      normalized.sort((a:any,b:any)=>new Date(b.timestamp||b.created_at).getTime()-new Date(a.timestamp||a.created_at).getTime());
 
       // Fire-and-forget: backfill totals for any search missing counts
       void this.backfillMissingTotals(normalized);
