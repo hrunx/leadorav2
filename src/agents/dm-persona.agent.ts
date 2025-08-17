@@ -483,7 +483,7 @@ Personas: ${JSON.stringify(arr)}`;
         market_potential: p.market_potential || {}
       }));
       await insertDMPersonas(rows);
-      await updateSearchProgress(search.id, 20, 'dm_personas');
+      await updateSearchProgress(search.id, 10, 'dm_personas');
       import('../lib/logger')
         .then(({ default: logger }) =>
           logger.info('Completed DM persona generation', { search_id: search.id })
