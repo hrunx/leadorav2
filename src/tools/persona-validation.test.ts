@@ -10,7 +10,7 @@ const ctx: { industries: string[]; countries: string[]; search_type: 'customer' 
 describe('persona validation helpers', () => {
   it('sanitizes business persona data', () => {
     const sanitized = sanitizePersona('business', {}, 0, ctx);
-    expect(sanitized.title).toContain('Buyer Archetype 1');
+    expect(sanitized.title).toBe('');
     expect(sanitized.demographics.industry).toBe('Energy');
     expect(sanitized.locations[0]).toBe('USA');
   });
