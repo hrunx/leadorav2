@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Building, User, Crown, Shield, Users, Save, ArrowRight, Target, Filter, UserCheck, Mail, Phone, Linkedin, MapPin, Calendar, Briefcase, MessageSquare, Search } from 'lucide-react';
+import { Building, User, Crown, Shield, Users, Save, ArrowRight, Target, Filter, UserCheck, Mail, Phone, Linkedin, MapPin, Calendar, Briefcase, MessageSquare, Search, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import logger from '../../lib/logger';
 import { useUserData } from '../../context/UserDataContext';
@@ -90,7 +90,23 @@ export default function DecisionMakerMapping() {
   }, [state.selectedDecisionMakerPersonas]);
   */
 
-  // Load data on component mount (declared after loadDecisionMakers below)
+  // Empty state when nothing exists for this search
+  const showEmpty = !isLoading && !isDemoUser(authState.user?.id, authState.user?.email) && (realTimeData.decisionMakers.length === 0);
+  if (showEmpty) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="text-center max-w-md">
+          <UserCheck className="w-24 h-24 text-gray-300 mx-auto mb-6" />
+          <h3 className="text-2xl font-semibold text-gray-900 mb-4">No Decision Makers</h3>
+          <p className="text-gray-600 mb-8">No decision makers were generated for this search.</p>
+          <button onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'search' }))} className="inline-flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <Plus className="w-5 h-5" />
+            <span>Start New Search</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Setup realtime subscription for decision maker updates
   useEffect(() => {

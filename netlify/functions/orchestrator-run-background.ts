@@ -65,8 +65,9 @@ async function logUsage(input: {
 }
 
 async function updateProgress(search_id:string, phase:string, pct:number, error?:any) {
+  const status = phase === 'completed' ? 'completed' : phase === 'failed' ? 'failed' : phase === 'cancelled' ? 'cancelled' : 'in_progress';
   await supa.from('user_searches').update({
-    phase, progress_pct: pct, updated_at: new Date().toISOString(),
+    phase, status, progress_pct: pct, updated_at: new Date().toISOString(),
     ...(error ? { error: { message: String(error?.message||error) } } : {})
   }).eq('id', search_id);
 }
