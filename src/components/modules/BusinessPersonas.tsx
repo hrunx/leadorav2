@@ -147,6 +147,16 @@ export default function BusinessPersonas() {
   // Show loader only until first persona arrives; do not block on phase value
   // Do not block the screen if businesses already exist or DM personas are available
   const isLoading = isDemo ? isLoadingDemo : (personas.length === 0 && realTimeData.businesses.length === 0);
+  const handleRetryBusinessPersonas = async () => {
+    try {
+      if (!currentSearch?.id) return;
+      await fetch('/.netlify/functions/retry-business-personas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id: currentSearch.id })
+      });
+    } catch {}
+  };
   const hasSearch = isDemo ? demoPersonas.length > 0 : !!currentSearch;
 
   // Load demo data for demo users only
@@ -737,7 +747,11 @@ export default function BusinessPersonas() {
               ) : (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
                   <p className="text-gray-700">No business personas were generated for this search.</p>
-                  <p className="text-gray-500 text-sm mt-1">You can proceed to view businesses or run a new search.</p>
+                  <p className="text-gray-500 text-sm mt-1">Retry persona generation or proceed to view businesses.</p>
+                  <div className="mt-4 flex items-center justify-center gap-3">
+                    <button onClick={handleRetryBusinessPersonas} className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700">Retry Personas</button>
+                    <button onClick={handleProceedToBusinessResults} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">View Businesses</button>
+                  </div>
                 </div>
               )}
             </div>
