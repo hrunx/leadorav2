@@ -119,6 +119,15 @@ export function sanitizePersona(
     }
     return [];
   };
+  const coerceNumber = (v: any): number => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string') {
+      const n = parseFloat(v.replace(/[^0-9.-]+/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  };
+
     const coerceNumber = (v: any): number => {
       if (typeof v === 'number' && Number.isFinite(v)) return v;
       if (typeof v === 'string') {
