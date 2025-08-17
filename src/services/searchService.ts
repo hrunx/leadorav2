@@ -10,6 +10,37 @@ export class SearchService {
   private static readonly MAX_CACHE_ENTRIES = 50;
   private static backfillInFlight = new Set<string>();
 
+  // Convenience getters for user-wide datasets (proxy-first)
+  static async getDecisionMakersForUser(userId: string): Promise<DecisionMaker[]> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const resp = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_makers&user_id=${userId}`, {
+        method: 'GET', headers: { 'Accept': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, credentials: 'omit'
+      });
+      if (!resp.ok) return [] as any;
+      const arr = await resp.json();
+      return (Array.isArray(arr) ? arr : []) as any;
+    } catch {
+      return [] as any;
+    }
+  }
+
+  static async getBusinessesForUser(userId: string): Promise<Business[]> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const resp = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&user_id=${userId}`, {
+        method: 'GET', headers: { 'Accept': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, credentials: 'omit'
+      });
+      if (!resp.ok) return [] as any;
+      const arr = await resp.json();
+      return (Array.isArray(arr) ? arr : []) as any;
+    } catch {
+      return [] as any;
+    }
+  }
+
   // Expose a cancel endpoint to stop orchestration when navigating away
   static async cancelOrchestration(searchId: string): Promise<void> {
     try {
