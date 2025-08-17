@@ -146,7 +146,9 @@ export default function BusinessPersonas() {
   
   // Show loader only until first persona arrives; do not block on phase value
   // Do not block the screen if businesses already exist or DM personas are available
-  const isLoading = isDemo ? isLoadingDemo : (personas.length === 0 && realTimeData.businesses.length === 0);
+  const isLoading = isDemo ? isLoadingDemo : (
+    personas.length === 0 && realTimeData.businesses.length === 0 && realTimeData.progress.phase !== 'cancelled'
+  );
   const handleRetryBusinessPersonas = async () => {
     try {
       if (!currentSearch?.id) return;

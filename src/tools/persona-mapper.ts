@@ -294,6 +294,15 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     logger.info('Starting persona mapping', { searchId });
 
     // Ensure business personas exist before mapping
+    // Abort quickly if the search has been cancelled
+    try {
+      const { data: s } = await supa.from('user_searches').select('status').eq('id', searchId).single();
+      if (s?.status === 'cancelled') {
+        logger.info('Skipping persona mapping due to cancelled search', { searchId });
+        return;
+      }
+    } catch {}
+
     const { data: personaCheck } = await supa
       .from('business_personas')
       .select('id')
@@ -308,6 +317,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
         mappingLocks.delete(searchId);
         const tmo = lockTimeouts.get(searchId);
         if (tmo) { clearTimeout(tmo); lockTimeouts.delete(searchId); }
+        // preserve attempts for diagnostics; do not delete here
         return;
       }
       if (!mappingTimers.has(searchId)) {
@@ -334,6 +344,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     if (businessError) throw businessError;
     if (!businesses || businesses.length === 0) {
       logger.debug('No businesses found requiring persona mapping', { searchId });
+      mappingAttempts.delete(searchId);
       return;
     }
 
@@ -346,7 +357,14 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     if (personaError) throw personaError;
     if (!personas || personas.length === 0) {
-      logger.debug('No personas available yet for mapping, retrying in background', { searchId });
+      const attempts = (mappingAttempts.get(searchId) || 0) + 1;
+      mappingAttempts.set(searchId, attempts);
+      if (attempts > 12) {
+        logger.warn('Stopping persona mapping retries after max attempts (no personas)', { searchId, attempts });
+        mappingTimers.delete(searchId);
+        return;
+      }
+      logger.debug('No personas available yet for mapping, retrying in background', { searchId, attempts });
       // retry later without throwing to avoid blocking inserts
       setTimeout(() => {
         mapBusinessesToPersonas(searchId, businessId).catch(() => {});
@@ -378,6 +396,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     const failed = results.filter(r => r.status === 'rejected').length;
 
     logger.info('Persona mapping completed', { successful, failed, total: businesses.length, searchId });
+    mappingAttempts.delete(searchId);
 
     return { successful, failed, total: businesses.length };
   } catch (error: any) {
@@ -385,7 +404,6 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     throw error;
   }
   finally {
-    mappingAttempts.delete(searchId);
     const t = lockTimeouts.get(searchId);
     if (t) {
       clearTimeout(t);
