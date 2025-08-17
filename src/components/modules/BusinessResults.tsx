@@ -94,6 +94,22 @@ export default function BusinessResults() {
   // Treat 404/empty proxy responses as non-blocking: only show spinner on very first load
   const isLoading = !isDemo && realTimeData.isLoading;
 
+  if (!isLoading && !isDemo && (businesses.length === 0)) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="text-center max-w-md">
+          <Building className="w-24 h-24 text-gray-300 mx-auto mb-6" />
+          <h3 className="text-2xl font-semibold text-gray-900 mb-4">No Businesses Found</h3>
+          <p className="text-gray-600 mb-8">No business places were generated for this search. Please start a new search.</p>
+          <button onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'search' }))} className="inline-flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <Plus className="w-5 h-5" />
+            <span>Start New Search</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Removed effect tied to unused discovery status
 
   // rely on useRealTimeSearch subscriptions; avoid duplicative subscriptions here to prevent render loops

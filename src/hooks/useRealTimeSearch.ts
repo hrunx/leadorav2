@@ -58,7 +58,7 @@ export function useRealTimeSearch(searchId: string | null) {
           if (r.ok) {
             const arr = await r.json();
             const row = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
-            if (row) return { phase: row.phase, progress_pct: row.progress_pct } as any;
+            if (row) return { phase: row.phase, progress_pct: row.progress_pct, status: row.status } as any;
           }
         } catch {}
         return null as any;
