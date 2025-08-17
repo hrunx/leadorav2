@@ -77,6 +77,7 @@ async function withLimiter<T>(fn: () => Promise<T>): Promise<T> {
 // ---- Throttling and de-duplication for mapping routines ----
 const mappingLocks = new Set<string>();
 const mappingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const mappingAttempts = new Map<string, number>();
 const lockTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
 async function scoreBusinessToPersonasLLM(business: BusinessRow, personas: BusinessPersonaRow[]): Promise<{ personaId: string; score: number } | null> {
@@ -299,8 +300,18 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
       .eq('search_id', searchId)
       .limit(1);
     if (!personaCheck || personaCheck.length === 0) {
+      const attempts = (mappingAttempts.get(searchId) || 0) + 1;
+      mappingAttempts.set(searchId, attempts);
+      if (attempts > 12) { // ~1 minute max
+        logger.warn('Stopping persona mapping deferrals after max attempts with no personas', { searchId, attempts });
+        mappingTimers.delete(searchId);
+        mappingLocks.delete(searchId);
+        const tmo = lockTimeouts.get(searchId);
+        if (tmo) { clearTimeout(tmo); lockTimeouts.delete(searchId); }
+        return;
+      }
       if (!mappingTimers.has(searchId)) {
-        logger.debug('Business personas not ready yet. Deferring mapping by 5s.', { searchId });
+        logger.debug('Business personas not ready yet. Deferring mapping by 5s.', { searchId, attempts });
         const t = setTimeout(() => {
           mappingTimers.delete(searchId);
           mapBusinessesToPersonas(searchId, businessId).catch(()=>{});
@@ -374,6 +385,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     throw error;
   }
   finally {
+    mappingAttempts.delete(searchId);
     const t = lockTimeouts.get(searchId);
     if (t) {
       clearTimeout(t);
