@@ -673,8 +673,6 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       }
       throw new Error('BUSINESS_PERSONAS_FAILED');
     }
-    // Ensure we only update progress once at the end of the routine
-    import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
   } catch (error) {
     import('../lib/logger').then(({ default: logger }) => logger.error('Business persona generation failed', { search_id: search.id, error: (error as any)?.message || error })).catch(()=>{});
     throw error;
