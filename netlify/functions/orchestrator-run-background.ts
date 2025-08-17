@@ -92,6 +92,7 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   // background functions return 202 immediately, Netlify runs the handler async
   let stopPersonaListener: (() => Promise<void>) | null = null;
+  let cancelled = false;
   try {
     const { search_id, user_id } = JSON.parse(event.body || '{}');
     if (!search_id || !user_id) return { statusCode: 400, headers: cors, body: 'search_id and user_id required' };
@@ -124,7 +125,7 @@ export const handler: Handler = async (event) => {
 
     // Start market research in background (non-blocking)
     const marketResearchPromise = retry(() =>
-      withTimeout(execMarketResearchParallel({ search_id, user_id }), 300_000, 'market_research')
+      withTimeout(execMarketResearchParallel({ search_id, user_id }), 120_000, 'market_research')
     ).catch(e => {
       logger.warn('Market research failed (non-blocking)', { error: e.message });
       return null;
@@ -135,7 +136,7 @@ export const handler: Handler = async (event) => {
     // Defer business→persona mapping until business personas are ready; still keep listener ready
     stopPersonaListener = startPersonaMappingListener(search_id);
     const businessDiscoveryPromise = retry(() =>
-      withTimeout(execBusinessDiscovery({ search_id, user_id }), 240_000, 'business_discovery')
+      withTimeout(execBusinessDiscovery({ search_id, user_id }), 120_000, 'business_discovery')
     ).catch(e => {
       logger.warn('Business discovery failed (non-blocking)', { error: e.message });
       return null;
@@ -144,7 +145,7 @@ export const handler: Handler = async (event) => {
     // Start business personas first (non-blocking), then DM personas once business personas exist
     await updateProgress(search_id, 'business_personas', 10);
     logger.info('Starting business persona generation...');
-    const businessPersonasPromise = retry(() => withTimeout(limiter(() => execBusinessPersonas({ search_id, user_id })), 120_000, 'business_personas'))
+    const businessPersonasPromise = retry(() => withTimeout(limiter(() => execBusinessPersonas({ search_id, user_id })), 90_000, 'business_personas'))
       .catch(e => {
         logger.warn('Business persona generation failed (non-blocking)', { error: e?.message || e });
         return null;
@@ -164,13 +165,19 @@ export const handler: Handler = async (event) => {
       }
       return false;
     };
-    const haveBusinessPersonas = await waitForBusinessPersonas();
+    // Check cancellation flag from DB before continuing
+    const checkCancelled = async () => {
+      const { data } = await supa.from('user_searches').select('status').eq('id', search_id).single();
+      cancelled = (data?.status === 'cancelled');
+      return cancelled;
+    };
+    const haveBusinessPersonas = cancelled ? false : await waitForBusinessPersonas();
     if (!haveBusinessPersonas) {
       logger.warn('Business personas not detected in time; continuing to start DM personas to avoid delay');
     }
     await updateProgress(search_id, 'dm_personas', 12);
     logger.info('Starting decision-maker persona generation...');
-    const dmPersonasPromise = retry(() => withTimeout(limiter(() => execDMPersonas({ search_id, user_id })), 120_000, 'dm_personas'))
+    const dmPersonasPromise = retry(() => withTimeout(limiter(() => execDMPersonas({ search_id, user_id })), 90_000, 'dm_personas'))
       .catch(e => {
         logger.warn('DM persona generation failed (non-blocking)', { error: e?.message || e });
         return null;
@@ -202,7 +209,11 @@ export const handler: Handler = async (event) => {
     // Best-effort wait for personas, but do not block completion
     try { await businessPersonasPromise; } catch {}
     try { await dmPersonasPromise; } catch {}
-    await updateProgress(search_id, 'completed', 100);
+    if (!await checkCancelled()) {
+      await updateProgress(search_id, 'completed', 100);
+    } else {
+      logger.info('Search was cancelled; marking cancelled state retained');
+    }
     logger.info('Orchestration completed', { search_id });
     return { statusCode: 202, headers: cors, body: 'accepted' };
   } catch (e:any) {

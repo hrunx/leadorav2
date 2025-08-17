@@ -17,6 +17,7 @@ import BackgroundProgressBar from './components/BackgroundProgressBar';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { UserDataProvider, useUserData } from './context/UserDataContext';
 import { AppProvider, useAppContext } from './context/AppContext';
+import { SearchService } from './services/searchService';
 
 import { isDemoUser as isDemoUserUtil } from './constants/demo';
 
@@ -96,6 +97,17 @@ function AppContent() {
     // Show personas screen; data hooks will load existing rows for this search
     setActiveModule('personas');
   };
+
+  // When navigating back to dashboard, stop current background orchestration (best-effort)
+  useEffect(() => {
+    const onNavigateDashboard = (e: any) => {
+      if (e?.detail === 'dashboard' && currentSearchId) {
+        void SearchService.cancelOrchestration(currentSearchId);
+      }
+    };
+    window.addEventListener('navigate', onNavigateDashboard);
+    return () => window.removeEventListener('navigate', onNavigateDashboard);
+  }, [currentSearchId]);
 
   const handleCreateCampaign = () => {
     setActiveModule('campaigns');

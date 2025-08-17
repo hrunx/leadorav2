@@ -21,8 +21,8 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
     responseRateChange: 0
   });
 
-  // Show all searches (most recent first). No slicing.
-  const recentSearches = userData.searchHistory;
+  // Show all searches sorted latest-first
+  const recentSearches = [...userData.searchHistory].sort((a: any, b: any) => new Date(b.created_at || b.timestamp).getTime() - new Date(a.created_at || a.timestamp).getTime());
   const activeCampaigns = userData.activeCampaigns.slice(0, 3);
   
   // Simple demo user detection without CORS issues

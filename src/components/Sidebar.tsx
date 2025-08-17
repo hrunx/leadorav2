@@ -60,7 +60,11 @@ export default function Sidebar({ activeModule, setActiveModule }: SidebarProps)
           return (
             <button
               key={module.id}
-              onClick={() => setActiveModule(module.id)}
+              onClick={() => {
+                setActiveModule(module.id);
+                // Emit a navigate event so app-level listeners can react (e.g., cancel orchestration)
+                window.dispatchEvent(new CustomEvent('navigate', { detail: module.id }));
+              }}
               aria-current={isActive ? 'page' : undefined}
               aria-describedby={`${module.id}-description`}
               className={`w-full flex items-start space-x-3 px-4 py-3 rounded-xl transition-all duration-200 text-left group ${
