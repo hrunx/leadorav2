@@ -536,6 +536,7 @@ export default function MarketingInsights() {
                           const share = clamp(Number(String(c.marketShare).replace(/[^0-9.]/g, '')) || 0);
                           const growthPct = clamp(Number(String(c.growth || '0').replace(/[^0-9.-]/g, '')) || 0, -20, 50);
 
+
                           const growthPct = clamp(
                             Number(String(c.growth || '0').replace(/[^0-9.-]/g, '')) || 0,
                             -20,
