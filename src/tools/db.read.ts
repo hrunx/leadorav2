@@ -49,11 +49,20 @@ export const loadBusinesses = async (search_id: string) => {
 
 export const loadPersonaCache = async (cache_key: string) => {
   const supa = getSupabaseClient();
-  const { data, error } = await supa
-    .from('persona_cache')
-    .select('personas')
-    .eq('cache_key', cache_key)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as any)?.personas || null;
+  try {
+    const { data, error } = await supa
+      .from('persona_cache')
+      .select('personas')
+      .eq('cache_key', cache_key)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as any)?.personas || null;
+  } catch (e: any) {
+    const msg = String(e?.message || e || '');
+    if ((e && (e.code === '42P01')) || /does not exist/i.test(msg)) {
+      // persona_cache table missing; treat cache as miss
+      return null;
+    }
+    throw e;
+  }
 };

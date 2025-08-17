@@ -90,31 +90,16 @@ export default function DecisionMakerMapping() {
   }, [state.selectedDecisionMakerPersonas]);
   */
 
-  // Empty state when nothing exists for this search
+  // Empty state flag computed early but rendered later to preserve hooks order
   const showEmpty = !isLoading && !isDemoUser(authState.user?.id, authState.user?.email) && (realTimeData.decisionMakers.length === 0);
-  if (showEmpty) {
-    return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="text-center max-w-md">
-          <UserCheck className="w-24 h-24 text-gray-300 mx-auto mb-6" />
-          <h3 className="text-2xl font-semibold text-gray-900 mb-4">No Decision Makers</h3>
-          <p className="text-gray-600 mb-8">No decision makers were generated for this search.</p>
-          <button onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'search' }))} className="inline-flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-            <Plus className="w-5 h-5" />
-            <span>Start New Search</span>
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   // Setup realtime subscription for decision maker updates
   useEffect(() => {
-    const currentSearch = getCurrentSearch();
+    const currentSearchId = currentSearch?.id;
     const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
     
     // If no search or demo user, clean up any existing subscription
-    if (!currentSearch || isDemo) {
+    if (!currentSearchId || isDemo) {
       if (subscriptionRef.current) {
         logger.debug('Cleaning up decision makers realtime subscription (no search/demo)');
         supabase.removeChannel(subscriptionRef.current);
@@ -125,7 +110,7 @@ export default function DecisionMakerMapping() {
     }
 
     // If search hasn't changed, don't recreate subscription
-    if (currentSearchIdRef.current === currentSearch.id && subscriptionRef.current) {
+    if (currentSearchIdRef.current === currentSearchId && subscriptionRef.current) {
       return;
     }
 
@@ -135,17 +120,17 @@ export default function DecisionMakerMapping() {
       supabase.removeChannel(subscriptionRef.current);
     }
 
-    logger.debug('Setting up realtime subscription for decision makers', { search_id: currentSearch.id });
-    currentSearchIdRef.current = currentSearch.id;
+    logger.debug('Setting up realtime subscription for decision makers', { search_id: currentSearchId });
+    currentSearchIdRef.current = currentSearchId;
 
     const channel = supabase
-      .channel(`decision-makers-${currentSearch.id}`)
+      .channel(`decision-makers-${currentSearchId}`)
       .on('postgres_changes', 
         { 
           event: 'INSERT', 
           schema: 'public', 
           table: 'decision_makers',
-          filter: `search_id=eq.${currentSearch.id}`
+          filter: `search_id=eq.${currentSearchId}`
         }, 
         (payload) => {
           logger.debug('New decision maker inserted', { id: (payload.new as any)?.id });
@@ -200,7 +185,7 @@ export default function DecisionMakerMapping() {
           event: 'UPDATE',
           schema: 'public',
           table: 'decision_makers',
-          filter: `search_id=eq.${currentSearch.id}`
+          filter: `search_id=eq.${currentSearchId}`
         },
         (payload) => {
           logger.debug('Decision maker updated (enrichment)', { id: (payload.new as any)?.id });
@@ -246,12 +231,11 @@ export default function DecisionMakerMapping() {
         currentSearchIdRef.current = null;
       }
     };
-  }, [getCurrentSearch, authState.user, isDemoUser]);
+  }, [currentSearch?.id, authState.user?.id, authState.user?.email, isDemoUser]);
 
   const loadDecisionMakers = useCallback(async () => {
     setIsLoading(true);
     try {
-      const currentSearch = getCurrentSearch();
       const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
       
       if (isDemo) {
@@ -315,12 +299,12 @@ export default function DecisionMakerMapping() {
     } finally {
       setIsLoading(false);
     }
-  }, [getCurrentSearch, authState.user, isDemoUser]);
+  }, [currentSearch?.id, authState.user?.id, authState.user?.email, isDemoUser]);
 
   // Load data on component mount (after loadDecisionMakers is declared)
   useEffect(() => {
     loadDecisionMakers();
-  }, [getCurrentSearch, authState.user, loadDecisionMakers]);
+  }, [currentSearch?.id, authState.user?.id, authState.user?.email, loadDecisionMakers]);
 
   // Show a toast the first time profiles arrive
   const prevCountRef = useRef<number>(0);
@@ -766,6 +750,19 @@ export default function DecisionMakerMapping() {
 
   return (
     <div className="space-y-8">
+      {showEmpty && (
+        <div className="flex items-center justify-center min-h-96">
+          <div className="text-center max-w-md">
+            <UserCheck className="w-24 h-24 text-gray-300 mx-auto mb-6" />
+            <h3 className="text-2xl font-semibold text-gray-900 mb-4">No Decision Makers</h3>
+            <p className="text-gray-600 mb-8">No decision makers were generated for this search.</p>
+            <button onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'search' }))} className="inline-flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+              <Plus className="w-5 h-5" />
+              <span>Start New Search</span>
+            </button>
+          </div>
+        </div>
+      )}
       {showFirstArrivalToast && (
         <div className="fixed bottom-6 right-6 z-50 bg-white border border-blue-200 shadow-lg rounded-lg px-4 py-3 text-sm text-blue-800">
           New decision maker profiles are arriving…

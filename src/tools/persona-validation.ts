@@ -105,69 +105,118 @@ export function sanitizePersona(
   index: number,
   ctx: SearchContext
 ): AnyPersona {
+  const cleanText = (s: any): string => typeof s === 'string' ? s.replace(/[\n\r]+/g, ' ').replace(/\s+/g, ' ').replace(/^"+|"+$/g, '').trim() : '';
+  const coerceStringArray = (v: any): string[] => {
+    if (Array.isArray(v)) {
+      const out = v
+        .map((x: any) => typeof x === 'string' ? cleanText(x) : (x && typeof x.text === 'string' ? cleanText(x.text) : ''))
+        .filter((s: string) => s.length > 0);
+      return out;
+    }
+    if (typeof v === 'string') {
+      const s = cleanText(v);
+      return s ? [s] : [];
+    }
+    return [];
+  };
+  const coerceNumber = (v: any): number => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string') {
+      const n = parseFloat(v.replace(/[^0-9.\-]+/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  };
   if (type === 'business') {
-    // Drop generator fallbacks; enforce LLM-provided values only
+    const firstIndustry = Array.isArray((ctx as any)?.industries) && (ctx as any).industries.length ? String((ctx as any).industries[0]) : 'General';
+    const firstCountry = Array.isArray((ctx as any)?.countries) && (ctx as any).countries.length ? String((ctx as any).countries[0]) : 'Global';
+    const title = cleanText(p?.title) || `Buyer Archetype ${index + 1}`;
+    const demographics = {
+      industry: cleanText(p?.demographics?.industry) || firstIndustry,
+      companySize: cleanText(p?.demographics?.companySize) || 'Mid-Market',
+      geography: cleanText(p?.demographics?.geography) || firstCountry,
+      revenue: cleanText(p?.demographics?.revenue) || '$1M–$10M'
+    };
+    const characteristics = {
+      painPoints: coerceStringArray(p?.characteristics?.painPoints).length ? coerceStringArray(p?.characteristics?.painPoints) : ['Fragmented tooling', 'Manual workflows'],
+      motivations: coerceStringArray(p?.characteristics?.motivations).length ? coerceStringArray(p?.characteristics?.motivations) : ['Operational efficiency', 'Revenue growth'],
+      challenges: coerceStringArray(p?.characteristics?.challenges).length ? coerceStringArray(p?.characteristics?.challenges) : ['Limited budget', 'Integration complexity'],
+      decisionFactors: coerceStringArray(p?.characteristics?.decisionFactors).length ? coerceStringArray(p?.characteristics?.decisionFactors) : ['ROI within 6 months', 'Ease of integration']
+    };
+    const behaviors = {
+      buyingProcess: cleanText(p?.behaviors?.buyingProcess) || 'Research → Shortlist → Demo → Pilot → Procurement',
+      decisionTimeline: cleanText(p?.behaviors?.decisionTimeline) || '1–3 months',
+      budgetRange: cleanText(p?.behaviors?.budgetRange) || '$10k–$100k',
+      preferredChannels: coerceStringArray(p?.behaviors?.preferredChannels).length ? coerceStringArray(p?.behaviors?.preferredChannels) : ['Email', 'LinkedIn']
+    };
+    const market_potential = {
+      totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies) ? p.market_potential.totalCompanies : 100,
+      avgDealSize: cleanText(p?.market_potential?.avgDealSize) || '$25k',
+      conversionRate: isPositiveNumber(p?.market_potential?.conversionRate) ? p.market_potential.conversionRate : 3
+    };
+    const locations = Array.isArray(p?.locations) && p.locations.length ? p.locations : [firstCountry];
+
     return {
-      title: String(p?.title || ''),
+      title,
       rank: typeof p?.rank === 'number' ? p.rank : index + 1,
       match_score: typeof p?.match_score === 'number' ? p.match_score : 85,
-      demographics: {
-        industry: String(p?.demographics?.industry || ''),
-        companySize: String(p?.demographics?.companySize || ''),
-        geography: String(p?.demographics?.geography || ''),
-        revenue: String(p?.demographics?.revenue || '')
-      },
-      characteristics: {
-        painPoints: Array.isArray(p?.characteristics?.painPoints) ? p.characteristics.painPoints : [],
-        motivations: Array.isArray(p?.characteristics?.motivations) ? p.characteristics.motivations : [],
-        challenges: Array.isArray(p?.characteristics?.challenges) ? p.characteristics.challenges : [],
-        decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) ? p.characteristics.decisionFactors : []
-      },
-      behaviors: {
-        buyingProcess: String(p?.behaviors?.buyingProcess || ''),
-        decisionTimeline: String(p?.behaviors?.decisionTimeline || ''),
-        budgetRange: String(p?.behaviors?.budgetRange || ''),
-        preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) ? p.behaviors.preferredChannels : []
-      },
-      market_potential: {
-        totalCompanies: typeof p?.market_potential?.totalCompanies === 'number' ? p.market_potential.totalCompanies : 0,
-        avgDealSize: String(p?.market_potential?.avgDealSize || ''),
-        conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 0
-      },
-      locations: Array.isArray(p?.locations) ? p.locations : []
+      demographics,
+      characteristics,
+      behaviors,
+      market_potential,
+      locations
     } as BusinessPersona;
   }
   // dm persona - do not inject generic defaults; require model to provide specifics
+  const title = cleanText(p?.title);
+  const d = p?.demographics || {};
+  const demographics = {
+    level: cleanText(d.level || d.seniority || d.seniority_level || d.role_level),
+    department: cleanText(d.department || d.dept || d.function || d.division),
+    experience: cleanText(d.experience || d.yearsExperience || d.years_experience || d.exp),
+    geography: cleanText(d.geography || d.region || d.country || d.location || d.geo)
+  };
+  const c = p?.characteristics || {};
+  const characteristics = {
+    responsibilities: coerceStringArray(c.responsibilities || c.key_responsibilities || c.primary_responsibilities || c.responsibility),
+    painPoints: coerceStringArray(c.painPoints || c.pain_points),
+    motivations: coerceStringArray(c.motivations || c.drivers || c.goals),
+    challenges: coerceStringArray(c.challenges || c.blockers),
+    decisionFactors: coerceStringArray(c.decisionFactors || c.decision_factors || c.buying_criteria)
+  };
+  const b = p?.behaviors || {};
+  const behaviors = {
+    decisionMaking: cleanText(b.decisionMaking || b.decision_making || b.decisionStyle),
+    communicationStyle: cleanText(b.communicationStyle || b.communication_style),
+    buyingProcess: cleanText(b.buyingProcess || b.buying_process || b.procurement_process || b.purchasing_process),
+    preferredChannels: coerceStringArray(b.preferredChannels || b.preferred_channels || b.channels || b.contact_channels)
+  };
+  const mp = p?.market_potential || p?.marketPotential || {};
+  const market_potential = {
+    totalDecisionMakers: coerceNumber(mp.totalDecisionMakers || mp.total_decision_makers || mp.count || mp.num_profiles),
+    avgInfluence: coerceNumber(mp.avgInfluence || mp.avg_influence || mp.average_influence || mp.influence),
+    conversionRate: coerceNumber(mp.conversionRate || mp.conversion_rate || mp.conversion || mp.cr)
+  };
+  // Heuristic match score if missing/too low: base on product_service keywords coverage
+  const product = (ctx as any)?.product_service ? String((ctx as any).product_service) : '';
+  const keywords = product.toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  const haystack = [title,
+    demographics.level, demographics.department, demographics.experience, demographics.geography,
+    behaviors.decisionMaking, behaviors.communicationStyle, behaviors.buyingProcess,
+    ...characteristics.responsibilities, ...characteristics.decisionFactors, ...characteristics.painPoints, ...characteristics.motivations
+  ].join(' ').toLowerCase();
+  const hits = keywords.length ? keywords.filter(k => haystack.includes(k)).length : 0;
+  const keywordScore = keywords.length ? Math.min(95, Math.max(65, Math.round(65 + (hits / keywords.length) * 30))) : 0;
+  const baseScore = typeof p?.match_score === 'number' ? p.match_score : coerceNumber(p?.match_score);
+  const finalScore = baseScore && baseScore > 0 ? baseScore : keywordScore;
   return {
-    title: String(p?.title || ''),
+    title,
     rank: typeof p?.rank === 'number' ? p.rank : index + 1,
-    match_score: typeof p?.match_score === 'number' ? p.match_score : 0,
-    demographics: {
-      level: String(p?.demographics?.level || ''),
-      department: String(p?.demographics?.department || ''),
-      experience: String(p?.demographics?.experience || ''),
-      geography: String(p?.demographics?.geography || '')
-    },
-    characteristics: {
-      responsibilities: Array.isArray(p?.characteristics?.responsibilities) ? p.characteristics.responsibilities : [],
-      painPoints: Array.isArray(p?.characteristics?.painPoints) ? p.characteristics.painPoints : [],
-      motivations: Array.isArray(p?.characteristics?.motivations) ? p.characteristics.motivations : [],
-      challenges: Array.isArray(p?.characteristics?.challenges) ? p.characteristics.challenges : [],
-      decisionFactors: Array.isArray(p?.characteristics?.decisionFactors) ? p.characteristics.decisionFactors : []
-    },
-    behaviors: {
-      decisionMaking: String(p?.behaviors?.decisionMaking || ''),
-      communicationStyle: String(p?.behaviors?.communicationStyle || ''),
-      buyingProcess: String(p?.behaviors?.buyingProcess || ''),
-      preferredChannels: Array.isArray(p?.behaviors?.preferredChannels) ? p.behaviors.preferredChannels : []
-    },
-    market_potential: {
-      totalDecisionMakers: typeof p?.market_potential?.totalDecisionMakers === 'number'
-        ? p.market_potential.totalDecisionMakers
-        : 0,
-      avgInfluence: typeof p?.market_potential?.avgInfluence === 'number' ? p.market_potential.avgInfluence : 0,
-      conversionRate: typeof p?.market_potential?.conversionRate === 'number' ? p.market_potential.conversionRate : 0
-    }
+    match_score: finalScore || 0,
+    demographics,
+    characteristics,
+    behaviors,
+    market_potential
   } as DMPersona;
 }
 

@@ -134,7 +134,8 @@ const linkedinSearchTool = tool({
 
             // Remove blocking enrichment: do not call fetchContactEnrichment here
             // Store employees immediately with enrichment_status: 'pending'
-            allEmployees.push(...employees);
+            // Cap to first 5 per query to avoid rate limits downstream
+            allEmployees.push(...employees.slice(0, 5));
           }
           // If search returned none, try a broader Google CSE pass with company filter
           if (!result || !result.success || !Array.isArray(result.items) || result.items.length === 0) {
@@ -154,7 +155,7 @@ const linkedinSearchTool = tool({
                   location: company_country || 'Unknown',
                   enrichment_status: 'pending'
                 }));
-              allEmployees.push(...employees);
+              allEmployees.push(...employees.slice(0, 5));
             }
           }
 
@@ -205,8 +206,9 @@ const linkedinSearchTool = tool({
       const uniqueEmployees = allEmployees.filter((employee, index, self) => 
         index === self.findIndex(e => e.linkedin === employee.linkedin)
       );
-      
-       return { employees: uniqueEmployees.slice(0, 10) }; // Limit to 10 per company
+      // Final cap: env-configurable (defaults to 5)
+      const cap = Number(process.env.LINKEDIN_MAX_EMPLOYEES_PER_COMPANY || 5);
+      return { employees: uniqueEmployees.slice(0, Math.max(1, cap)) };
       
       } catch (error) {
       const endTime = Date.now();
@@ -341,9 +343,15 @@ const storeDMsTool = tool({
           default: return 50;
         }
       };
-      const level = mappedPersona?.demographics?.level || deriveLevel(emp.title);
+      const levelRaw = String(mappedPersona?.demographics?.level || deriveLevel(emp.title) || 'manager').toLowerCase();
+      const normalizedLevel = ((): 'executive'|'director'|'manager'|'individual' => {
+        if (/(chief|cfo|ceo|cto|coo|cmo|cio|evp|svp|president|founder)/.test(levelRaw)) return 'executive';
+        if (/(vp\b|vice|director|head)/.test(levelRaw)) return 'director';
+        if (/(manager|lead|supervisor)/.test(levelRaw)) return 'manager';
+        return 'individual';
+      })();
       const department = mappedPersona?.demographics?.department || deriveDepartment(emp.title);
-      const influence = typeof mappedPersona?.influence === 'number' ? mappedPersona.influence : deriveInfluence(level);
+      const influence = typeof mappedPersona?.influence === 'number' ? mappedPersona.influence : deriveInfluence(normalizedLevel);
       const persona_type = mappedPersona?.title || 'decision_maker';
       const match_score = typeof mappedPersona?.match_score === 'number'
         ? mappedPersona.match_score
@@ -368,7 +376,7 @@ const storeDMsTool = tool({
         persona_id: mappedPersona?.id || null,
         name: emp.name,
         title: emp.title,
-        level,
+        level: normalizedLevel,
         influence,
         department,
         company,
@@ -484,11 +492,22 @@ export async function runDMDiscoveryForBusiness(params: {
   industry: string;
   product_service?: string;
 }) {
+  // 1) Try deterministic Serper-based discovery FIRST to avoid LLM rate limits
+  try {
+    await runDeterministicDMDiscovery(params);
+    const seeded = await countDMsForBusiness(params.search_id, params.business_id);
+    if (seeded > 0) {
+      return { success: true, fallback: true } as any;
+    }
+  } catch (e: any) {
+    logger.warn('Deterministic DM discovery failed pre-agent, will try agent', { error: e?.message || String(e) });
+  }
+
+  // 2) If deterministic path produced none, attempt the agent with limited retries
   // Wait for DM personas with shorter timeout, proceed anyway if not ready
-  // Wait less but proceed; mapping to DM personas will happen after persona generation completes
   const personas = await waitForPersonas(params.search_id, 20000, 2000); // 20s timeout
   if (personas.length === 0) {
-  logger.warn('Proceeding with DM discovery without personas', { business_name: params.business_name });
+    logger.warn('Proceeding with DM discovery without personas', { business_name: params.business_name });
   }
 
   const message = `Find LinkedIn employees for this company immediately:
@@ -503,20 +522,17 @@ User ID: ${params.user_id}
 
 Search LinkedIn for executives and decision makers who would be involved in purchasing/using "${params.product_service || 'business solutions'}". Focus on relevant departments and roles that would influence buying decisions for this type of product/service. Store them with smart persona mapping.`;
 
-  // Retry on OpenAI 429 rate limits with backoff
   const MAX_ATTEMPTS = 3;
   let attempt = 0;
   let lastError: any;
   while (attempt < MAX_ATTEMPTS) {
     try {
       const result = await run(DMDiscoveryIndividualAgent, message);
-      // Post-run guard: if no DMs were inserted for this business, run deterministic fallback
       const dmCount = await countDMsForBusiness(params.search_id, params.business_id);
       if (dmCount === 0) {
         logger.warn('No DMs stored by agent; running deterministic fallback', { business_id: params.business_id });
         await runDeterministicDMDiscovery(params);
       }
-      // Do not attempt persona mapping here; a separate mapping step will run after personas are generated
       return result;
     } catch (err: any) {
       lastError = err;
@@ -530,13 +546,14 @@ Search LinkedIn for executives and decision makers who would be involved in purc
       throw err;
     }
   }
-  // If agent flow did not throw but also did not store, run deterministic fallback
-  // Fallback: run direct Serper queries and store results immediately
+
+  // 3) Final safeguard: deterministic fallback if agent could not run successfully
   try {
     await runDeterministicDMDiscovery(params);
     return { success: true, fallback: true } as any;
   } catch (e) {
-    throw lastError || e;
+    // Propagate the most relevant error (actual fallback error if present)
+    throw e || lastError;
   }
 }
 
@@ -612,6 +629,30 @@ async function runDeterministicDMDiscovery(params: {
     }
     // light delay
     await new Promise(r => setTimeout(r, 200));
+  }
+
+  // Extra broadening 1: company-only LinkedIn profiles (no title filter)
+  if (allEmployees.length === 0) {
+    const q = `site:linkedin.com/in/ "${business_name}" ${suffix ? ` ${suffix}` : ''}`.trim();
+    const r = await serperSearch(q, company_country, 10);
+    if (r && r.success && Array.isArray(r.items)) {
+      const emps = r.items
+        .filter((item: SerperItem) => item.link?.includes('linkedin.com/in/'))
+        .map((item: SerperItem): Employee => ({
+          name: extractNameFromLinkedInTitle(item.title || ''),
+          title: extractTitleFromLinkedInTitle(item.title || ''),
+          company: business_name,
+          linkedin: item.link!,
+          email: null,
+          phone: null,
+          bio: item.snippet || '',
+          location: company_country || 'Unknown',
+          enrichment_status: 'pending'
+        }));
+      for (const emp of emps) {
+        if (!existing.has(emp.linkedin)) allEmployees.push(emp);
+      }
+    }
   }
 
   if (allEmployees.length === 0) {

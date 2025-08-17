@@ -150,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
       // Check if this is demo login (moved to env-configured email only)
-      if (email === (process.env.VITE_DEMO_EMAIL || DEMO_USER_EMAIL)) {
+      if (email === ((import.meta as any).env?.VITE_DEMO_EMAIL || DEMO_USER_EMAIL)) {
         const user: User = {
           id: 'demo-user',
           email: email,

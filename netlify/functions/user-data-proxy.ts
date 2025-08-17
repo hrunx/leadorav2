@@ -10,10 +10,9 @@ function buildCorsHeaders(origin?: string, requestHeaders?: string, requestMetho
   const allowMethods = (requestMethod && requestMethod.length > 0)
     ? requestMethod
     : 'GET, POST, OPTIONS, PUT, PATCH, DELETE';
-  const hasOrigin = !!origin && String(origin).length > 0;
-  const finalOrigin = hasOrigin ? String(origin) : '*';
+  const allowedOrigin = (origin && origin.trim().length > 0) ? String(origin) : '*';
   const headers: Record<string, string> = {
-    'Access-Control-Allow-Origin': finalOrigin,
+    'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Headers': allowHeaders,
     'Access-Control-Allow-Methods': allowMethods,
     'Access-Control-Max-Age': '86400',
@@ -23,8 +22,7 @@ function buildCorsHeaders(origin?: string, requestHeaders?: string, requestMetho
     'Timing-Allow-Origin': '*',
     'Vary': 'Origin'
   };
-  // Credentials are only valid if a specific origin is echoed back
-  if (hasOrigin) headers['Access-Control-Allow-Credentials'] = 'true';
+  // Do not set Allow-Credentials to keep wildcard origin valid across browsers
   return headers;
 }
 

@@ -294,11 +294,13 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     logger.info('Starting persona mapping', { searchId });
 
     // Ensure business personas exist before mapping
-    // Abort quickly if the search has been cancelled
+    // Abort quickly if the search is not active (completed/failed/cancelled)
+    let searchStatus: string | undefined = undefined;
     try {
-      const { data: s } = await supa.from('user_searches').select('status').eq('id', searchId).single();
-      if (s?.status === 'cancelled') {
-        logger.info('Skipping persona mapping due to cancelled search', { searchId });
+      const { data: s } = await supa.from('user_searches').select('status,phase').eq('id', searchId).single();
+      searchStatus = s?.status;
+      if (s && s.status && s.status !== 'in_progress') {
+        logger.info('Skipping persona mapping due to non-active status', { searchId, status: s.status });
         return;
       }
     } catch {}
@@ -309,6 +311,10 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
       .eq('search_id', searchId)
       .limit(1);
     if (!personaCheck || personaCheck.length === 0) {
+      if (searchStatus && searchStatus !== 'in_progress') {
+        logger.info('Not scheduling persona mapping deferral because search is not active', { searchId, status: searchStatus });
+        return;
+      }
       const attempts = (mappingAttempts.get(searchId) || 0) + 1;
       mappingAttempts.set(searchId, attempts);
       if (attempts > 12) { // ~1 minute max

@@ -255,24 +255,32 @@ export async function runDMPersonas(search: {
 - lens=${search.search_type==='customer'?'buyers/implementers':'category owners / category managers / sales leaders'}
 
 CRITICAL: Each persona must have:
-- Realistic, industry-specific, non-generic, non-default, non-empty values for every field.
-- No field may be 'Unknown', 'N/A', 'Default', or empty.
-- Use plausible role titles, levels, departments, experience, geographies, responsibilities, pain points, motivations, challenges, decision factors, decision making, communication styles, buying processes, preferred channels, and market potential for the given industry/country/product.
-- If you cannot fill a field, infer a plausible value based on industry/country context.
-- Do not repeat personas. Each must be unique and relevant.
-- Titles must be specific to ${search.product_service} and ${search.industries.join(', ')} in ${search.countries.join(', ')}; avoid generic 'Executive/Director/Manager' only titles.
-- Avoid generic placeholder lists like ['Budget','Time']; provide concrete, role-relevant items.
-- Output as a JSON object {"personas": [ ...3 items... ]}.`;
+- Realistic, non-generic, non-empty values for every field. No 'Unknown', 'N/A', or placeholders.
+- Arrays must contain at least 3 items: responsibilities, painPoints, motivations, challenges, decisionFactors, preferredChannels.
+- Numbers must be positive: totalDecisionMakers (> 0), avgInfluence (50-100), conversionRate (1-25), match_score (70-100).
+- Titles must be specific to ${search.product_service} for ${search.industries.join(', ')} in ${search.countries.join(', ')}; avoid generic-only titles.
+- Provide role-relevant, concrete list items (avoid ['Budget','Time']).
+
+Return ONLY JSON: {"personas": [ ...exactly 3 persona objects... ]}.`;
     // Sequential fallback: GPT -> Gemini -> DeepSeek, with JSON extraction and sanitization
     const tryParsePersonas = (text: string): any[] => {
       try {
         const obj = JSON.parse(text || '{}');
-        return Array.isArray((obj as any)?.personas) ? (obj as any).personas as any[] : [];
+        if (Array.isArray((obj as any)?.personas)) return (obj as any).personas as any[];
+        if (Array.isArray((obj as any))) return obj as any[];
+        // Sometimes models return an object with numbered keys
+        const vals = Object.values(obj || {});
+        if (vals.length && vals.every(v => typeof v === 'object')) return vals as any[];
+        return [];
       } catch {
         const ex = extractJson(text);
         try {
           const obj = typeof ex === 'string' ? JSON.parse(ex) : ex;
-          return Array.isArray((obj as any)?.personas) ? (obj as any).personas as any[] : [];
+          if (Array.isArray((obj as any)?.personas)) return (obj as any).personas as any[];
+          if (Array.isArray((obj as any))) return obj as any[];
+          const vals = Object.values(obj || {});
+          if (vals.length && vals.every(v => typeof v === 'object')) return vals as any[];
+          return [];
         } catch { return []; }
       }
     };
@@ -280,7 +288,44 @@ CRITICAL: Each persona must have:
     const acceptPersonas = (arr: any[]): LocalDMPersona[] => {
       const three = (arr || []).slice(0,3);
       if (three.length !== 3) return [];
-      return three.map((p, i) => sanitizePersona('dm', p, i, search));
+      // sanitize and coerce types/arrays; also compute match_score heuristics if 0
+      const out = three.map((p, i) => sanitizePersona('dm', p, i, search) as any);
+      return out as LocalDMPersona[];
+    };
+
+    // One-pass repair to fill missing/empty lists and enforce numeric ranges (LLM-only)
+    const repairPersonas = async (arr: LocalDMPersona[]): Promise<LocalDMPersona[]> => {
+      const prompt = `Repair these 3 decision-maker personas so they fully satisfy the schema and constraints. 
+Keep titles and essence, but fill any missing fields and ensure arrays have at least 3 concrete items, and numeric ranges are valid.
+Context: product_service=${search.product_service}; industries=${search.industries.join(', ')}; countries=${search.countries.join(', ')}.
+Return ONLY JSON: {"personas": [ ...3 items... ]}
+Personas: ${JSON.stringify(arr)}`;
+      // Try GPT-5 then Gemini then DeepSeek
+      try {
+        const text = await callOpenAIChatJSON({
+          model: resolveModel('primary'),
+          system: 'You output ONLY valid JSON object {"personas": [...]} with exactly 3 items.',
+          user: prompt,
+          temperature: 0.2,
+          maxTokens: 1200,
+          requireJsonObject: true,
+          timeoutMs: 15000,
+          retries: 1,
+        });
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) return accepted;
+      } catch {}
+      try {
+        const text = await callGeminiText('gemini-2.0-flash', prompt, 15000, 1);
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) return accepted;
+      } catch {}
+      try {
+        const text = await callDeepseekChatJSON({ user: prompt, temperature: 0.3, maxTokens: 1200, timeoutMs: 15000, retries: 0 });
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) return accepted;
+      } catch {}
+      return arr;
     };
 
     const ensureProductServiceKeywords = async (arr: LocalDMPersona[]): Promise<LocalDMPersona[]> => {
@@ -329,7 +374,9 @@ CRITICAL: Each persona must have:
       isNonEmptyString(p.behaviors.decisionMaking) &&
       isNonEmptyString(p.behaviors.communicationStyle) &&
       isNonEmptyString(p.behaviors.buyingProcess) &&
-      isNonEmptyStringArray(p.behaviors.preferredChannels);
+      isNonEmptyStringArray(p.behaviors.preferredChannels) &&
+      // Require meaningful score after sanitization
+      typeof p.match_score === 'number' && p.match_score >= 65;
     const validatePersonas = (arr: LocalDMPersona[]) => {
       const valid: LocalDMPersona[] = [];
       const rejected: LocalDMPersona[] = [];
@@ -346,11 +393,18 @@ CRITICAL: Each persona must have:
         temperature: 0.3,
         maxTokens: 1400,
         requireJsonObject: true,
-        verbosity: 'low'
+        verbosity: 'low',
+        timeoutMs: 20000,
+        retries: 1,
       });
 
       const accepted = acceptPersonas(tryParsePersonas(text));
-      const { valid, rejected } = validatePersonas(accepted);
+      let { valid, rejected } = validatePersonas(accepted);
+      if (valid.length !== 3) {
+        const repaired = await repairPersonas(accepted);
+        const v2 = validatePersonas(repaired);
+        valid = v2.valid; rejected.push(...v2.rejected);
+      }
       if (rejected.length) rejectedPersonas.push(...rejected);
       if (valid.length === 3) personas = await ensureProductServiceKeywords(valid);
 
@@ -358,10 +412,15 @@ CRITICAL: Each persona must have:
     if (!personas.length) {
       // 2) Gemini fallback
       try {
-        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }');
+        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 20000, 1);
 
         const accepted = acceptPersonas(tryParsePersonas(text));
-        const { valid, rejected } = validatePersonas(accepted);
+        let { valid, rejected } = validatePersonas(accepted);
+        if (valid.length !== 3) {
+          const repaired = await repairPersonas(accepted);
+          const v2 = validatePersonas(repaired);
+          valid = v2.valid; rejected.push(...v2.rejected);
+        }
         if (rejected.length) rejectedPersonas.push(...rejected);
         if (valid.length === 3) personas = await ensureProductServiceKeywords(valid);
 
@@ -370,10 +429,15 @@ CRITICAL: Each persona must have:
     if (!personas.length) {
       // 3) DeepSeek fallback
       try {
-        const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200 });
+        const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.3, maxTokens: 1500, timeoutMs: 20000, retries: 0 });
 
         const accepted = acceptPersonas(tryParsePersonas(text));
-        const { valid, rejected } = validatePersonas(accepted);
+        let { valid, rejected } = validatePersonas(accepted);
+        if (valid.length !== 3) {
+          const repaired = await repairPersonas(accepted);
+          const v2 = validatePersonas(repaired);
+          valid = v2.valid; rejected.push(...v2.rejected);
+        }
         if (rejected.length) rejectedPersonas.push(...rejected);
         if (valid.length === 3) personas = await ensureProductServiceKeywords(valid);
       } catch {}
@@ -409,7 +473,11 @@ CRITICAL: Each persona must have:
         title: p.title,
         rank: p.rank,
         match_score: p.match_score,
-        demographics: p.demographics || {},
+        demographics: p.demographics ? { 
+          ...p.demographics,
+          // fix duplicated department like "Technology Technology"
+          department: String(p.demographics.department || '').replace(/\b(\w+)\s+\1\b/i, '$1')
+        } : {},
         characteristics: p.characteristics || {},
         behaviors: p.behaviors || {},
         market_potential: p.market_potential || {}
@@ -423,67 +491,10 @@ CRITICAL: Each persona must have:
         .catch(() => {});
       return;
     }
-    // All LLMs failed, insert 3 deterministic DM personas
-    import('../lib/logger').then(({ default: logger }) => logger.error('[DMPersona] All LLMs failed, inserting deterministic personas', { search_id: search.id })).catch(()=>{});
-    const [countryA] = search.countries.length ? search.countries : ['Global'];
-
-    const [industryA] = search.industries.length ? search.industries : ['General'];
-    // Tailor fallback personas to search context so results remain relevant even without model output
-    const deptTemplates = [`${industryA} Technology`, `${industryA} Operations`, `${industryA} Procurement`];
-    const levelTemplates = [`executive (${countryA})`, `director (${countryA})`, `manager (${countryA})`];
-    const fallback: LocalDMPersona[] = [
-      {
-        title: 'Chief Technology Officer',
-        rank: 1,
-        match_score: 92,
-        demographics: { level: levelTemplates[0], department: deptTemplates[0], experience: '15+ years', geography: countryA },
-        characteristics: { responsibilities: ['Technology strategy','Digital transformation'], painPoints: ['Legacy','Security'], motivations: ['Innovation','Efficiency'], challenges: ['Budget','Talent'], decisionFactors: ['Alignment','Scalability'] },
-        behaviors: { decisionMaking: 'Strategic', communicationStyle: 'High-level', buyingProcess: 'Committee', preferredChannels: ['Executive briefings','Conferences'] },
-        market_potential: { totalDecisionMakers: 1500, avgInfluence: 90, conversionRate: 8 }
-      },
-      {
-        title: 'VP Operations',
-        rank: 2,
-        match_score: 88,
-        demographics: { level: levelTemplates[1], department: deptTemplates[1], experience: '10+ years', geography: countryA },
-        characteristics: { responsibilities: ['Process optimization','Cost control'], painPoints: ['Inefficiency','Downtime'], motivations: ['Throughput','Quality'], challenges: ['Change mgmt','ROI'], decisionFactors: ['Impact','Time-to-value'] },
-        behaviors: { decisionMaking: 'Data-driven', communicationStyle: 'Concise', buyingProcess: 'Cross-functional', preferredChannels: ['Demos','Case studies'] },
-        market_potential: { totalDecisionMakers: 3000, avgInfluence: 75, conversionRate: 12 }
-      },
-      {
-        title: 'Head of Procurement',
-        rank: 3,
-        match_score: 84,
-        demographics: { level: levelTemplates[2], department: deptTemplates[2], experience: 'mid-senior', geography: countryA },
-        characteristics: { responsibilities: ['Vendor selection','Negotiation'], painPoints: ['Compliance','Costs'], motivations: ['Savings','Reliability'], challenges: ['Supplier risk','Integration'], decisionFactors: ['TCO','Compliance'] },
-        behaviors: { decisionMaking: 'Criteria-based', communicationStyle: 'Formal', buyingProcess: 'RFP/RFQ', preferredChannels: ['RFP','Email'] },
-        market_potential: { totalDecisionMakers: 5000, avgInfluence: 60, conversionRate: 15 }
-      }
-    ];
-
-    for (const p of fallback) {
-      if (!validateDMPersona(p)) {
-        import('../lib/logger')
-          .then(({ default: logger }) => logger.error('Fallback DM persona validation failed', { errors: validateDMPersona.errors, persona: p }))
-          .catch(() => {});
-        throw new Error('Invalid fallback DM persona.');
-      }
-    }
-    const rows = fallback.map((p: LocalDMPersona) => ({
-      search_id: search.id,
-      user_id: search.user_id,
-      title: p.title,
-      rank: p.rank,
-      match_score: p.match_score,
-      demographics: p.demographics,
-      characteristics: p.characteristics,
-      behaviors: p.behaviors,
-      market_potential: p.market_potential
-    }));
-    await insertDMPersonas(rows);
-    await updateSearchProgress(search.id, 20, 'dm_personas');
-
-    import('../lib/logger').then(({ default: logger }) => logger.info('Inserted deterministic DM personas', { search_id: search.id })).catch(()=>{});
+    // All LLMs failed; do not insert any personas. Log and exit.
+    import('../lib/logger')
+      .then(({ default: logger }) => logger.error('[DMPersona] All LLMs failed with strict validation; no personas inserted', { search_id: search.id }))
+      .catch(() => {});
   } catch (error) {
   import('../lib/logger').then(({ default: logger }) => logger.error('DM persona generation failed', { search_id: search.id, error: (error as any)?.message || error })).catch(()=>{});
     throw error;

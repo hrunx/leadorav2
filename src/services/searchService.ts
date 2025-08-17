@@ -294,12 +294,13 @@ export class SearchService {
     // Proxy-first to avoid CORS/RLS issues in browsers
       try {
         const response = await fetch(`${this.functionsBase}/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-        if (!response.ok) return [];
-        const arr = await response.json();
-        return (Array.isArray(arr) ? arr : []) as any;
-      } catch {
-        return [];
-      }
+        if (response.ok) {
+          const arr = await response.json();
+          return (Array.isArray(arr) ? arr : []) as any;
+        }
+      } catch {}
+      // Do not fall back to direct Supabase in the browser to avoid CORS errors
+      return [] as any;
   }
 
   // Check if user should see demo data
@@ -360,12 +361,12 @@ export class SearchService {
     // Proxy-first
     try {
       const response = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (!response.ok) return [];
-      const arr = await response.json();
-      return (Array.isArray(arr) ? arr : []) as any;
-    } catch {
-      return [];
-    }
+      if (response.ok) {
+        const arr = await response.json();
+        return (Array.isArray(arr) ? arr : []) as any;
+      }
+    } catch {}
+    return [] as any;
   }
 
   // Get decision maker personas for a search (agents generate them automatically)
@@ -407,12 +408,12 @@ export class SearchService {
     // Proxy-first
     try {
       const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (!response.ok) return [];
-      const arr = await response.json();
-      return (Array.isArray(arr) ? arr : []) as any;
-    } catch {
-      return [];
-    }
+      if (response.ok) {
+        const arr = await response.json();
+        return (Array.isArray(arr) ? arr : []) as any;
+      }
+    } catch {}
+    return [] as any;
   }
 
   // Get decision makers for a search (agents generate them automatically via LinkedIn)
@@ -466,12 +467,12 @@ export class SearchService {
     // Proxy-first
     try {
       const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (!response.ok) return [];
-      const arr = await response.json();
-      return (Array.isArray(arr) ? arr : []) as any;
-    } catch {
-      return [];
-    }
+      if (response.ok) {
+        const arr = await response.json();
+        return (Array.isArray(arr) ? arr : []) as any;
+      }
+    } catch {}
+    return [] as any;
   }
 
   // Get market insights for a search (agents generate them automatically via Gemini)
@@ -515,12 +516,12 @@ export class SearchService {
     // Proxy-first
     try {
       const response = await fetch(`${this.functionsBase}/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (!response.ok) return null;
-      const arr = await response.json();
-      return (Array.isArray(arr) && arr.length > 0) ? (arr[0] as any) : null;
-    } catch {
-      return null;
-    }
+      if (response.ok) {
+        const arr = await response.json();
+        return (Array.isArray(arr) && arr.length > 0) ? (arr[0] as any) : null;
+      }
+    } catch {}
+    return null;
   }
 
   // Mock data generation methods (these would be replaced with actual AI generation)
