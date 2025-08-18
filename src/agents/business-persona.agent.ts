@@ -115,6 +115,22 @@ const storeBusinessPersonasTool = tool({
     try {
       const inserted = await insertBusinessPersonas(rows);
       result.inserted_count = Array.isArray(inserted) ? inserted.length : 0;
+      
+      // Trigger business-persona remapping after tool execution
+      if (inserted && Array.isArray(inserted) && inserted.length > 0) {
+        try {
+          const { intelligentPersonaMapping } = await import('../tools/persona-mapper');
+          void intelligentPersonaMapping(search_id).catch((err: any) =>
+            import('../lib/logger').then(({ default: logger }) =>
+              logger.warn('Post-tool persona remapping failed', { search_id, error: err?.message || err })
+            ).catch(() => {})
+          );
+        } catch (error: any) {
+          import('../lib/logger').then(({ default: logger }) =>
+            logger.warn('Failed to trigger post-tool persona remapping', { search_id, error: error?.message || error })
+          ).catch(() => {});
+        }
+      }
     } catch (error) {
       result.success = false;
       result.message = `Failed to insert personas: ${(error as Error).message}`;
@@ -225,6 +241,20 @@ export async function runBusinessPersonas(search: {
         await insertBusinessPersonas(rows);
         await updateSearchProgress(search.id, 10, 'business_personas');
         import('../lib/logger').then(({ default: logger }) => logger.info('Loaded business personas from cache', { search_id: search.id })).catch(()=>{});
+        
+        // Trigger business-persona remapping for cached personas
+        try {
+          const { intelligentPersonaMapping } = await import('../tools/persona-mapper');
+          void intelligentPersonaMapping(search.id).catch((err: any) =>
+            import('../lib/logger').then(({ default: logger }) =>
+              logger.warn('Post-cached persona remapping failed', { search_id: search.id, error: err?.message || err })
+            ).catch(() => {})
+          );
+        } catch (error: any) {
+          import('../lib/logger').then(({ default: logger }) =>
+            logger.warn('Failed to trigger cached persona remapping', { search_id: search.id, error: error?.message || error })
+          ).catch(() => {});
+        }
         return;
       }
     }
@@ -390,6 +420,20 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
       await insertBusinessPersonas(rows);
       await updateSearchProgress(search.id, 10, 'business_personas');
       import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
+      
+      // Trigger business-persona remapping after persona generation
+      try {
+        const { intelligentPersonaMapping } = await import('../tools/persona-mapper');
+        void intelligentPersonaMapping(search.id).catch((err: any) =>
+          import('../lib/logger').then(({ default: logger }) =>
+            logger.warn('Post-generation persona remapping failed', { search_id: search.id, error: err?.message || err })
+          ).catch(() => {})
+        );
+      } catch (error: any) {
+        import('../lib/logger').then(({ default: logger }) =>
+          logger.warn('Failed to trigger post-generation persona remapping', { search_id: search.id, error: error?.message || error })
+        ).catch(() => {});
+      }
       return;
     }
 

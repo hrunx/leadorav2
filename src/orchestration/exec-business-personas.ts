@@ -73,6 +73,16 @@ export async function execBusinessPersonas(payload: {
             await insertBusinessPersonas(rows);
             await updateSearchProgress(agentSearch.id, 15, 'business_personas');
             logger.info('Inserted minimal LLM personas', { search_id: agentSearch.id });
+            
+            // Trigger business-persona remapping after inserting new personas
+            try {
+              const { intelligentPersonaMapping } = await import('../tools/persona-mapper');
+              void intelligentPersonaMapping(agentSearch.id).catch((err: any) =>
+                logger.warn('Post-insertion persona mapping failed', { search_id: agentSearch.id, error: err?.message || err })
+              );
+            } catch (error: any) {
+              logger.warn('Failed to import persona mapping', { search_id: agentSearch.id, error: error?.message || error });
+            }
           }
         } catch (e: any) {
           logger.warn('Minimal LLM personas parse failed', { search_id: agentSearch.id, error: e?.message || e });

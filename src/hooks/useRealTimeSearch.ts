@@ -126,9 +126,30 @@ export function useRealTimeSearch(searchId: string | null) {
     }
   }, []);
 
+  // Track active subscriptions for cleanup
+  const subscriptionsRef = useRef<any[]>([]);
+  
   // Set up real-time subscriptions
   useEffect(() => {
-    if (!searchId) return;
+    if (!searchId) {
+      // Clean up existing subscriptions when searchId becomes null
+      subscriptionsRef.current.forEach(channel => {
+        logger.debug('Cleaning up subscription channel due to null searchId');
+        supabase.removeChannel(channel);
+      });
+      subscriptionsRef.current = [];
+      return;
+    }
+    
+    // Clean up existing subscriptions when searchId changes
+    if (subscriptionsRef.current.length > 0) {
+      logger.debug(`🧹 Cleaning up ${subscriptionsRef.current.length} existing subscriptions for new search: ${searchId}`);
+      subscriptionsRef.current.forEach(channel => {
+        supabase.removeChannel(channel);
+      });
+      subscriptionsRef.current = [];
+    }
+    
     // Reset state when searchId changes to avoid stale content
     hasLoadedOnceRef.current = false;
     setData({
@@ -155,7 +176,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for businesses (immediate updates)
     const businessesChannel = supabase
-      .channel(`businesses-changes-${searchId}`)
+      .channel(`businesses-changes-${searchId}-${Date.now()}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -193,7 +214,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for business personas
     const businessPersonasChannel = supabase
-      .channel(`business-personas-changes-${searchId}`)
+      .channel(`business-personas-changes-${searchId}-${Date.now()}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -220,7 +241,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for DM personas
     const dmPersonasChannel = supabase
-      .channel(`dm-personas-changes-${searchId}`)
+      .channel(`dm-personas-changes-${searchId}-${Date.now()}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -247,7 +268,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for decision makers (progressive loading)
     const decisionMakersChannel = supabase
-      .channel(`decision-makers-changes-${searchId}`)
+      .channel(`decision-makers-changes-${searchId}-${Date.now()}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -281,7 +302,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for market insights
     const marketInsightsChannel = supabase
-      .channel(`market-insights-changes-${searchId}`)
+      .channel(`market-insights-changes-${searchId}-${Date.now()}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -308,7 +329,7 @@ export function useRealTimeSearch(searchId: string | null) {
 
     // Real-time subscription for search progress
     const searchProgressChannel = supabase
-      .channel(`search-progress-changes-${searchId}`)
+      .channel(`search-progress-changes-${searchId}-${Date.now()}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
@@ -330,16 +351,25 @@ export function useRealTimeSearch(searchId: string | null) {
         if (status === 'CHANNEL_ERROR') logger.warn('Realtime subscription error: user_searches');
       });
 
+    // Store channels for cleanup
+    const channels = [
+      businessesChannel,
+      businessPersonasChannel, 
+      dmPersonasChannel,
+      decisionMakersChannel,
+      marketInsightsChannel,
+      searchProgressChannel
+    ];
+    subscriptionsRef.current = channels;
+    
     // Cleanup subscriptions
     return () => {
       logger.debug(`🧹 Cleaning up real-time subscriptions for search: ${searchId}`);
       
-      supabase.removeChannel(businessesChannel);
-      supabase.removeChannel(businessPersonasChannel);
-      supabase.removeChannel(dmPersonasChannel);
-      supabase.removeChannel(decisionMakersChannel);
-      supabase.removeChannel(marketInsightsChannel);
-      supabase.removeChannel(searchProgressChannel);
+      channels.forEach(channel => {
+        supabase.removeChannel(channel);
+      });
+      subscriptionsRef.current = [];
     };
   }, [searchId, loadSearchData]);
 

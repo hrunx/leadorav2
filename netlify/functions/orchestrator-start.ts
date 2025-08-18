@@ -18,7 +18,7 @@ export const handler: Handler = async (event) => {
 
     // Call the background runner
     // Use local fallback when URL/DEPLOY_URL is not set (functions:serve/dev)
-    const base = process.env.URL || process.env.DEPLOY_URL || 'http://localhost:9999';
+    const base = process.env.URL || process.env.DEPLOY_URL || process.env.LOCAL_BASE_URL || 'http://localhost:8888';
     await fetch(`${base}/.netlify/functions/orchestrator-run-background`, {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },

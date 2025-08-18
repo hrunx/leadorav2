@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { UserCheck, Crown, Shield, User, Users, Target, TrendingUp, DollarSign, Star, ArrowRight, ChevronDown, ChevronUp, Eye, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
+import { useAuth } from '../../context/AuthContext';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
+import { isDemoUser } from '../../constants/demo';
 import type { DecisionMakerPersona as BackendDecisionMakerPersona, DecisionMaker } from '../../lib/supabase';
 
 // Extend the backend type for UI use
@@ -99,6 +101,7 @@ function asBehaviors(obj: unknown): { decisionMaking?: string; communicationStyl
 export default function DecisionMakerPersonas() {
   const { state, updateSelectedDecisionMakerPersonas } = useAppContext();
   const { getCurrentSearch } = useUserData();
+  const { state: authState } = useAuth();
   const currentSearch = getCurrentSearch();
   
   // Real-time data hook for progressive loading
@@ -110,7 +113,7 @@ export default function DecisionMakerPersonas() {
   const [expandedPersonas, setExpandedPersonas] = useState<string[]>([]);
   
   // Determine if we're in demo mode
-  const isDemo = false;
+  const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
   
   // Refactor demo persona logic: personas is always strictly DecisionMakerPersona[] for both demo and real users
   // Ensure all property accesses are safe and match the unified interface
