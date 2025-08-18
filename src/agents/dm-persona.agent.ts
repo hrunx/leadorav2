@@ -5,7 +5,7 @@ import { extractJson } from '../tools/json';
 
 import { sanitizePersona, isRealisticPersona, DMPersona } from '../tools/persona-validation';
 
-import Ajv, { JSONSchemaType } from 'ajv';
+import Ajv from 'ajv';
 
 interface LocalDMPersona {
   title: string;
@@ -45,62 +45,23 @@ interface StoreDMPersonasToolInput {
 
 const ajv = new Ajv({ allErrors: true });
 
-const dmPersonaSchema: JSONSchemaType<LocalDMPersona> = {
+// Relaxed validation: only require core fields; other objects optional and open
+const dmPersonaSchema: any = {
   type: 'object',
   properties: {
     title: { type: 'string' },
-    rank: { type: 'number' },
-    match_score: { type: 'number' },
-    demographics: {
-      type: 'object',
-      properties: {
-        level: { type: 'string' },
-        department: { type: 'string' },
-        experience: { type: 'string' },
-        geography: { type: 'string' }
-      },
-      required: ['level', 'department', 'experience', 'geography'],
-      additionalProperties: false
-    },
-    characteristics: {
-      type: 'object',
-      properties: {
-        responsibilities: { type: 'array', items: { type: 'string' } },
-        painPoints: { type: 'array', items: { type: 'string' } },
-        motivations: { type: 'array', items: { type: 'string' } },
-        challenges: { type: 'array', items: { type: 'string' } },
-        decisionFactors: { type: 'array', items: { type: 'string' } }
-      },
-      required: ['responsibilities', 'painPoints', 'motivations', 'challenges', 'decisionFactors'],
-      additionalProperties: false
-    },
-    behaviors: {
-      type: 'object',
-      properties: {
-        decisionMaking: { type: 'string' },
-        communicationStyle: { type: 'string' },
-        buyingProcess: { type: 'string' },
-        preferredChannels: { type: 'array', items: { type: 'string' } }
-      },
-      required: ['decisionMaking', 'communicationStyle', 'buyingProcess', 'preferredChannels'],
-      additionalProperties: false
-    },
-    market_potential: {
-      type: 'object',
-      properties: {
-        totalDecisionMakers: { type: 'number' },
-        avgInfluence: { type: 'number' },
-        conversionRate: { type: 'number' }
-      },
-      required: ['totalDecisionMakers', 'avgInfluence', 'conversionRate'],
-      additionalProperties: false
-    }
+    rank: { type: 'integer' },
+    match_score: { type: 'integer' },
+    demographics: { type: 'object', additionalProperties: true },
+    characteristics: { type: 'object', additionalProperties: true },
+    behaviors: { type: 'object', additionalProperties: true },
+    market_potential: { type: 'object', additionalProperties: true }
   },
-  required: ['title', 'rank', 'match_score', 'demographics', 'characteristics', 'behaviors', 'market_potential'],
+  required: ['title','rank','match_score'],
   additionalProperties: false
 };
 
-const validateDMPersona = ajv.compile<LocalDMPersona>(dmPersonaSchema);
+const validateDMPersona = ajv.compile(dmPersonaSchema);
 
 const storeDMPersonasTool = tool({
   name: 'storeDMPersonas',
@@ -111,72 +72,24 @@ const storeDMPersonasTool = tool({
       search_id: { type: 'string' },
       user_id: { type: 'string' },
       personas: {
-        type: 'array',
+        type: 'array', minItems: 1, maxItems: 5,
         items: {
           type: 'object',
           properties: {
             title: { type: 'string' },
             rank: { type: 'integer' },
             match_score: { type: 'integer' },
-            demographics: { 
-              type: 'object',
-              properties: {
-                level: { type: 'string' },
-                department: { type: 'string' },
-                experience: { type: 'string' },
-                geography: { type: 'string' }
-              },
-              required: ['level', 'department', 'experience', 'geography'],
-              additionalProperties: false 
-            },
-            characteristics: { 
-              type: 'object',
-              properties: {
-                responsibilities: { type: 'array', items: { type: 'string' } },
-                painPoints: { type: 'array', items: { type: 'string' } },
-                motivations: { type: 'array', items: { type: 'string' } },
-                challenges: { type: 'array', items: { type: 'string' } },
-                decisionFactors: { type: 'array', items: { type: 'string' } }
-              },
-              required: ['responsibilities', 'painPoints', 'motivations', 'challenges', 'decisionFactors'],
-              additionalProperties: false 
-            },
-            behaviors: { 
-              type: 'object',
-              properties: {
-                decisionMaking: { type: 'string' },
-                communicationStyle: { type: 'string' },
-                buyingProcess: { type: 'string' },
-                preferredChannels: { type: 'array', items: { type: 'string' } }
-              },
-              required: ['decisionMaking', 'communicationStyle', 'buyingProcess', 'preferredChannels'],
-              additionalProperties: false 
-            },
-            market_potential: { 
-              type: 'object',
-              properties: {
-                totalDecisionMakers: { type: 'number' },
-                avgInfluence: { type: 'number' },
-                conversionRate: { type: 'number' }
-              },
-              required: ['totalDecisionMakers', 'avgInfluence', 'conversionRate'],
-              additionalProperties: false 
-            }
+            demographics: { type: 'object', additionalProperties: true },
+            characteristics: { type: 'object', additionalProperties: true },
+            behaviors: { type: 'object', additionalProperties: true },
+            market_potential: { type: 'object', additionalProperties: true }
           },
-          required: [
-            'title',
-            'rank',
-            'match_score',
-            'demographics',
-            'characteristics',
-            'behaviors',
-            'market_potential'
-          ],
+          required: ['title','rank','match_score'],
           additionalProperties: false
         }
       }
     },
-    required: ['search_id', 'user_id', 'personas'],
+    required: ['search_id','user_id','personas'],
     additionalProperties: false
   } as const,
   strict: true,
