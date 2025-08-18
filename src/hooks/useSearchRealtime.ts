@@ -41,6 +41,7 @@ export function useSearchRealtime(searchId: string | null) {
 
     void initialLoad();
 
+    const dmCountRef = { current: 0 } as { current: number };
     const channel = supabase.channel(`search-${searchId}`);
     subs.push(channel.on('postgres_changes', { event: '*', schema: 'public', table: 'business_personas', filter: `search_id=eq.${searchId}` }, (payload) => {
       const row = payload.new as AnyRow;
@@ -55,18 +56,10 @@ export function useSearchRealtime(searchId: string | null) {
       const row = payload.new as AnyRow;
       setDecisionMakers((prev) => payload.eventType === 'DELETE' ? prev.filter(x => x.id !== payload.old?.id) : (prev.some(x => x.id === row.id) ? prev : [...prev, row]));
       setProgress((prev) => ({ ...prev, decision_makers_count: (prev.decision_makers_count || 0) + (payload.eventType === 'INSERT' ? 1 : 0) }));
+      dmCountRef.current += (payload.eventType === 'INSERT' ? 1 : 0);
     }).on('postgres_changes', { event: '*', schema: 'public', table: 'user_searches', filter: `id=eq.${searchId}` }, (payload) => {
       const row = payload.new as AnyRow;
-      setProgress(prev => ({
-        phase: row?.phase || 'starting',
-        progress_pct: row?.progress_pct || 0,
-        decision_makers_count: prev.decision_makers_count,
-
-      setProgress((prev) => ({
-        ...prev,
-        phase: row?.phase || 'starting',
-        progress_pct: row?.progress_pct || 0,
-      }));
+      setProgress({ phase: row?.phase || 'starting', progress_pct: row?.progress_pct || 0, decision_makers_count: dmCountRef.current });
     }).subscribe());
 
     return () => {
@@ -76,6 +69,8 @@ export function useSearchRealtime(searchId: string | null) {
   }, [searchId]);
 
   const getDecisionMakersForPersona = useMemo(() => (personaId: string) => decisionMakers.filter(dm => dm.persona_id === personaId), [decisionMakers]);
+
+  // No-op: hook exposes state and selector via memo; subscriptions live in the first effect
 
   return {
     isLoading: isLoading && !initialized.current,
