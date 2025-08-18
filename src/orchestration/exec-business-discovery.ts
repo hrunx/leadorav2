@@ -31,7 +31,8 @@ export async function execBusinessDiscovery(payload: {
     const after = await loadBusinesses(agentSearch.id);
     if (!after || after.length === 0) {
       // Try remote base first (if provided), then fallback to local dev base
-      const bases = [process.env.URL, process.env.DEPLOY_URL, 'http://localhost:9999'].filter(Boolean) as string[];
+      const localBase = process.env.LOCAL_BASE_URL || 'http://localhost:8888';
+      const bases = [process.env.URL, process.env.DEPLOY_URL, localBase].filter(Boolean) as string[];
       let ok = false;
       for (const b of bases) {
         try {

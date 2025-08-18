@@ -69,12 +69,9 @@ export default function DecisionMakerMapping() {
   const isDemoUser = useCallback((userId?: string | null, userEmail?: string | null) => userId === DEMO_USER_ID || userId === 'demo-user' || userEmail === DEMO_USER_EMAIL, []);
   const [filterPersona, setFilterPersona] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState<UIDecisionMaker | null>(null);
-  const [decisionMakers, setDecisionMakers] = useState<UIDecisionMaker[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasSearch, setHasSearch] = useState(false);
   const [showFirstArrivalToast, setShowFirstArrivalToast] = useState(false);
-  const subscriptionRef = useRef<any>(null);
-  const currentSearchIdRef = useRef<string | null>(null);
 
   const currentSearch = getCurrentSearch();
   const realTimeData = useRealTimeSearch(currentSearch?.id || null);
@@ -90,221 +87,65 @@ export default function DecisionMakerMapping() {
   }, [state.selectedDecisionMakerPersonas]);
   */
 
-  // Empty state flag computed early but rendered later to preserve hooks order
-  const showEmpty = !isLoading && !isDemoUser(authState.user?.id, authState.user?.email) && (realTimeData.decisionMakers.length === 0);
-
-  // Setup realtime subscription for decision maker updates
-  useEffect(() => {
-    const currentSearchId = currentSearch?.id;
-    const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
-    
-    // If no search or demo user, clean up any existing subscription
-    if (!currentSearchId || isDemo) {
-      if (subscriptionRef.current) {
-        logger.debug('Cleaning up decision makers realtime subscription (no search/demo)');
-        supabase.removeChannel(subscriptionRef.current);
-        subscriptionRef.current = null;
-        currentSearchIdRef.current = null;
-      }
-      return;
-    }
-
-    // If search hasn't changed, don't recreate subscription
-    if (currentSearchIdRef.current === currentSearchId && subscriptionRef.current) {
-      return;
-    }
-
-    // Clean up existing subscription if search changed
-    if (subscriptionRef.current) {
-      logger.debug('Cleaning up previous decision makers realtime subscription');
-      supabase.removeChannel(subscriptionRef.current);
-    }
-
-    logger.debug('Setting up realtime subscription for decision makers', { search_id: currentSearchId });
-    currentSearchIdRef.current = currentSearchId;
-
-    const channel = supabase
-      .channel(`decision-makers-${currentSearchId}`)
-      .on('postgres_changes', 
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'decision_makers',
-          filter: `search_id=eq.${currentSearchId}`
-        }, 
-        (payload) => {
-          logger.debug('New decision maker inserted', { id: (payload.new as any)?.id });
-          const newDM = payload.new as any;
-          const enrichment = newDM.enrichment || {};
-          
-          const transformedDM: UIDecisionMaker = {
-            id: newDM.id,
-            name: newDM.name,
-            title: newDM.title,
-            level: newDM.level as 'executive' | 'director' | 'manager' | 'individual',
-            influence: newDM.influence,
-            department: newDM.department,
-            company: newDM.company,
-            location: newDM.location,
-            email: newDM.email || '',
-            phone: newDM.phone || '',
-            linkedin: newDM.linkedin || '',
-            experience: newDM.experience || enrichment.experience_level || '',
-            communicationPreference: newDM.communication_preference || enrichment.communication_preference || '',
-            painPoints: newDM.pain_points || enrichment.pain_points || [],
-            motivations: newDM.motivations || enrichment.motivations || [],
-            decisionFactors: newDM.decision_factors || enrichment.decision_factors || [],
-            personaType: newDM.persona_type,
-            companyContext: newDM.company_context || {
-              industry: '',
-              size: '',
-              revenue: '',
-              challenges: enrichment.current_challenges || [],
-              priorities: []
-            },
-            personalizedApproach: newDM.personalized_approach || {
-              keyMessage: '',
-              valueProposition: '',
-              approachStrategy: '',
-              bestContactTime: enrichment.best_contact_time || '',
-              preferredChannel: enrichment.preferred_contact_method || ''
-            },
-            enrichmentStatus: newDM.enrichment_status || 'pending',
-            business: newDM.business
-          };
-          
-          setDecisionMakers(prev => {
-            // Avoid duplicates
-            if (prev.find(dm => dm.id === transformedDM.id)) return prev;
-            return [...prev, transformedDM];
-          });
-        }
-      )
-      .on('postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'decision_makers',
-          filter: `search_id=eq.${currentSearchId}`
-        },
-        (payload) => {
-          logger.debug('Decision maker updated (enrichment)', { id: (payload.new as any)?.id });
-          const updatedDM = payload.new as any;
-          const enrichment = updatedDM.enrichment || {};
-          
-          setDecisionMakers(prev => 
-            prev.map(dm => {
-              if (dm.id === updatedDM.id) {
-                return {
-                  ...dm,
-                  experience: updatedDM.experience || enrichment.experience_level || dm.experience,
-                  communicationPreference: updatedDM.communication_preference || enrichment.communication_preference || dm.communicationPreference,
-                  painPoints: updatedDM.pain_points || enrichment.pain_points || dm.painPoints,
-                  motivations: updatedDM.motivations || enrichment.motivations || dm.motivations,
-                  decisionFactors: updatedDM.decision_factors || enrichment.decision_factors || dm.decisionFactors,
-                  companyContext: {
-                    ...dm.companyContext,
-                    challenges: enrichment.current_challenges || dm.companyContext.challenges
-                  },
-                  personalizedApproach: {
-                    ...dm.personalizedApproach,
-                    bestContactTime: enrichment.best_contact_time || dm.personalizedApproach.bestContactTime,
-                    preferredChannel: enrichment.preferred_contact_method || dm.personalizedApproach.preferredChannel
-                  },
-                  enrichmentStatus: updatedDM.enrichment_status || 'pending'
-                };
-              }
-              return dm;
-            })
-          );
-        }
-      )
-      .subscribe();
-
-    subscriptionRef.current = channel;
-
-    return () => {
-      if (subscriptionRef.current) {
-        logger.debug('Cleaning up decision makers realtime subscription');
-        supabase.removeChannel(subscriptionRef.current);
-        subscriptionRef.current = null;
-        currentSearchIdRef.current = null;
-      }
+  // Transform realTimeData.decisionMakers to UIDecisionMaker format
+  const transformDecisionMaker = (dm: any): UIDecisionMaker => {
+    const enrichment = dm.enrichment || {};
+    return {
+      id: dm.id,
+      name: dm.name,
+      title: dm.title,
+      level: dm.level as 'executive' | 'director' | 'manager' | 'individual',
+      influence: dm.influence,
+      department: dm.department,
+      company: dm.company,
+      location: dm.location,
+      email: dm.email || '',
+      phone: dm.phone || '',
+      linkedin: dm.linkedin || '',
+      experience: dm.experience || enrichment.experience_level || '',
+      communicationPreference: dm.communication_preference || enrichment.communication_preference || '',
+      painPoints: dm.pain_points || enrichment.pain_points || [],
+      motivations: dm.motivations || enrichment.motivations || [],
+      decisionFactors: dm.decision_factors || enrichment.decision_factors || [],
+      personaType: dm.persona_type,
+      companyContext: dm.company_context || {
+        industry: dm.business?.industry || '',
+        size: dm.business?.size || '',
+        revenue: dm.business?.revenue || '',
+        challenges: enrichment.current_challenges || [],
+        priorities: []
+      },
+      personalizedApproach: dm.personalized_approach || {
+        keyMessage: '',
+        valueProposition: '',
+        approachStrategy: '',
+        bestContactTime: enrichment.best_contact_time || '',
+        preferredChannel: enrichment.preferred_contact_method || ''
+      },
+      enrichmentStatus: dm.enrichment_status || 'pending',
+      business: dm.business
     };
-  }, [currentSearch?.id, authState.user?.id, authState.user?.email, isDemoUser, currentSearch]);
+  };
 
-  const loadDecisionMakers = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
-      
-      if (isDemo) {
-        setDecisionMakers(getStaticDecisionMakers());
-        setHasSearch(true);
-      } else if (!currentSearch) {
-        setDecisionMakers([]);
-        setHasSearch(false);
-      } else {
-        // Load real data from database using SearchService
-        const dmData = await SearchService.getDecisionMakers(currentSearch.id);
-        const transformedData: UIDecisionMaker[] = dmData.map((dm: any) => {
-          // Handle enrichment data if available
-          const enrichment = dm.enrichment || {};
-          
-          return {
-            id: dm.id,
-            name: dm.name,
-            title: dm.title,
-            level: dm.level as 'executive' | 'director' | 'manager' | 'individual',
-            influence: dm.influence,
-            department: dm.department,
-            company: dm.company,
-            location: dm.location,
-            email: dm.email || '',
-            phone: dm.phone || '',
-            linkedin: dm.linkedin || '',
-            experience: dm.experience || enrichment.experience_level || '',
-            communicationPreference: dm.communication_preference || enrichment.communication_preference || '',
-            painPoints: dm.pain_points || enrichment.pain_points || [],
-            motivations: dm.motivations || enrichment.motivations || [],
-            decisionFactors: dm.decision_factors || enrichment.decision_factors || [],
-            personaType: dm.persona_type,
-            companyContext: dm.company_context || {
-              industry: dm.business?.industry || '',
-              size: dm.business?.size || '',
-              revenue: dm.business?.revenue || '',
-              challenges: enrichment.current_challenges || [],
-              priorities: []
-            },
-            personalizedApproach: dm.personalized_approach || {
-              keyMessage: '',
-              valueProposition: '',
-              approachStrategy: '',
-              bestContactTime: enrichment.best_contact_time || '',
-              preferredChannel: enrichment.preferred_contact_method || ''
-            },
-            // Add enrichment status for UI indicators
-            enrichmentStatus: dm.enrichment_status || 'pending',
-            // Include business context if available
-            business: dm.business
-          };
-        });
-        setDecisionMakers(transformedData);
-        setHasSearch(true);
-      }
-    } catch (error: any) {
-      logger.warn('Error loading decision makers', { error: error?.message || String(error) });
-      setDecisionMakers([]);
-      setHasSearch(false);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentSearch, authState.user?.id, authState.user?.email, isDemoUser]);
+  // Use realTimeData directly for real users, static data for demo users
+  const decisionMakers: UIDecisionMaker[] = isDemoUser(authState.user?.id, authState.user?.email)
+    ? getStaticDecisionMakers()
+    : realTimeData.decisionMakers.map(transformDecisionMaker);
 
-  // Load data on component mount (after loadDecisionMakers is declared)
+  // Empty state flag computed early but rendered later to preserve hooks order
+  const showEmpty = !isLoading && !isDemoUser(authState.user?.id, authState.user?.email) && (decisionMakers.length === 0);
+
+  // Set hasSearch based on current search state
   useEffect(() => {
-    loadDecisionMakers();
-  }, [currentSearch?.id, authState.user?.id, authState.user?.email, loadDecisionMakers]);
+    const isDemo = isDemoUser(authState.user?.id, authState.user?.email);
+    if (isDemo) {
+      setHasSearch(true);
+      setIsLoading(false);
+    } else {
+      setHasSearch(!!currentSearch);
+      setIsLoading(!currentSearch || realTimeData.isLoading);
+    }
+  }, [currentSearch, authState.user?.id, authState.user?.email, isDemoUser, realTimeData.isLoading]);
 
   // Show a toast the first time profiles arrive
   const prevCountRef = useRef<number>(0);

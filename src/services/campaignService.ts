@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import logger from '../lib/logger';
 import { DEMO_USER_ID } from '../constants/demo';
 import type { EmailCampaign, CampaignRecipient } from '../lib/supabase';
+import { emailDeliveryService, type EmailRequest } from './emailDeliveryService';
 
 export class CampaignService {
   // Create a new email campaign
@@ -139,21 +140,88 @@ export class CampaignService {
     if (error) throw error;
   }
 
-  // Send campaign (update status and sent_date)
+  // Send campaign with robust email delivery
   static async sendCampaign(campaignId: string): Promise<EmailCampaign> {
-    const { data, error } = await supabase
-      .from('email_campaigns')
-      .update({ 
-        status: 'sent',
-        sent_date: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', campaignId)
-      .select()
-      .single();
+    try {
+      // Get campaign details
+      const { data: campaign, error: campaignError } = await supabase
+        .from('email_campaigns')
+        .select('*')
+        .eq('id', campaignId)
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (campaignError || !campaign) {
+        throw new Error('Campaign not found');
+      }
+
+      // Get recipients
+      const recipients = await this.getCampaignRecipients(campaignId);
+      if (recipients.length === 0) {
+        throw new Error('No recipients found for campaign');
+      }
+
+      // Prepare email requests
+      const emailRequests: EmailRequest[] = recipients.map(recipient => ({
+        to: [recipient.recipient_email],
+        from: 'noreply@leadora.com', // Configure from environment
+        fromName: 'Leadora Team',
+        subject: campaign.subject,
+        htmlContent: campaign.content,
+        textContent: this.stripHtml(campaign.content),
+        metadata: {
+          campaignId,
+          recipientId: recipient.id,
+          recipientType: recipient.recipient_type
+        }
+      }));
+
+      // Send emails in bulk
+      const deliveryResults = await emailDeliveryService.sendBulkEmails(emailRequests, campaignId);
+      
+      // Update campaign status and stats
+      const stats = {
+        sent: deliveryResults.sent,
+        opened: 0,
+        clicked: 0,
+        replied: 0
+      };
+
+      const { data, error } = await supabase
+        .from('email_campaigns')
+        .update({ 
+          status: 'sent',
+          sent_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          stats
+        })
+        .eq('id', campaignId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      logger.info('Campaign sent successfully', {
+        campaignId,
+        totalRecipients: recipients.length,
+        sent: deliveryResults.sent,
+        failed: deliveryResults.failed
+      });
+      
+      return data;
+    } catch (error: any) {
+      logger.error('Failed to send campaign', { campaignId, error: error.message });
+      
+      // Update campaign status to failed
+      await supabase
+        .from('email_campaigns')
+        .update({ 
+          status: 'failed',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', campaignId);
+        
+      throw error;
+    }
   }
 
   // Delete campaign
@@ -180,5 +248,61 @@ export class CampaignService {
     } catch {
       return { enriched: 0 };
     }
+  }
+
+  // Get delivery statistics for a campaign
+  static async getCampaignDeliveryStats(campaignId: string): Promise<{
+    sent: number;
+    delivered: number;
+    bounced: number;
+    failed: number;
+    opened: number;
+    clicked: number;
+  }> {
+    return await emailDeliveryService.getDeliveryStats(campaignId);
+  }
+
+  // Send test email
+  static async sendTestEmail(campaignId: string, testEmail: string): Promise<boolean> {
+    try {
+      const { data: campaign, error } = await supabase
+        .from('email_campaigns')
+        .select('*')
+        .eq('id', campaignId)
+        .single();
+
+      if (error || !campaign) return false;
+
+      const emailRequest: EmailRequest = {
+        to: [testEmail],
+        from: 'noreply@leadora.com',
+        fromName: 'Leadora Team',
+        subject: `[TEST] ${campaign.subject}`,
+        htmlContent: campaign.content,
+        textContent: this.stripHtml(campaign.content),
+        metadata: { 
+          campaignId, 
+          isTest: true 
+        }
+      };
+
+      const result = await emailDeliveryService.sendEmail(emailRequest, campaignId);
+      return result.success;
+    } catch (error: any) {
+      logger.error('Failed to send test email', { campaignId, testEmail, error: error.message });
+      return false;
+    }
+  }
+
+  // Utility method to strip HTML tags for text content
+  private static stripHtml(html: string): string {
+    return html
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .trim();
   }
 }

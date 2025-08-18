@@ -86,7 +86,7 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
             
             if (enableDebugFallback) {
               try {
-                const res = await fetch(`${process.env.LOCAL_BASE_URL || 'http://localhost:9999'}/.netlify/functions/debug-business-discovery`, {
+                const res = await fetch(`${process.env.LOCAL_BASE_URL || 'http://localhost:8888'}/.netlify/functions/debug-business-discovery`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ search_id, insert: true })
@@ -105,7 +105,7 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
           updateFn('BUSINESSES_FOUND', { search_id });
           // Auto-trigger decision maker enrichment after business discovery
           try {
-            const base = process.env.URL || process.env.DEPLOY_URL || 'http://localhost:9999';
+            const base = process.env.URL || process.env.DEPLOY_URL || process.env.LOCAL_BASE_URL || 'http://localhost:8888';
             const enrichResponse = await fetch(`${base}/.netlify/functions/enrich-decision-makers`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

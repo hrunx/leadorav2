@@ -27,6 +27,19 @@ export const handler: Handler = async (event) => {
     if (error || !search) {
       return { statusCode: 404, headers: cors, body: JSON.stringify({ error: 'search_not_found' }) };
     }
+    // First, clear existing persona mappings to ensure clean remapping
+    await supa
+      .from('businesses')
+      .update({ persona_id: null, persona_type: 'business_candidate' })
+      .eq('search_id', search_id);
+      
+    // Delete existing personas before regenerating
+    await supa
+      .from('business_personas')
+      .delete()
+      .eq('search_id', search_id);
+      
+    // Regenerate personas
     await runBusinessPersonas({
       id: String(search.id),
       user_id: String(search.user_id),
@@ -35,6 +48,15 @@ export const handler: Handler = async (event) => {
       countries: Array.isArray(search.countries) ? search.countries : [],
       search_type: (search.search_type as 'customer' | 'supplier') || 'customer'
     });
+    
+    // Trigger business-persona remapping after regeneration
+    try {
+      const { intelligentPersonaMapping } = await import('../../src/tools/persona-mapper');
+      await intelligentPersonaMapping(search_id);
+    } catch (error: any) {
+      console.warn('Failed to remap businesses to new personas:', error?.message || error);
+    }
+    
     return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true }) };
   } catch (e: any) {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: e?.message || 'retry_failed' }) };
