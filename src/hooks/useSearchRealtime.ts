@@ -21,18 +21,21 @@ export function useSearchRealtime(searchId: string | null) {
 
     async function initialLoad() {
       try {
+        const base = '/.netlify/functions/user-data-proxy';
+        const headers = { Accept: 'application/json' } as const;
         const [bp, dmp, b, dm, us] = await Promise.all([
-          supabase.from('business_personas').select('*').eq('search_id', searchId),
-          supabase.from('decision_maker_personas').select('*').eq('search_id', searchId),
-          supabase.from('businesses').select('*').eq('search_id', searchId),
-          supabase.from('decision_makers').select('*').eq('search_id', searchId),
-          supabase.from('user_searches').select('phase,progress_pct').eq('id', searchId).single(),
+          fetch(`${base}?table=business_personas&search_id=${searchId}`, { headers }).then(r => r.ok ? r.json() : [] as any[]).catch(() => []),
+          fetch(`${base}?table=decision_maker_personas&search_id=${searchId}`, { headers }).then(r => r.ok ? r.json() : [] as any[]).catch(() => []),
+          fetch(`${base}?table=businesses&search_id=${searchId}`, { headers }).then(r => r.ok ? r.json() : [] as any[]).catch(() => []),
+          fetch(`${base}?table=decision_makers&search_id=${searchId}`, { headers }).then(r => r.ok ? r.json() : [] as any[]).catch(() => []),
+          fetch(`${base}?table=user_searches&search_id=${searchId}`, { headers }).then(r => r.ok ? r.json() : [] as any[]).catch(() => []),
         ]);
-        setBusinessPersonas(Array.isArray(bp.data) ? bp.data : []);
-        setDmPersonas(Array.isArray(dmp.data) ? dmp.data : []);
-        setBusinesses(Array.isArray(b.data) ? b.data : []);
-        setDecisionMakers(Array.isArray(dm.data) ? dm.data : []);
-        setProgress({ phase: (us.data as any)?.phase || 'starting', progress_pct: (us.data as any)?.progress_pct || 0, decision_makers_count: (Array.isArray(dm.data) ? dm.data.length : 0) });
+        const userSearch = Array.isArray(us) && us.length ? us[0] : {};
+        setBusinessPersonas(Array.isArray(bp) ? bp : []);
+        setDmPersonas(Array.isArray(dmp) ? dmp : []);
+        setBusinesses(Array.isArray(b) ? b : []);
+        setDecisionMakers(Array.isArray(dm) ? dm : []);
+        setProgress({ phase: userSearch?.phase || 'starting', progress_pct: userSearch?.progress_pct || 0, decision_makers_count: Array.isArray(dm) ? dm.length : 0 });
       } catch {
       } finally {
         setIsLoading(false);

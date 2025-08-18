@@ -156,8 +156,6 @@ export function sanitizePersona(
     const market_potential = {
       totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies) ? p.market_potential.totalCompanies : 0,
       avgDealSize: cleanText(p?.market_potential?.avgDealSize) || '',
-
-      avgDealSize: cleanText(p?.market_potential?.avgDealSize),
       conversionRate: isPositiveNumber(p?.market_potential?.conversionRate) ? p.market_potential.conversionRate : 0
     };
     const locations = Array.isArray(p?.locations) && p.locations.length

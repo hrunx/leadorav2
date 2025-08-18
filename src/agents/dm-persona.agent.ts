@@ -298,7 +298,7 @@ Personas: ${JSON.stringify(arr)}`;
     };
 
     try {
-      // 1) GPT-5 primary
+      // 1) GPT-4o-mini primary
       const text = await callOpenAIChatJSON({
         model: resolveModel('primary'),
         system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete decision-maker persona objects.',
@@ -306,7 +306,6 @@ Personas: ${JSON.stringify(arr)}`;
         temperature: 0.3,
         maxTokens: 1400,
         requireJsonObject: true,
-        verbosity: 'low',
         timeoutMs: 20000,
         retries: 1,
       });
@@ -319,13 +318,18 @@ Personas: ${JSON.stringify(arr)}`;
         valid = v2.valid; rejected.push(...v2.rejected);
       }
       if (rejected.length) rejectedPersonas.push(...rejected);
-      if (valid.length === 3) personas = await ensureProductServiceKeywords(valid);
+      if (valid.length === 3) {
+        personas = await ensureProductServiceKeywords(valid);
+        import('../lib/logger').then(({ default: logger }) => logger.info('DM personas generated with GPT-4o-mini', { search_id: search.id })).catch(()=>{});
+      }
 
-    } catch {}
+    } catch (error: any) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('GPT-4o-mini failed for DM personas, trying Gemini', { search_id: search.id, error: error?.message })).catch(()=>{});
+    }
     if (!personas.length) {
       // 2) Gemini fallback
       try {
-        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 20000, 1);
+        const text = await callGeminiText('gemini-2.0-flash-exp', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 20000, 1);
 
         const accepted = acceptPersonas(tryParsePersonas(text));
         let { valid, rejected } = validatePersonas(accepted);
@@ -335,14 +339,19 @@ Personas: ${JSON.stringify(arr)}`;
           valid = v2.valid; rejected.push(...v2.rejected);
         }
         if (rejected.length) rejectedPersonas.push(...rejected);
-        if (valid.length === 3) personas = await ensureProductServiceKeywords(valid);
+        if (valid.length === 3) {
+          personas = await ensureProductServiceKeywords(valid);
+          import('../lib/logger').then(({ default: logger }) => logger.info('DM personas generated with Gemini', { search_id: search.id })).catch(()=>{});
+        }
 
-      } catch {}
+      } catch (error: any) {
+        import('../lib/logger').then(({ default: logger }) => logger.warn('Gemini failed for DM personas, trying DeepSeek', { search_id: search.id, error: error?.message })).catch(()=>{});
+      }
     }
     if (!personas.length) {
       // 3) DeepSeek fallback
       try {
-        const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.3, maxTokens: 1500, timeoutMs: 20000, retries: 0 });
+        const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.3, maxTokens: 1500, timeoutMs: 20000, retries: 1 });
 
         const accepted = acceptPersonas(tryParsePersonas(text));
         let { valid, rejected } = validatePersonas(accepted);
@@ -352,8 +361,13 @@ Personas: ${JSON.stringify(arr)}`;
           valid = v2.valid; rejected.push(...v2.rejected);
         }
         if (rejected.length) rejectedPersonas.push(...rejected);
-        if (valid.length === 3) personas = await ensureProductServiceKeywords(valid);
-      } catch {}
+        if (valid.length === 3) {
+          personas = await ensureProductServiceKeywords(valid);
+          import('../lib/logger').then(({ default: logger }) => logger.info('DM personas generated with DeepSeek', { search_id: search.id })).catch(()=>{});
+        }
+      } catch (error: any) {
+        import('../lib/logger').then(({ default: logger }) => logger.error('All LLM fallbacks failed for DM personas', { search_id: search.id, error: error?.message })).catch(()=>{});
+      }
     }
 
     if (rejectedPersonas.length) {

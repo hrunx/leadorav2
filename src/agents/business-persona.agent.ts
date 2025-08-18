@@ -1,6 +1,6 @@
 import { Agent, tool } from '@openai/agents';
 import { insertBusinessPersonas, updateSearchProgress, insertPersonaCache } from '../tools/db.write';
-import { loadBusinesses } from '../tools/db.read';
+// import { loadBusinesses } from '../tools/db.read';
 import { loadPersonaCache } from '../tools/db.read';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
@@ -70,7 +70,8 @@ const storeBusinessPersonasTool = tool({
             demographics: { type: 'object', additionalProperties: true },
             characteristics: { type: 'object', additionalProperties: true },
             behaviors: { type: 'object', additionalProperties: true },
-            market_potential: { type: 'object', additionalProperties: true }
+            market_potential: { type: 'object', additionalProperties: true },
+            locations: { type: 'array', items: { type: 'object', additionalProperties: true } }
           },
           required: ['title','rank','match_score'],
           additionalProperties: false
@@ -228,114 +229,7 @@ export async function runBusinessPersonas(search: {
       }
     }
 
-    // Deterministic-first synthesis will run after helper is defined below
-
-    // Helper: synthesize personas from discovered businesses (used for deterministic-first and fallback)
-    const synthesizeFromBusinesses = async (): Promise<Persona[]> => {
-      try {
-        const businesses = await loadBusinesses(search.id);
-        if (!Array.isArray(businesses) || businesses.length === 0) return [];
-        const sample = businesses.slice(0, 50);
-        const byIndustry: Record<string, any[]> = {};
-        for (const b of sample) {
-          const ind = String((b as any)?.industry || (search.industries[0] || 'General'));
-          if (!byIndustry[ind]) byIndustry[ind] = [];
-          byIndustry[ind].push(b);
-        }
-        const topIndustries = Object.entries(byIndustry)
-          .sort((a,b)=>b[1].length - a[1].length)
-          .slice(0,3)
-          .map(([name, list])=>({ name, list }));
-        // Ensure we have 3 buckets
-        while (topIndustries.length < 3) topIndustries.push({ name: search.industries[0] || 'General', list: sample });
-        const countryLabel = search.countries.join(', ') || 'Global';
-        const citySet = new Set<string>();
-        sample.forEach(b=>{ const c=(b as any)?.city; if (c) citySet.add(String(c)); });
-        const locs = Array.from(citySet); if (locs.length === 0) locs.push(countryLabel);
-        const mkPersona = (idx: number, bucket: { name: string; list: any[] }): Persona => {
-          const totalCompanies = Math.max(bucket.list.length * 10, 50);
-          const rank = idx + 1;
-          const titleBase = search.search_type === 'customer'
-            ? `${rank === 1 ? 'Enterprise' : rank === 2 ? 'Mid-Market' : 'SMB'} ${bucket.name} Adopters of ${search.product_service}`
-            : `${rank === 1 ? 'Tier-1' : rank === 2 ? 'Regional' : 'Boutique'} Providers for ${search.product_service} in ${bucket.name}`;
-          const geo = `${countryLabel}${locs.length ? ` (${locs.slice(0,3).join(', ')})` : ''}`;
-          const avgDeal = rank === 1 ? '$500k-$2M' : rank === 2 ? '$150k-$500k' : '$25k-$150k';
-          const conv = rank === 1 ? 8 : rank === 2 ? 12 : 18;
-          const preferredChannels = rank === 1 ? ['Executive briefings','RFP/RFQ','Industry events']
-            : rank === 2 ? ['Demos','Case studies','Email'] : ['Webinars','Inbound content','Live chat'];
-          return {
-            title: titleBase,
-            rank,
-            match_score: rank === 1 ? 92 : rank === 2 ? 86 : 80,
-            demographics: {
-              industry: bucket.name,
-              companySize: rank === 1 ? '1000-5000+' : rank === 2 ? '200-1000' : '10-200',
-              geography: geo,
-              revenue: rank === 1 ? '$100M-$1B+' : rank === 2 ? '$20M-$100M' : '$1M-$20M'
-            },
-            characteristics: {
-              painPoints: search.search_type === 'customer'
-                ? ['Integration complexity','Legacy constraints','Cost of ownership']
-                : ['Lead volume consistency','Pricing pressure','Competitive differentiation'],
-              motivations: search.search_type === 'customer'
-                ? ['ROI','Efficiency','Scalability']
-                : ['Revenue growth','Win rate','Partnerships'],
-              challenges: search.search_type === 'customer'
-                ? ['Change management','Talent gaps','Security/compliance']
-                : ['Brand visibility','Solution fit','Delivery capacity'],
-              decisionFactors: search.search_type === 'customer'
-                ? ['Total cost','Integration ease','Security','Time-to-value']
-                : ['Case studies','Capabilities','Coverage','Pricing model']
-            },
-            behaviors: {
-              buyingProcess: search.search_type === 'customer' ? 'Committee-based evaluation with pilot' : 'Solution packaging and RFP participation',
-              decisionTimeline: rank === 1 ? '3-6 months' : rank === 2 ? '2-4 months' : '1-3 months',
-              budgetRange: avgDeal,
-              preferredChannels
-            },
-            market_potential: {
-              totalCompanies,
-              avgDealSize: avgDeal,
-              conversionRate: conv
-            },
-            locations: locs.slice(0, 6)
-          } as Persona;
-        };
-        const generated = topIndustries.slice(0,3).map((b, i) => mkPersona(i, b));
-        return generated;
-      } catch {
-        return [];
-      }
-    };
-
-    // Deterministic-first: if we already have discovered businesses, synthesize personas immediately
-    try {
-      const preSynth = await synthesizeFromBusinesses();
-      if (preSynth && preSynth.length === 3) {
-        const accepted = await ensureUniqueTitles<Persona>(preSynth, { id: search.id });
-        const allRealistic = accepted.every(p => isRealisticPersona('business', p));
-        const allValid = allRealistic && accepted.every(p => validatePersona(p));
-        if (allValid) {
-          const rows = accepted.map(p => ({
-            search_id: search.id,
-            user_id: search.user_id,
-            title: p.title,
-            rank: p.rank,
-            match_score: p.match_score,
-            demographics: p.demographics || {},
-            characteristics: p.characteristics || {},
-            behaviors: p.behaviors || {},
-            market_potential: p.market_potential || {},
-            locations: p.locations || []
-          }));
-          await insertPersonaCache(cacheKey, accepted);
-          await insertBusinessPersonas(rows);
-          await updateSearchProgress(search.id, 10, 'business_personas');
-          import('../lib/logger').then(({ default: logger }) => logger.info('[BusinessPersona] Used deterministic-first synthesis', { search_id: search.id })).catch(()=>{});
-          return;
-        }
-      }
-    } catch {}
+    // LLM-first approach
 
     const improvedPrompt = `Generate 3 business personas (COMPANY ARCHETYPES) for:
 - search_id=${search.id}
@@ -348,17 +242,10 @@ export async function runBusinessPersonas(search: {
 
 CRITICAL: Each persona must have:
 - Realistic, industry-specific, non-generic, non-default, non-empty values for every field.
-- No field may be 'Unknown', 'N/A', 'Default', or empty.
-- Use plausible company types, sizes, geographies, revenues, pain points, motivations, challenges, decision factors, buying processes, timelines, budget ranges, preferred channels, market potential, and locations for the given industry/country/product.
-- If you cannot fill a field, infer a plausible value based on industry/country context.
-- Do not repeat personas. Each must be unique and relevant.
- - Titles MUST be descriptive company archetypes tied to the product_service and lens.
-   Examples (do not reuse literally): "Large Enterprise Energy Buyers (Utilities)", "Mid-Market Oilfield Services Providers", "Renewable EPC Contractors".
- - Titles MUST NOT be generic like 'Persona 1' or 'Profile'.
- - Ensure titles reflect ${search.search_type==='customer'?'needing/using':'selling/providing'} ${search.product_service} in ${search.countries.join(', ')}.
- - Return ONLY JSON: {"personas": [ ...exactly 3 items... ] }`;
+- Use plausible geographies, company sizes, revenues, pain points, motivations, challenges, decision factors, buying processes, timelines, budget ranges, preferred channels, market potential, and locations.
+- Titles MUST be descriptive company archetypes tied to the product_service and lens.
+- Return ONLY JSON: {"personas": [ ...exactly 3 items... ] }`;
 
-    // Sequential fallback: GPT -> Gemini -> DeepSeek
     const tryParsePersonas = (text: string): Persona[] => {
       try {
         const obj = JSON.parse(text || '{}');
@@ -373,13 +260,13 @@ CRITICAL: Each persona must have:
     };
 
     const acceptPersonas = (arr: any[]): Persona[] => {
-      const three = (arr || []).slice(0, 3);
-      if (three.length !== 3) return [];
-      const sanitized = three.map((p, i) => sanitizePersona('business', p, i, search));
+      const take = (arr || []).slice(0, 3);
+      if (take.length === 0) return [];
+      const sanitized = take.map((p, i) => sanitizePersona('business', p, i, search));
       const validated = sanitized
         .map(p => validateMarketPotential(p, search.id))
         .filter((p): p is Persona => p !== null);
-      return validated.length === 3 ? validated : [];
+      return validated;
     };
 
     const hasGenericTitles = (arr: Persona[]): boolean => {
@@ -393,43 +280,67 @@ CRITICAL: Each persona must have:
       return arr.some(p => isGenericTitle(p.title)) || dup;
     };
 
-    try {
-      // 1) GPT-5 light for speed with timeout/retry
-      const text = await callOpenAIChatJSON({
-        model: resolveModel('light'),
-        system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete persona objects.',
-        user: improvedPrompt,
-        temperature: 0.3,
-        maxTokens: 1200,
-        requireJsonObject: true,
-        verbosity: 'low',
-        timeoutMs: 15000,
-        retries: 1
-      });
-      const arr = tryParsePersonas(text);
-      const accepted = acceptPersonas(arr);
-      if (accepted.length === 3) personas = accepted;
-    } catch {}
     if (!personas.length) {
-      // 2) Gemini fallback
+      // Sequential fallback: GPT-4o-mini -> Gemini -> DeepSeek
       try {
-        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 15000, 1);
+        // 1) Try GPT-4o-mini first
+        const text = await callOpenAIChatJSON({
+          model: resolveModel('primary'),
+          system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete persona objects.',
+          user: improvedPrompt,
+          temperature: 0.2,
+          maxTokens: 1000,
+          requireJsonObject: true,
+          timeoutMs: 20000,
+          retries: 1
+        });
         const arr = tryParsePersonas(text);
-        const accepted = acceptPersonas(arr);
-        if (accepted.length === 3) personas = accepted;
-      } catch {}
-    }
-    if (!personas.length) {
-      // 3) DeepSeek fallback
-      try {
-        const text = await callDeepseekChatJSON({ user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', temperature: 0.4, maxTokens: 1200, timeoutMs: 15000, retries: 1 });
-        const arr = tryParsePersonas(text);
-        const accepted = acceptPersonas(arr);
-        if (accepted.length === 3) personas = accepted;
-      } catch {}
+        const accepted = acceptPersonas((arr || []).slice(0, 3));
+        if (accepted.length === 3) {
+          personas = accepted;
+          import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with GPT-4o-mini', { search_id: search.id })).catch(()=>{});
+        }
+      } catch (error: any) {
+        import('../lib/logger').then(({ default: logger }) => logger.warn('GPT-4o-mini failed for business personas, trying Gemini', { search_id: search.id, error: error?.message })).catch(()=>{});
+      }
+
+      if (!personas.length) {
+        try {
+          // 2) Gemini fallback
+          const text = await callGeminiText('gemini-2.0-flash-exp', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 20000, 1);
+          const arr = tryParsePersonas(text);
+          const accepted = acceptPersonas((arr || []).slice(0, 3));
+          if (accepted.length === 3) {
+            personas = accepted;
+            import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with Gemini', { search_id: search.id })).catch(()=>{});
+          }
+        } catch (error: any) {
+          import('../lib/logger').then(({ default: logger }) => logger.warn('Gemini failed for business personas, trying DeepSeek', { search_id: search.id, error: error?.message })).catch(()=>{});
+        }
+      }
+
+      if (!personas.length) {
+        try {
+          // 3) DeepSeek final fallback
+          const text = await callDeepseekChatJSON({ 
+            user: improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 
+            temperature: 0.3, 
+            maxTokens: 1200, 
+            timeoutMs: 20000, 
+            retries: 1 
+          });
+          const arr = tryParsePersonas(text);
+          const accepted = acceptPersonas((arr || []).slice(0, 3));
+          if (accepted.length === 3) {
+            personas = accepted;
+            import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with DeepSeek', { search_id: search.id })).catch(()=>{});
+          }
+        } catch (error: any) {
+          import('../lib/logger').then(({ default: logger }) => logger.error('All LLM fallbacks failed for business personas', { search_id: search.id, error: error?.message })).catch(()=>{});
+        }
+      }
     }
 
-    // If we got personas but titles are generic or duplicated, force a refinement pass with stricter instructions
     if (personas.length === 3 && hasGenericTitles(personas)) {
       try {
         const refinePrompt = `Your previous titles were too generic or duplicated. Rewrite ONLY the titles to be highly descriptive, unique company archetypes directly tied to ${search.product_service} and the ${search.search_type==='customer'?'buying/usage':'selling/provision'} lens in ${search.countries.join(', ')}.
@@ -455,43 +366,15 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
     }
 
     if (personas.length) {
-      // Schema validation for market potential figures
       const validated = personas
         .map(p => validateMarketPotential(p, search.id))
         .filter((p): p is Persona => Boolean(p));
-      if (validated.length !== personas.length) {
-        import('../lib/logger')
-          .then(({ default: logger }) =>
-            logger.error('[BusinessPersona] Persona count changed after validation', {
-              search_id: search.id,
-              before: personas.length,
-              after: validated.length
-            })
-          )
-          .catch(() => {});
-      }
-      personas = validated.length === 3 ? validated : [];
+      personas = validated;
     }
 
     if (personas.length) {
-      // Validate realism before persisting to avoid low-quality data
-      const allRealistic = personas.every(p => isRealisticPersona('business', p));
-      if (!allRealistic) {
-        personas = [];
-      }
-    }
-    if (personas.length) {
-      const allValid = personas.every(p => validatePersona(p));
-      if (!allValid) {
-        import('../lib/logger')
-          .then(({ default: logger }) => logger.error('Business persona schema validation failed', { errors: validatePersona.errors }))
-          .catch(() => {});
-        personas = [];
-      }
-    }
-
-    if (personas.length) {
-      const rows = personas.slice(0, 3).map((p: Persona) => ({
+      const sanitized = personas.slice(0, 3).map((p: Persona, i: number) => sanitizePersona('business', p, i, search as any));
+      const rows = sanitized.map((p: Persona) => ({
         search_id: search.id,
         user_id: search.user_id,
         title: p.title,
@@ -503,99 +386,34 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
         market_potential: p.market_potential || {},
         locations: p.locations || []
       }));
-      await insertPersonaCache(cacheKey, personas);
+      await insertPersonaCache(cacheKey, sanitized);
       await insertBusinessPersonas(rows);
       await updateSearchProgress(search.id, 10, 'business_personas');
       import('../lib/logger').then(({ default: logger }) => logger.info('Completed business persona generation', { search_id: search.id })).catch(()=>{});
       return;
     }
-    // Final fallback: synthesize from discovered businesses, then from context if still empty
+
     if (!personas.length) {
-      const synthetic = await synthesizeFromBusinesses();
-      let acceptedSynthetic = synthetic;
-      if (acceptedSynthetic.length !== 3) {
-        // Try pure context synthesis when no businesses yet
-        const countryLabel = search.countries.join(', ') || 'Global';
-        const industryLabel = (search.industries && search.industries[0]) || 'General';
-        const mk = (rank: number): Persona => {
-          const adopterTitle = rank === 1 ? 'Large Enterprise' : rank === 2 ? 'Mid-Market' : 'SMB';
-          const providerTitle = rank === 1 ? 'Tier-1 Integrators' : rank === 2 ? 'Regional Specialists' : 'Boutique Providers';
-          const title = search.search_type === 'customer'
-            ? `${adopterTitle} ${industryLabel} Adopters of ${search.product_service}`
-            : `${providerTitle} for ${search.product_service} in ${industryLabel}`;
-          const avgDeal = rank === 1 ? '$500k-$2M' : rank === 2 ? '$150k-$500k' : '$25k-$150k';
-          const conv = rank === 1 ? 8 : rank === 2 ? 12 : 18;
-          const preferredChannels = rank === 1 ? ['Executive briefings','RFP/RFQ','Industry events']
-            : rank === 2 ? ['Demos','Case studies','Email'] : ['Webinars','Inbound content','Live chat'];
-          return {
-            title,
-            rank,
-            match_score: rank === 1 ? 92 : rank === 2 ? 86 : 80,
-            demographics: {
-              industry: industryLabel,
-              companySize: rank === 1 ? '1000-5000+' : rank === 2 ? '200-1000' : '10-200',
-              geography: countryLabel,
-              revenue: rank === 1 ? '$100M-$1B+' : rank === 2 ? '$20M-$100M' : '$1M-$20M'
-            },
-            characteristics: {
-              painPoints: search.search_type === 'customer'
-                ? ['Integration complexity','Legacy constraints','Cost of ownership']
-                : ['Lead volume consistency','Pricing pressure','Competitive differentiation'],
-              motivations: search.search_type === 'customer'
-                ? ['ROI','Efficiency','Scalability']
-                : ['Revenue growth','Win rate','Partnerships'],
-              challenges: search.search_type === 'customer'
-                ? ['Change management','Talent gaps','Security/compliance']
-                : ['Brand visibility','Solution fit','Delivery capacity'],
-              decisionFactors: search.search_type === 'customer'
-                ? ['Total cost','Integration ease','Security','Time-to-value']
-                : ['Case studies','Capabilities','Coverage','Pricing model']
-            },
-            behaviors: {
-              buyingProcess: search.search_type === 'customer' ? 'Committee-based evaluation with pilot' : 'Solution packaging and RFP participation',
-              decisionTimeline: rank === 1 ? '3-6 months' : rank === 2 ? '2-4 months' : '1-3 months',
-              budgetRange: avgDeal,
-              preferredChannels
-            },
-            market_potential: {
-              totalCompanies: rank === 1 ? 500 : rank === 2 ? 2000 : 5000,
-              avgDealSize: avgDeal,
-              conversionRate: conv
-            },
-            locations: [countryLabel]
-          } as Persona;
-        };
-        acceptedSynthetic = [mk(1), mk(2), mk(3)];
+      try {
+        const quick = await callOpenAIChatJSON({
+          model: resolveModel('ultraLight'),
+          system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete persona objects.',
+          user: improvedPrompt,
+          temperature: 0.2,
+          maxTokens: 650,
+          requireJsonObject: true,
+          verbosity: 'low',
+          timeoutMs: 15000,
+          retries: 0
+        });
+        const arr = tryParsePersonas(quick);
+        const accepted = acceptPersonas((arr || []).slice(0, 3));
+        if (accepted.length === 3) personas = accepted;
+      } catch {}
+      if (!personas.length) {
+        import('../lib/logger').then(({ default: logger }) => logger.warn('[BusinessPersona] No personas returned by LLMs within time budget', { search_id: search.id })).catch(()=>{});
+        return;
       }
-      if (acceptedSynthetic.length === 3) {
-        const unique = await ensureUniqueTitles<Persona>(acceptedSynthetic, { id: search.id });
-        const sanitized = unique.map((p, i) => sanitizePersona('business', p, i, search));
-        const realistic = sanitized.every(p => isRealisticPersona('business', p));
-        const allValid = realistic && sanitized.every(p => validatePersona(p));
-        if (allValid) {
-          const rows = sanitized.map(p => ({
-            search_id: search.id,
-            user_id: search.user_id,
-            title: p.title,
-            rank: p.rank,
-            match_score: p.match_score,
-            demographics: p.demographics || {},
-            characteristics: p.characteristics || {},
-            behaviors: p.behaviors || {},
-            market_potential: p.market_potential || {},
-            locations: p.locations || []
-          }));
-          await insertBusinessPersonas(rows);
-          await updateSearchProgress(search.id, 20, 'business_personas');
-          import('../lib/logger').then(({ default: logger }) => logger.warn('[BusinessPersona] Used heuristic fallback from businesses', { search_id: search.id })).catch(()=>{});
-          return;
-        }
-      }
-      // If persona synthesis still fails, log and exit without throwing to avoid orchestrator crash
-      import('../lib/logger')
-        .then(({ default: logger }) => logger.error('[BusinessPersona] Failed to synthesize fallback personas', { search_id: search.id }))
-        .catch(() => {});
-      return;
     }
   } catch (error) {
     import('../lib/logger').then(({ default: logger }) => logger.error('Business persona generation failed', { search_id: search.id, error: (error as any)?.message || error })).catch(()=>{});

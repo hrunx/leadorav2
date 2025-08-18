@@ -106,25 +106,25 @@ function ensureEnv(keys: string[]) {
   }
 }
 
-// Centralized model routing with GPT‑5 preference
+// Centralized model routing with fast, cost-effective models for persona generation
 export const modelRouter = {
   primary(): string {
     return (
       process.env.OPENAI_PRIMARY_MODEL ||
       process.env.OPENAI_DEFAULT_MODEL ||
-      'gpt-5'
+      'gpt-4o-mini'  // Changed to gpt-4o-mini as primary for speed and cost
     );
   },
   light(): string {
     return (
       process.env.OPENAI_LIGHT_MODEL ||
-      'gpt-5-mini'
+      'gpt-4o-mini'  // Fast model for persona generation
     );
   },
   ultraLight(): string {
     return (
       process.env.OPENAI_ULTRA_LIGHT_MODEL ||
-      'gpt-5-nano'
+      'gpt-4o-mini'  // Ultra fast for simple tasks
     );
   }
 };
