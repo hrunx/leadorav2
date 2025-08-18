@@ -61,6 +61,11 @@ export function useSearchRealtime(searchId: string | null) {
         phase: row?.phase || 'starting',
         progress_pct: row?.progress_pct || 0,
         decision_makers_count: prev.decision_makers_count,
+
+      setProgress((prev) => ({
+        ...prev,
+        phase: row?.phase || 'starting',
+        progress_pct: row?.progress_pct || 0,
       }));
     }).subscribe());
 
