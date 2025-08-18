@@ -77,21 +77,49 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
           // Run main discovery flow
           await runBusinessDiscovery(agentSearch);
           // Guard: if still 0 businesses, call debug endpoint to force insert from aggregated candidates
+          // Only in development or when explicitly enabled
           const after = await loadBusinesses(search_id).catch(() => [] as any[]);
           if (!after || after.length === 0) {
-            try {
-              const res = await fetch(`${process.env.LOCAL_BASE_URL || 'http://localhost:9999'}/.netlify/functions/debug-business-discovery`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ search_id, insert: true })
-              });
-              if (!res.ok) throw new Error(`debug-business-discovery status ${res.status}`);
-            } catch (e: any) {
-              logger.warn('debug-business-discovery guard failed', { error: e?.message || e });
+            const enableDebugFallback = process.env.ENABLE_DEBUG_FALLBACK === 'true' || 
+                                        process.env.NODE_ENV === 'development' || 
+                                        process.env.NETLIFY_DEV === 'true';
+            
+            if (enableDebugFallback) {
+              try {
+                const res = await fetch(`${process.env.LOCAL_BASE_URL || 'http://localhost:9999'}/.netlify/functions/debug-business-discovery`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ search_id, insert: true })
+                });
+                if (!res.ok) throw new Error(`debug-business-discovery status ${res.status}`);
+                logger.info('Used debug fallback to insert businesses', { search_id });
+              } catch (e: any) {
+                logger.warn('debug-business-discovery guard failed', { error: e?.message || e });
+              }
+            } else {
+              logger.warn('No businesses found and debug fallback disabled', { search_id });
             }
           }
         },
-        onSuccess: () => updateFn('BUSINESSES_FOUND', { search_id }),
+        onSuccess: async () => {
+          updateFn('BUSINESSES_FOUND', { search_id });
+          // Auto-trigger decision maker enrichment after business discovery
+          try {
+            const base = process.env.URL || process.env.DEPLOY_URL || 'http://localhost:9999';
+            const enrichResponse = await fetch(`${base}/.netlify/functions/enrich-decision-makers`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ search_id })
+            });
+            if (enrichResponse.ok) {
+              logger.info('Auto-triggered decision maker enrichment', { search_id });
+            } else {
+              logger.warn('Failed to auto-trigger enrichment', { search_id, status: enrichResponse.status });
+            }
+          } catch (error: any) {
+            logger.warn('Error auto-triggering enrichment', { search_id, error: error?.message });
+          }
+        },
       },
       {
         key: 'market_research',
