@@ -446,12 +446,11 @@ export async function runBusinessDiscovery(search: {
       if (insertedBusinesses.length > 0) {
         initDMDiscoveryProgress(search.id, insertedBusinesses.length);
         await updateSearchProgress(search.id, 40, 'business_discovery');
+        // Dispatch background jobs per company without awaiting
+        for (const business of insertedBusinesses) {
+          void processBusinessForDM(search.id, search.user_id, business);
+        }
       }
-      await Promise.allSettled(
-        insertedBusinesses.map((business: any) =>
-          processBusinessForDM(search.id, search.user_id, business)
-        )
-      );
     } else {
       // Fallback to agent single-query flow if nothing found
       const firstCountry = search.countries[0] || '';
@@ -521,7 +520,7 @@ export async function runBusinessDiscovery(search: {
             if (inserted.length > 0) {
               initDMDiscoveryProgress(search.id, inserted.length);
               await updateSearchProgress(search.id, 40, 'business_discovery');
-              await Promise.allSettled(inserted.map((b:any)=>processBusinessForDM(search.id, search.user_id, b)));
+              for (const b of inserted) { void processBusinessForDM(search.id, search.user_id, b as any); }
             }
           } catch (e:any) {
             logger.warn('CSE fallback insert failed', { error: e?.message || e });
@@ -558,7 +557,7 @@ export async function runBusinessDiscovery(search: {
             if (inserted.length > 0) {
               initDMDiscoveryProgress(search.id, inserted.length);
               await updateSearchProgress(search.id, 40, 'business_discovery');
-              await Promise.allSettled(inserted.map((b:any)=>processBusinessForDM(search.id, search.user_id, b)));
+              for (const b of inserted) { void processBusinessForDM(search.id, search.user_id, b as any); }
             }
           } catch (e:any) {
             logger.warn('Synthetic insert failed', { error: e?.message || e });

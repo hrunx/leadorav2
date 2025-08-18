@@ -12,7 +12,7 @@ import {
   isGenericTitle,
   BusinessPersona as Persona,
 } from '../tools/persona-validation';
-import Ajv, { JSONSchemaType } from 'ajv';
+import Ajv from 'ajv';
 
 
 
@@ -30,62 +30,24 @@ interface StoreBusinessPersonasToolOutput {
 
 const ajv = new Ajv({ allErrors: true });
 
-const personaSchema: JSONSchemaType<Persona> = {
+// Relaxed validation: only require core fields; other objects optional and open
+const personaSchema: any = {
   type: 'object',
   properties: {
     title: { type: 'string' },
-    rank: { type: 'number' },
-    match_score: { type: 'number' },
-    demographics: {
-      type: 'object',
-      properties: {
-        industry: { type: 'string' },
-        companySize: { type: 'string' },
-        geography: { type: 'string' },
-        revenue: { type: 'string' }
-      },
-      required: ['industry', 'companySize', 'geography', 'revenue'],
-      additionalProperties: false
-    },
-    characteristics: {
-      type: 'object',
-      properties: {
-        painPoints: { type: 'array', items: { type: 'string' } },
-        motivations: { type: 'array', items: { type: 'string' } },
-        challenges: { type: 'array', items: { type: 'string' } },
-        decisionFactors: { type: 'array', items: { type: 'string' } }
-      },
-      required: ['painPoints', 'motivations', 'challenges', 'decisionFactors'],
-      additionalProperties: false
-    },
-    behaviors: {
-      type: 'object',
-      properties: {
-        buyingProcess: { type: 'string' },
-        decisionTimeline: { type: 'string' },
-        budgetRange: { type: 'string' },
-        preferredChannels: { type: 'array', items: { type: 'string' } }
-      },
-      required: ['buyingProcess', 'decisionTimeline', 'budgetRange', 'preferredChannels'],
-      additionalProperties: false
-    },
-    market_potential: {
-      type: 'object',
-      properties: {
-        totalCompanies: { type: 'number' },
-        avgDealSize: { type: 'string' },
-        conversionRate: { type: 'number' }
-      },
-      required: ['totalCompanies', 'avgDealSize', 'conversionRate'],
-      additionalProperties: false
-    },
-    locations: { type: 'array', items: { type: 'string' } }
+    rank: { type: 'integer' },
+    match_score: { type: 'integer' },
+    demographics: { type: 'object', additionalProperties: true },
+    characteristics: { type: 'object', additionalProperties: true },
+    behaviors: { type: 'object', additionalProperties: true },
+    market_potential: { type: 'object', additionalProperties: true },
+    locations: { type: 'array', items: {} }
   },
-  required: ['title', 'rank', 'match_score', 'demographics', 'characteristics', 'behaviors', 'market_potential', 'locations'],
+  required: ['title', 'rank', 'match_score'],
   additionalProperties: false
 };
 
-const validatePersona = ajv.compile<Persona>(personaSchema);
+const validatePersona = ajv.compile(personaSchema);
 
 const storeBusinessPersonasTool = tool({
   name: 'storeBusinessPersonas',
@@ -97,75 +59,28 @@ const storeBusinessPersonasTool = tool({
       user_id: { type: 'string' },
       personas: {
         type: 'array',
-
+        minItems: 1,
+        maxItems: 5,
         items: {
           type: 'object',
           properties: {
             title: { type: 'string' },
             rank: { type: 'integer' },
             match_score: { type: 'integer' },
-            demographics: { 
-              type: 'object',
-              properties: {
-                industry: { type: 'string' },
-                companySize: { type: 'string' },
-                geography: { type: 'string' },
-                revenue: { type: 'string' }
-              },
-              required: ['industry', 'companySize', 'geography', 'revenue'],
-              additionalProperties: false 
-            },
-            characteristics: { 
-              type: 'object',
-              properties: {
-                painPoints: { type: 'array', items: { type: 'string' } },
-                motivations: { type: 'array', items: { type: 'string' } },
-                challenges: { type: 'array', items: { type: 'string' } },
-                decisionFactors: { type: 'array', items: { type: 'string' } }
-              },
-              required: ['painPoints', 'motivations', 'challenges', 'decisionFactors'],
-              additionalProperties: false 
-            },
-            behaviors: { 
-              type: 'object',
-              properties: {
-                buyingProcess: { type: 'string' },
-                decisionTimeline: { type: 'string' },
-                budgetRange: { type: 'string' },
-                preferredChannels: { type: 'array', items: { type: 'string' } }
-              },
-              required: ['buyingProcess', 'decisionTimeline', 'budgetRange', 'preferredChannels'],
-              additionalProperties: false 
-            },
-            market_potential: { 
-              type: 'object',
-              properties: {
-                totalCompanies: { type: 'number' },
-                avgDealSize: { type: 'string' },
-                conversionRate: { type: 'number' }
-              },
-              required: ['totalCompanies', 'avgDealSize', 'conversionRate'],
-              additionalProperties: false 
-            },
-            locations: { type: 'array', items: { type: 'string' } }
+            demographics: { type: 'object', additionalProperties: true },
+            characteristics: { type: 'object', additionalProperties: true },
+            behaviors: { type: 'object', additionalProperties: true },
+            market_potential: { type: 'object', additionalProperties: true }
           },
-          required: [
-            'title',
-            'rank',
-            'match_score',
-            'demographics',
-            'characteristics',
-            'behaviors',
-            'market_potential',
-            'locations'
-          ],
+          required: ['title','rank','match_score'],
           additionalProperties: false
         }
       }
     },
-    required: ['search_id', 'user_id', 'personas'],
+    required: ['search_id','user_id','personas'],
     additionalProperties: false
   } as const,
+  strict: true,
   execute: async (input: unknown) => {
     const { search_id, user_id, personas } = input as StoreBusinessPersonasToolInput;
 
