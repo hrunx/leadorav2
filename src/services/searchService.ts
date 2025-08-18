@@ -304,16 +304,46 @@ export class SearchService {
 
   // Get business personas for a search
   static async getBusinessPersonas(searchId: string): Promise<BusinessPersona[]> {
-    // Proxy-first to avoid CORS/RLS issues in browsers
-      try {
-        const response = await fetch(`${this.functionsBase}/user-data-proxy?table=business_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-        if (response.ok) {
-          const arr = await response.json();
-          return (Array.isArray(arr) ? arr : []) as any;
-        }
-      } catch {}
-      // Do not fall back to direct Supabase in the browser to avoid CORS errors
-      return [] as any;
+    try {
+      // Try proxy first
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=business_personas&search_id=${searchId}`, { 
+        method: 'GET', 
+        headers: { 'Accept': 'application/json' }, 
+        credentials: 'omit' 
+      });
+      
+      if (response.ok) {
+        const arr = await response.json();
+        const result = Array.isArray(arr) ? arr : [];
+        import('../lib/logger').then(({ default: logger }) => logger.debug('Retrieved business personas via proxy', { searchId, count: result.length })).catch(()=>{});
+        return result as any;
+      } else {
+        import('../lib/logger').then(({ default: logger }) => logger.warn('Proxy failed for business personas, trying Supabase fallback', { searchId, status: response.status })).catch(()=>{});
+      }
+    } catch (error: any) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('Proxy error for business personas, trying Supabase fallback', { searchId, error: error?.message })).catch(()=>{});
+    }
+    
+    // Fallback to direct Supabase query
+    try {
+      const { data, error } = await supabase
+        .from('business_personas')
+        .select('*')
+        .eq('search_id', searchId)
+        .order('rank', { ascending: true });
+        
+      if (error) {
+        import('../lib/logger').then(({ default: logger }) => logger.error('Supabase fallback failed for business personas', { searchId, error: error.message })).catch(()=>{});
+        return [];
+      }
+      
+      const result = Array.isArray(data) ? data : [];
+      import('../lib/logger').then(({ default: logger }) => logger.info('Retrieved business personas via Supabase fallback', { searchId, count: result.length })).catch(()=>{});
+      return result as any;
+    } catch (error: any) {
+      import('../lib/logger').then(({ default: logger }) => logger.error('All methods failed for business personas', { searchId, error: error?.message })).catch(()=>{});
+      return [];
+    }
   }
 
   // Check if user should see demo data
@@ -371,15 +401,46 @@ export class SearchService {
 
   // Get businesses for a search
   static async getBusinesses(searchId: string): Promise<Business[]> {
-    // Proxy-first
     try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
+      // Try proxy first
+      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&search_id=${searchId}`, { 
+        method: 'GET', 
+        headers: { 'Accept': 'application/json' }, 
+        credentials: 'omit' 
+      });
+      
       if (response.ok) {
         const arr = await response.json();
-        return (Array.isArray(arr) ? arr : []) as any;
+        const result = Array.isArray(arr) ? arr : [];
+        import('../lib/logger').then(({ default: logger }) => logger.debug('Retrieved businesses via proxy', { searchId, count: result.length })).catch(()=>{});
+        return result as any;
+      } else {
+        import('../lib/logger').then(({ default: logger }) => logger.warn('Proxy failed for businesses, trying Supabase fallback', { searchId, status: response.status })).catch(()=>{});
       }
-    } catch {}
-    return [] as any;
+    } catch (error: any) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('Proxy error for businesses, trying Supabase fallback', { searchId, error: error?.message })).catch(()=>{});
+    }
+    
+    // Fallback to direct Supabase query
+    try {
+      const { data, error } = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('search_id', searchId)
+        .order('match_score', { ascending: false });
+        
+      if (error) {
+        import('../lib/logger').then(({ default: logger }) => logger.error('Supabase fallback failed for businesses', { searchId, error: error.message })).catch(()=>{});
+        return [];
+      }
+      
+      const result = Array.isArray(data) ? data : [];
+      import('../lib/logger').then(({ default: logger }) => logger.info('Retrieved businesses via Supabase fallback', { searchId, count: result.length })).catch(()=>{});
+      return result as any;
+    } catch (error: any) {
+      import('../lib/logger').then(({ default: logger }) => logger.error('All methods failed for businesses', { searchId, error: error?.message })).catch(()=>{});
+      return [];
+    }
   }
 
   // Get decision maker personas for a search (agents generate them automatically)

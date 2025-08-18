@@ -64,14 +64,32 @@ npm run lint -- --fix
 npm run typecheck
 ```
 
-### Required environment variables (configure in Netlify UI or CI)
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SERPER_KEY`
-- Optional LLMs: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`
-- Optional CSE fallback: `GOOGLE_CSE_KEY`, `GOOGLE_CSE_CX`
-- Optional email proxy for OTPs: `EMAIL_API_URL`, `EMAIL_API_KEY`
+### Environment variables
+
+| Name | Required | Usage |
+|------|----------|-------|
+| `VITE_SUPABASE_URL` / `SUPABASE_URL` | ✅ | Supabase project URL (browser & server). |
+| `VITE_SUPABASE_ANON_KEY` / `SUPABASE_ANON_KEY` | ✅ (browser) | Public anon key for client-side reads. |
+| `VITE_SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | ✅ (server) | Service-role key for Netlify Functions writes. |
+| `SERPER_KEY` | ✅ | Google Serper API for business & DM discovery. |
+| `OPENAI_API_KEY` | ⚠️ Required for all OpenAI-based agents. |
+| `OPENAI_PRIMARY_MODEL` | optional | Overrides default `gpt-4o` for heavy tasks (e.g. `gpt-5`). |
+| `OPENAI_LIGHT_MODEL` | optional | Light-weight model (default `gpt-4o`). |
+| `OPENAI_ULTRA_LIGHT_MODEL` | optional | Ultra-light model for quick tools. |
+| `OPENAI_MAX_CONCURRENT` | optional | Global concurrency limit (default **2**). |
+| `OPENAI_MIN_DELAY_MS` | optional | Minimum ms between calls (default **300**). |
+| `GEMINI_API_KEY` | optional | Enables Gemini-based market-research fallback. |
+| `DEEPSEEK_API_KEY` | optional | Enables DeepSeek generation tools. |
+| `DEEPSEEK_MODEL` | optional | Default DeepSeek model id (default `deepseek-chat`). |
+| `VITE_GOOGLE_PLACES_KEY` / `GOOGLE_PLACES_KEY` | optional | Google Places fallback when Serper quota exceeded. |
+| `GOOGLE_CSE_KEY` + `GOOGLE_CSE_CX` / `GOOGLE_SEARCH_ENGINE_ID` | optional | Google Custom Search fallback. |
+| `EMAIL_API_URL` | optional | Outbound OTP/email micro-service endpoint. |
+| `EMAIL_API_KEY` | optional | API key for the above service. |
+| `LINKEDIN_MAX_EMPLOYEES_PER_COMPANY` | optional | Cap DMs stored per company (default **5**). |
+| `CAN_SPEND` | optional | If set to `true`, allows paid API usage paths. |
+| `DEBUG_COUNTRY_MAPPING` | optional | Logs country→GL mapping decisions. |
+
+> **Tip:** Provide both the `VITE_*` **and** non-prefixed variants when possible to cover browser and Netlify-function environments gracefully.
 
 ### Key Netlify Functions
 - Start orchestration: `/.netlify/functions/orchestrator-start`

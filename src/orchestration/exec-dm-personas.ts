@@ -1,5 +1,6 @@
 import { runDMPersonas } from '../agents/dm-persona.agent';
 import { loadSearch } from '../tools/db.read';
+import logger from '../lib/logger';
 
 export async function execDMPersonas(payload: {
   search_id: string;
@@ -17,5 +18,16 @@ export async function execDMPersonas(payload: {
     countries: Array.isArray((search as any)?.countries) ? ((search as any).countries as string[]) : [],
     search_type: ((search as any)?.search_type === 'supplier' ? 'supplier' : 'customer') as 'customer' | 'supplier',
   };
-  return await runDMPersonas(agentSearch);
+  // extend DM personas timeout budget, and do not block overall if it times out
+  try {
+    const RUN_TIMEOUT_MS = Math.max(90000, Number(process.env.DMP_AGENT_TIMEOUT_MS || 90000));
+    const result = await Promise.race([
+      runDMPersonas(agentSearch),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout:dm_personas_exec')), RUN_TIMEOUT_MS))
+    ]);
+    return result as any;
+  } catch (err) {
+    logger.warn('execDMPersonas failed', { error: (err as any)?.message || err });
+    return null as any;
+  }
 }

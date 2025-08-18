@@ -1,14 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = typeof window !== 'undefined' 
-  ? import.meta.env.VITE_SUPABASE_URL 
-  : process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = typeof window !== 'undefined' 
-  ? import.meta.env.VITE_SUPABASE_ANON_KEY 
-  : process.env.VITE_SUPABASE_ANON_KEY;
+// Resolve Supabase env vars from multiple canonical names so the app works both in
+// browser (Vite prefix) and serverless functions (plain names).
+const supabaseUrl = typeof window !== 'undefined'
+  ? (import.meta as any).env?.VITE_SUPABASE_URL
+  : (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL);
+
+const supabaseAnonKey = typeof window !== 'undefined'
+  ? (import.meta as any).env?.VITE_SUPABASE_ANON_KEY
+  : (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY);
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+  throw new Error('Missing Supabase environment variables (SUPABASE_URL / VITE_SUPABASE_URL and SUPABASE_ANON_KEY / VITE_SUPABASE_ANON_KEY)');
 }
 
 export const supabase = createClient(

@@ -100,7 +100,40 @@ export default function SearchSelection() {
   };
 
   const handleSearch = async () => {
+    // Validation checks
     if (!searchType || !productService.trim()) return;
+    
+    const totalIndustries = selectedIndustries.length + customIndustries.length;
+    const totalCountries = selectedCountries.length + customCountries.length;
+    
+    // Validate that at least one industry is selected
+    if (totalIndustries === 0) {
+      alert('Please select at least one industry to target your search.');
+      return;
+    }
+    
+    // Validate that at least one country is selected
+    if (totalCountries === 0) {
+      alert('Please select at least one country to target your search.');
+      return;
+    }
+    
+    // Check for duplicate custom entries
+    const allIndustries = [...selectedIndustries.map(id => industries.find(i => i.id === id)?.name).filter(Boolean), ...customIndustries];
+    const allCountries = [...selectedCountries.map(code => countries.find(c => c.code === code)?.name).filter(Boolean), ...customCountries];
+    
+    const industrySet = new Set(allIndustries.map(name => name?.toLowerCase()));
+    const countrySet = new Set(allCountries.map(name => name?.toLowerCase()));
+    
+    if (industrySet.size !== allIndustries.length) {
+      alert('Please remove duplicate industry selections before proceeding.');
+      return;
+    }
+    
+    if (countrySet.size !== allCountries.length) {
+      alert('Please remove duplicate country selections before proceeding.');
+      return;
+    }
     
     setIsSearching(true);
     

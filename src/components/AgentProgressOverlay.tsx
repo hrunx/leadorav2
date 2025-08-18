@@ -65,6 +65,16 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
         const data = await response.json();
         setProgress(data.progress);
         setDataCounts(data.data_counts);
+        // Flag once when we see initial data so UI can show "Live results" hint
+        if (!firstDataSeen && (
+          data.data_counts.business_personas > 0 ||
+          data.data_counts.dm_personas > 0 ||
+          data.data_counts.businesses > 0 ||
+          data.data_counts.decision_makers > 0 ||
+          data.data_counts.market_insights > 0
+        )) {
+          setFirstDataSeen(true);
+        }
         // Normalize any legacy/alias phases coming from backend to UI phases
         const rawPhase = data.progress.phase || 'starting';
         const normalizedPhase = ((): string => {
@@ -93,23 +103,9 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
           return normalizedPhase;
         })();
         setCurrentPhase(derivedPhase);
-        // Auto-dismiss overlay only when we actually have visible rows to avoid blank intermediate screen
-        const anyVisible =
-          data.data_counts.market_insights > 0 ||
-          data.data_counts.decision_makers > 0 ||
-          data.data_counts.businesses > 0 ||
-          data.data_counts.business_personas > 0 ||
-          data.data_counts.dm_personas > 0;
-        if (!firstDataSeen && !hasNavigatedEarly && anyVisible && onEarlyNavigation) {
-          setFirstDataSeen(true);
-          setHasNavigatedEarly(true);
-          onEarlyNavigation();
-        }
-        
-        // Early navigation when personas are ready (3 and 3 per new limits)
-        if (!hasNavigatedEarly && 
-            data.data_counts.business_personas >= 3 && 
-            data.data_counts.dm_personas >= 3 &&
+        // Early navigation ONLY when business personas are ready
+        if (!hasNavigatedEarly &&
+            data.data_counts.business_personas >= 3 &&
             onEarlyNavigation) {
           setHasNavigatedEarly(true);
           setTimeout(() => {
@@ -117,10 +113,14 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
           }, 1000);
         }
         
-        if (data.progress.phase === 'completed' || data.progress.phase === 'failed') {
-          setTimeout(() => {
-            onComplete();
-          }, 2000);
+        // Only complete automatically when finished AND business personas exist,
+        // so users are not navigated into an empty screen
+        if (data.progress.phase === 'completed') {
+          if (data.data_counts.business_personas >= 3) {
+            setTimeout(() => { onComplete(); }, 2000);
+          }
+        } else if (data.progress.phase === 'failed') {
+          setTimeout(() => { onComplete(); }, 2000);
         }
       }
     } catch (error: any) {

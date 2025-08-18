@@ -62,22 +62,32 @@ Generate enrichment JSON with the following structure:
 
 Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON object.`;
 
-    // Try GPT-5 first with strict JSON, fallback to Gemini if it fails
+    // Try GPT-4o-mini first with strict JSON, fallback to Gemini if it fails
     let responseText = '';
     try {
       const res = await openai.chat.completions.create({
-        model: 'gpt-5',
+        model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: 'You output ONLY valid JSON object.' },
           { role: 'user', content: prompt }
         ],
-        response_format: { type: 'json_object' }
+        response_format: { type: 'json_object' },
+        temperature: 0.3,
+        max_tokens: 800
       });
       responseText = res.choices?.[0]?.message?.content || '';
-    } catch {
-      const g = gemini.getGenerativeModel({ model: 'gemini-1.5-pro' });
-      const result = await g.generateContent(prompt);
-      responseText = result.response.text();
+      logger.info('Profile enriched with GPT-4o-mini', { dm_id: dm.id });
+    } catch (error: any) {
+      logger.warn('GPT-4o-mini failed, trying Gemini', { dm_id: dm.id, error: error?.message });
+      try {
+        const g = gemini.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+        const result = await g.generateContent(prompt);
+        responseText = result.response.text();
+        logger.info('Profile enriched with Gemini', { dm_id: dm.id });
+      } catch (geminiError: any) {
+        logger.error('Both GPT and Gemini failed for enrichment', { dm_id: dm.id, error: geminiError?.message });
+        throw geminiError;
+      }
     }
     
     // Clean up JSON response
@@ -197,11 +207,15 @@ export const handler: Handler = async (event) => {
           }
           if (contact.email) updateData.email = contact.email;
           if (contact.phone) updateData.phone = contact.phone;
+          if (contact.linkedin && !dm.linkedin) updateData.linkedin = contact.linkedin;
+          
+          // Update enrichment metadata
+          updateData.enrichment_status = contact.confidence > 0 ? 'enriched' : 'attempted';
+          updateData.enrichment_confidence = contact.confidence;
+          updateData.enrichment_sources = contact.sources;
+          
           if (contact.verification) {
             updateData.email_verification = contact.verification;
-            updateData.enrichment_status = contact.verification.status || 'enriched';
-            updateData.enrichment_confidence = contact.verification.score;
-            updateData.enrichment_sources = [contact.source];
           }
 
           await updateDecisionMakerEnrichment(dm.id, updateData);
