@@ -231,7 +231,7 @@ export default function DecisionMakerMapping() {
         currentSearchIdRef.current = null;
       }
     };
-  }, [currentSearch?.id, authState.user?.id, authState.user?.email, isDemoUser]);
+  }, [currentSearch?.id, authState.user?.id, authState.user?.email, isDemoUser, currentSearch]);
 
   const loadDecisionMakers = useCallback(async () => {
     setIsLoading(true);
@@ -299,7 +299,7 @@ export default function DecisionMakerMapping() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentSearch?.id, authState.user?.id, authState.user?.email, isDemoUser]);
+  }, [currentSearch, authState.user?.id, authState.user?.email, isDemoUser]);
 
   // Load data on component mount (after loadDecisionMakers is declared)
   useEffect(() => {

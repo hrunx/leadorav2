@@ -260,7 +260,20 @@ export class SearchService {
           return hasLinkedin || hasEmail || hasPhone;
         }).length;
       }
-      return 0;
+      // Fallback to direct Supabase if proxy blocked in dev
+      const { data, error } = await supabase
+        .from('decision_makers')
+        .select('email, phone, linkedin')
+        .eq('user_id', queryUserId)
+        .limit(2000);
+      if (error) return 0;
+      const arr = Array.isArray(data) ? data : [];
+      return arr.filter((dm: any) => {
+        const hasLinkedin = typeof dm.linkedin === 'string' && dm.linkedin.trim() !== '';
+        const hasEmail = typeof dm.email === 'string' && dm.email.trim() !== '';
+        const hasPhone = typeof dm.phone === 'string' && dm.phone.trim() !== '';
+        return hasLinkedin || hasEmail || hasPhone;
+      }).length;
     } catch (error) {
       import('../lib/logger').then(({ default: logger }) => logger.warn('Failed counting qualified leads', { error: (error as any)?.message || error })).catch(()=>{});
       return 0;

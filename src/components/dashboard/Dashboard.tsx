@@ -59,7 +59,6 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
     const prevReplied = Math.max(0, Math.round(totalResponses * 0.6));
 
     setPrevPeriodStats({ totalLeads: prevLeads, sent: prevSent, replied: prevReplied });
-    const leadsChangePct = prevLeads > 0 ? Math.round(((totalLeads - prevLeads) / prevLeads) * 100) : (totalLeads > 0 ? 100 : 0);
     const respChangePct = prevSent > 0 ? Math.round((((totalResponses / Math.max(prevSent,1)) * 100) - ((prevReplied / Math.max(prevSent,1)) * 100))) : responseRate;
 
     setRealStats({ totalLeads, responseRate, responseRateChange: respChangePct });

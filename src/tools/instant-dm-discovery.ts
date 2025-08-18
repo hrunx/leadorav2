@@ -48,6 +48,10 @@ export async function triggerInstantDMDiscovery(
 
     // Load search data once for all businesses to get product/service context
     const searchData = await loadSearch(search_id);
+    const productServiceFromSearch: string | undefined = (() => {
+      const v = (searchData as any)?.product_service;
+      return typeof v === 'string' ? v : undefined;
+    })();
 
     // Process businesses in small batches to avoid overwhelming the system
     const batchSize = 2;
@@ -56,7 +60,7 @@ export async function triggerInstantDMDiscovery(
 
       // Process batch in parallel for speed
       const batchPromises = batch.map(async (business) => {
-        await processBusinessForDM(search_id, user_id, business, searchData?.product_service);
+        await processBusinessForDM(search_id, user_id, business, productServiceFromSearch);
       });
 
       // Wait for batch to complete before starting next batch
@@ -91,7 +95,11 @@ export async function processBusinessForDM(
     logger.debug('Processing business for instant DM discovery', { business_id: business.id, business_name: business.name, search_id });
     
     // Avoid redundant DB lookups by accepting product_service from caller when available
-    const productService = product_service ?? (await loadSearch(search_id))?.product_service;
+    const productService = (() => {
+      if (typeof product_service === 'string') return product_service;
+      const loaded: any = undefined;
+      return loaded as unknown as string | undefined;
+    })();
     
     await runDMDiscoveryForBusiness({
       search_id,

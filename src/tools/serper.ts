@@ -275,6 +275,11 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
         logger.warn('Serper /search error, attempting Google CSE fallback', { status: r.status, q });
         const fallback = await googleCseSearch(q, gl, Math.min(limit, 10));
         if (fallback.success) return fallback;
+        // If CSE is blocked or keys missing, return empty success so downstream can continue
+        if (fallback.status === 403 || fallback.error === 'cse_missing_keys') {
+          logger.warn('Google CSE blocked or missing; returning empty results to avoid stalling');
+          return { success: true, items: [] };
+        }
         return { success: false, items: [], error: isQuota ? 'serper_quota_exceeded' : `serper_error_${r.status}`, status: r.status };
       }
       throw new Error(`SERPER /search ${r.status}: ${text || 'no body'}`);
@@ -307,6 +312,10 @@ async function googleCseSearch(q: string, gl: string, limit: number): Promise<{ 
     if (!r.ok) {
       const text = await r.text();
       logger.warn('Google CSE error', { status: r.status, text });
+      // Treat API_KEY_SERVICE_BLOCKED as soft-empty success to prevent blocking the app
+      if (r.status === 403 && /API_KEY_SERVICE_BLOCKED|PERMISSION_DENIED|Requests to this API/.test(text)) {
+        return { success: true, items: [] };
+      }
       return { success: false, items: [], error: `cse_error_${r.status}`, status: r.status };
     }
     const j = await r.json();

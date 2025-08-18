@@ -40,11 +40,17 @@ export class CampaignService {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
         credentials: 'omit'
       });
-      if (!response.ok) {
-        logger.warn('getUserCampaigns proxy failed', { status: response.status });
-        return [];
+      if (response.ok) {
+        return await response.json();
       }
-      return await response.json();
+      // Fallback to direct Supabase in case proxy is blocked in dev
+      const { data, error } = await supabase
+        .from('email_campaigns')
+        .select('*')
+        .eq('user_id', queryUserId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (Array.isArray(data) ? data : []) as any;
     } catch (e: any) {
       logger.error('getUserCampaigns error', { error: e?.message || e });
       return [];
