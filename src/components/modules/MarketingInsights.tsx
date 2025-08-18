@@ -166,22 +166,24 @@ export default function MarketingInsights() {
   const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n));
 
   // Build a normalized 0-100 series from YoY growth like "+12%" when backend did not provide series
-  const buildSeriesFromGrowth = (growthStr: any, points = 12): number[] => {
-    const g = toPercent(growthStr) / 100; // e.g., 0.12
-    const r = g !== 0 ? Math.pow(1 + g, 1 / points) - 1 : 0; // per-step rate
-    const base = 60; // start index to render a visible area
-    const arr: number[] = [];
-    let v = base;
-    for (let i = 0; i < points; i++) {
-      v = v * (1 + r);
-      arr.push(v);
-    }
-    // Normalize to 20..90 for nicer chart fill
-    const min = Math.min(...arr);
-    const max = Math.max(...arr);
-    const span = max - min || 1;
-    return arr.map(x => 20 + ((x - min) / span) * 70);
-  };
+  const buildSeriesFromGrowth = useMemo(() => {
+    return (growthStr: any, points = 12): number[] => {
+      const g = toPercent(growthStr) / 100; // e.g., 0.12
+      const r = g !== 0 ? Math.pow(1 + g, 1 / points) - 1 : 0; // per-step rate
+      const base = 60; // start index to render a visible area
+      const arr: number[] = [];
+      let v = base;
+      for (let i = 0; i < points; i++) {
+        v = v * (1 + r);
+        arr.push(v);
+      }
+      // Normalize to 20..90 for nicer chart fill
+      const min = Math.min(...arr);
+      const max = Math.max(...arr);
+      const span = max - min || 1;
+      return arr.map(x => 20 + ((x - min) / span) * 70);
+    };
+  }, []);
 
   // Ensure we always have a series to plot for TAM
   const tamSeries: number[] | null = useMemo(() => {
@@ -189,7 +191,7 @@ export default function MarketingInsights() {
     if (hasSeries(series)) return series as number[];
     const growth = (marketRow as any)?.tam_data?.growth || (marketRow as any)?.sam_data?.growth || '0%';
     return buildSeriesFromGrowth(growth, 12);
-  }, [marketRow]);
+  }, [marketRow, buildSeriesFromGrowth]);
 
   // Donut chart arc builder
   const polarToCartesian = (cx: number, cy: number, r: number, angle: number) => {
@@ -534,9 +536,6 @@ export default function MarketingInsights() {
                       <div className="absolute inset-0">
                         {(competitorData || []).map((c: any, idx: number) => {
                           const share = clamp(Number(String(c.marketShare).replace(/[^0-9.]/g, '')) || 0);
-                          const growthPct = clamp(Number(String(c.growth || '0').replace(/[^0-9.-]/g, '')) || 0, -20, 50);
-
-
                           const growthPct = clamp(
                             Number(String(c.growth || '0').replace(/[^0-9.-]/g, '')) || 0,
                             -20,

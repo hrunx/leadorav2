@@ -10,7 +10,8 @@ function buildCorsHeaders(origin?: string, requestHeaders?: string, requestMetho
   const allowMethods = (requestMethod && requestMethod.length > 0)
     ? requestMethod
     : 'GET, POST, OPTIONS, PUT, PATCH, DELETE';
-  const allowedOrigin = (origin && origin.trim().length > 0) ? String(origin) : '*';
+  // In dev and for function proxy usage, a wildcard origin avoids Safari/WebKit access-control quirks
+  const allowedOrigin = '*';
   const headers: Record<string, string> = {
     'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Headers': allowHeaders,
@@ -83,7 +84,7 @@ export const handler: Handler = async (event) => {
   // - For user-scoped queries (with user_id), require Bearer JWT
   // - For search-scoped queries (with search_id), allow anon; RLS must permit read by search_id
   // No service-role keys are used here.
-  const authHeader = event.headers.authorization || event.headers.Authorization || '';
+  const authHeader = String(event.headers.authorization || event.headers.Authorization || '');
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
   const tableMap: Record<string, string> = {
@@ -154,8 +155,8 @@ export const handler: Handler = async (event) => {
     const useServiceRole = (!token && allowDev && !!supabaseServiceKey);
     const response = await fetch(restUrl, {
       headers: {
-        apikey: useServiceRole ? supabaseServiceKey : supabaseAnonKey,
-        ...(token ? { Authorization: `Bearer ${token}` } : (useServiceRole ? { Authorization: `Bearer ${supabaseServiceKey}` } : {})),
+        apikey: String(useServiceRole ? supabaseServiceKey : supabaseAnonKey),
+        ...(token ? { Authorization: `Bearer ${token}` } : (useServiceRole ? { Authorization: `Bearer ${String(supabaseServiceKey)}` } : {})),
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       }

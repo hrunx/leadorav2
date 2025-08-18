@@ -653,11 +653,12 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
         acceptedSynthetic = [mk(1), mk(2), mk(3)];
       }
       if (acceptedSynthetic.length === 3) {
-        const accepted = await ensureUniqueTitles<Persona>(acceptedSynthetic, { id: search.id });
-        const allRealistic = accepted.every(p => isRealisticPersona('business', p));
-        const allValid = allRealistic && accepted.every(p => validatePersona(p));
+        const unique = await ensureUniqueTitles<Persona>(acceptedSynthetic, { id: search.id });
+        const sanitized = unique.map((p, i) => sanitizePersona('business', p, i, search));
+        const realistic = sanitized.every(p => isRealisticPersona('business', p));
+        const allValid = realistic && sanitized.every(p => validatePersona(p));
         if (allValid) {
-          const rows = accepted.map(p => ({
+          const rows = sanitized.map(p => ({
             search_id: search.id,
             user_id: search.user_id,
             title: p.title,
@@ -670,38 +671,10 @@ Return JSON: {"personas": [ {"title": "..."}, {"title": "..."}, {"title": "..."}
             locations: p.locations || []
           }));
           await insertBusinessPersonas(rows);
-          await updateSearchProgress(search.id, 10, 'business_personas');
+          await updateSearchProgress(search.id, 20, 'business_personas');
           import('../lib/logger').then(({ default: logger }) => logger.warn('[BusinessPersona] Used heuristic fallback from businesses', { search_id: search.id })).catch(()=>{});
           return;
-
-        // Ensure titles are unique and all fields are sanitized before persistence
-        let accepted = await ensureUniqueTitles<Persona>(acceptedSynthetic, { id: search.id });
-        accepted = accepted.map((p, i) => sanitizePersona('business', p, i, search));
-        const realistic = accepted.every(p => isRealisticPersona('business', p));
-        if (!realistic) {
-          // If personas look unrealistic, log but proceed so UI can recover gracefully
-          import('../lib/logger')
-            .then(({ default: logger }) => logger.warn('[BusinessPersona] Fallback personas appeared unrealistic', { search_id: search.id }))
-            .catch(() => {});
         }
-        const rows = accepted.map(p => ({
-          search_id: search.id,
-          user_id: search.user_id,
-          title: p.title,
-          rank: p.rank,
-          match_score: p.match_score,
-          demographics: p.demographics || {},
-          characteristics: p.characteristics || {},
-          behaviors: p.behaviors || {},
-          market_potential: p.market_potential || {},
-          locations: p.locations || []
-        }));
-        await insertBusinessPersonas(rows);
-        await updateSearchProgress(search.id, 20, 'business_personas');
-        import('../lib/logger')
-          .then(({ default: logger }) => logger.warn('[BusinessPersona] Used heuristic fallback from businesses', { search_id: search.id }))
-          .catch(() => {});
-        return;
       }
       // If persona synthesis still fails, log and exit without throwing to avoid orchestrator crash
       import('../lib/logger')

@@ -84,6 +84,15 @@ export interface UserSearch {
   status: 'in_progress' | 'completed';
   created_at: string;
   updated_at: string;
+  // Optional fields populated by services for UI convenience
+  timestamp?: string;
+  totals?: {
+    business_personas?: number;
+    dm_personas?: number;
+    businesses?: number;
+    decision_makers?: number;
+    market_insights?: number;
+  };
 }
 
 export interface BusinessPersona {

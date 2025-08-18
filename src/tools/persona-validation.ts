@@ -127,15 +127,6 @@ export function sanitizePersona(
     }
     return 0;
   };
-
-    const coerceNumber = (v: any): number => {
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
-      if (typeof v === 'string') {
-        const n = parseFloat(v.replace(/[^0-9.-]+/g, ''));
-        return Number.isFinite(n) ? n : 0;
-      }
-      return 0;
-    };
   if (type === 'business') {
     const firstIndustry = Array.isArray((ctx as any)?.industries) && (ctx as any).industries.length
       ? String((ctx as any).industries[0])
@@ -146,55 +137,38 @@ export function sanitizePersona(
     const title = cleanText(p?.title);
     const demographics = {
       industry: cleanText(p?.demographics?.industry) || firstIndustry,
-      companySize: cleanText(p?.demographics?.companySize),
+      companySize: cleanText(p?.demographics?.companySize) || '10-200',
       geography: cleanText(p?.demographics?.geography) || firstCountry,
-      revenue: cleanText(p?.demographics?.revenue)
-
-    const firstIndustry = Array.isArray((ctx as any)?.industries) && (ctx as any).industries.length ? String((ctx as any).industries[0]) : '';
-    const firstCountry = Array.isArray((ctx as any)?.countries) && (ctx as any).countries.length ? String((ctx as any).countries[0]) : '';
-    const title = cleanText(p?.title);
-    const demographics = {
-      industry: cleanText(p?.demographics?.industry) || firstIndustry,
-      companySize: cleanText(p?.demographics?.companySize) || '',
-      geography: cleanText(p?.demographics?.geography) || firstCountry,
-      revenue: cleanText(p?.demographics?.revenue) || ''
+      revenue: cleanText(p?.demographics?.revenue) || '$1M-$20M'
     };
+    const defaultPain = ['Integration complexity','Cost of ownership','Security/compliance'];
+    const defaultMotiv = ['ROI','Efficiency','Scalability'];
+    const defaultChallenges = ['Change management','Talent gaps'];
+    const defaultDecide = ['Total cost','Integration ease','Security'];
     const characteristics = {
-      painPoints: coerceStringArray(p?.characteristics?.painPoints),
-      motivations: coerceStringArray(p?.characteristics?.motivations),
-      challenges: coerceStringArray(p?.characteristics?.challenges),
-      decisionFactors: coerceStringArray(p?.characteristics?.decisionFactors)
+      painPoints: (()=>{ const a=coerceStringArray(p?.characteristics?.painPoints); return a.length? a : defaultPain; })(),
+      motivations: (()=>{ const a=coerceStringArray(p?.characteristics?.motivations); return a.length? a : defaultMotiv; })(),
+      challenges: (()=>{ const a=coerceStringArray(p?.characteristics?.challenges); return a.length? a : defaultChallenges; })(),
+      decisionFactors: (()=>{ const a=coerceStringArray(p?.characteristics?.decisionFactors); return a.length? a : defaultDecide; })()
     };
     const behaviors = {
-      buyingProcess: cleanText(p?.behaviors?.buyingProcess),
-      decisionTimeline: cleanText(p?.behaviors?.decisionTimeline),
-      budgetRange: cleanText(p?.behaviors?.budgetRange),
-      preferredChannels: coerceStringArray(p?.behaviors?.preferredChannels)
+      buyingProcess: cleanText(p?.behaviors?.buyingProcess) || 'Committee-based evaluation with pilot',
+      decisionTimeline: cleanText(p?.behaviors?.decisionTimeline) || '2-6 months',
+      budgetRange: cleanText(p?.behaviors?.budgetRange) || '$25k-$150k',
+      preferredChannels: (()=>{ const a=coerceStringArray(p?.behaviors?.preferredChannels); return a.length? a : ['Email','Demos','Case studies']; })()
     };
     const market_potential = {
-      totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies)
-        ? p.market_potential.totalCompanies
-        : 0,
-      avgDealSize: cleanText(p?.market_potential?.avgDealSize),
-      conversionRate: isPositiveNumber(p?.market_potential?.conversionRate)
-        ? p.market_potential.conversionRate
-        : 0
+      totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies) ? p.market_potential.totalCompanies : 100,
+      avgDealSize: cleanText(p?.market_potential?.avgDealSize) || '$50k-$250k',
+      conversionRate: isPositiveNumber(p?.market_potential?.conversionRate) ? p.market_potential.conversionRate : 10
     };
     const locations = Array.isArray(p?.locations) && p.locations.length
       ? p.locations.map((l: any) => cleanText(l))
       : [firstCountry];
-
-      totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies) ? p.market_potential.totalCompanies : 0,
-      avgDealSize: cleanText(p?.market_potential?.avgDealSize) || '',
-      conversionRate: isPositiveNumber(p?.market_potential?.conversionRate) ? p.market_potential.conversionRate : 0
-    };
-    const locations = Array.isArray(p?.locations) && p.locations.length ? p.locations : (firstCountry ? [firstCountry] : []);
-
     return {
       title,
       rank: typeof p?.rank === 'number' ? p.rank : index + 1,
-      match_score: coerceNumber(p?.match_score),
-      match_score: isPositiveNumber(p?.match_score) ? p.match_score : 0,
+      match_score: (()=>{ const n=coerceNumber(p?.match_score); return n>0? n : 85; })(),
       demographics,
       characteristics,
       behaviors,
