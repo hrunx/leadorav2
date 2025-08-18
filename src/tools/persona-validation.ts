@@ -137,30 +137,26 @@ export function sanitizePersona(
     const title = cleanText(p?.title);
     const demographics = {
       industry: cleanText(p?.demographics?.industry) || firstIndustry,
-      companySize: cleanText(p?.demographics?.companySize) || '10-200',
+      companySize: cleanText(p?.demographics?.companySize) || '',
       geography: cleanText(p?.demographics?.geography) || firstCountry,
-      revenue: cleanText(p?.demographics?.revenue) || '$1M-$20M'
+      revenue: cleanText(p?.demographics?.revenue) || ''
     };
-    const defaultPain = ['Integration complexity','Cost of ownership','Security/compliance'];
-    const defaultMotiv = ['ROI','Efficiency','Scalability'];
-    const defaultChallenges = ['Change management','Talent gaps'];
-    const defaultDecide = ['Total cost','Integration ease','Security'];
     const characteristics = {
-      painPoints: (()=>{ const a=coerceStringArray(p?.characteristics?.painPoints); return a.length? a : defaultPain; })(),
-      motivations: (()=>{ const a=coerceStringArray(p?.characteristics?.motivations); return a.length? a : defaultMotiv; })(),
-      challenges: (()=>{ const a=coerceStringArray(p?.characteristics?.challenges); return a.length? a : defaultChallenges; })(),
-      decisionFactors: (()=>{ const a=coerceStringArray(p?.characteristics?.decisionFactors); return a.length? a : defaultDecide; })()
+      painPoints: coerceStringArray(p?.characteristics?.painPoints),
+      motivations: coerceStringArray(p?.characteristics?.motivations),
+      challenges: coerceStringArray(p?.characteristics?.challenges),
+      decisionFactors: coerceStringArray(p?.characteristics?.decisionFactors)
     };
     const behaviors = {
-      buyingProcess: cleanText(p?.behaviors?.buyingProcess) || 'Committee-based evaluation with pilot',
-      decisionTimeline: cleanText(p?.behaviors?.decisionTimeline) || '2-6 months',
-      budgetRange: cleanText(p?.behaviors?.budgetRange) || '$25k-$150k',
-      preferredChannels: (()=>{ const a=coerceStringArray(p?.behaviors?.preferredChannels); return a.length? a : ['Email','Demos','Case studies']; })()
+      buyingProcess: cleanText(p?.behaviors?.buyingProcess),
+      decisionTimeline: cleanText(p?.behaviors?.decisionTimeline),
+      budgetRange: cleanText(p?.behaviors?.budgetRange),
+      preferredChannels: coerceStringArray(p?.behaviors?.preferredChannels)
     };
     const market_potential = {
-      totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies) ? p.market_potential.totalCompanies : 100,
-      avgDealSize: cleanText(p?.market_potential?.avgDealSize) || '$50k-$250k',
-      conversionRate: isPositiveNumber(p?.market_potential?.conversionRate) ? p.market_potential.conversionRate : 10
+      totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies) ? p.market_potential.totalCompanies : 0,
+      avgDealSize: cleanText(p?.market_potential?.avgDealSize),
+      conversionRate: isPositiveNumber(p?.market_potential?.conversionRate) ? p.market_potential.conversionRate : 0
     };
     const locations = Array.isArray(p?.locations) && p.locations.length
       ? p.locations.map((l: any) => cleanText(l))
