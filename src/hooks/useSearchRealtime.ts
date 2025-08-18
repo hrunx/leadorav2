@@ -57,7 +57,11 @@ export function useSearchRealtime(searchId: string | null) {
       setProgress((prev) => ({ ...prev, decision_makers_count: (prev.decision_makers_count || 0) + (payload.eventType === 'INSERT' ? 1 : 0) }));
     }).on('postgres_changes', { event: '*', schema: 'public', table: 'user_searches', filter: `id=eq.${searchId}` }, (payload) => {
       const row = payload.new as AnyRow;
-      setProgress({ phase: row?.phase || 'starting', progress_pct: row?.progress_pct || 0, decision_makers_count: (decisionMakers?.length || 0) });
+      setProgress(prev => ({
+        phase: row?.phase || 'starting',
+        progress_pct: row?.progress_pct || 0,
+        decision_makers_count: prev.decision_makers_count,
+      }));
     }).subscribe());
 
     return () => {
