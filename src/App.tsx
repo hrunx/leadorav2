@@ -81,9 +81,10 @@ function AppContent() {
     setActiveModule('search');
   };
 
-  const handleViewSearch = (searchId: string) => {
+  const handleViewSearch = async (searchId: string) => {
     const search = getSearch(searchId);
     if (!search) return;
+    
     // Select existing search only; do NOT create a new one
     setCurrentSearchId(searchId);
     setCurrentSearch(searchId);
@@ -94,6 +95,26 @@ function AppContent() {
       countries: search.countries || [],
       timestamp: search.created_at
     });
+
+    // Try to get cached data first - this prevents re-triggering agents
+    try {
+      const cachedData = await SearchService.getCachedSearchData(searchId, {
+        includeIncomplete: true,
+        ttlHours: 24 // Use cache for up to 24 hours for viewed searches
+      });
+      
+      if (cachedData) {
+        console.log('Using cached search data for view', { 
+          searchId, 
+          isComplete: cachedData.isComplete,
+          businessCount: cachedData.businesses.length,
+          dmCount: cachedData.decisionMakers.length 
+        });
+      }
+    } catch (error) {
+      console.warn('Failed to load cached data, will use real-time data', error);
+    }
+
     // Show personas screen; data hooks will load existing rows for this search
     setActiveModule('personas');
   };

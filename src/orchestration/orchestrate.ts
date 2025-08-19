@@ -157,9 +157,31 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
 
     const essentialTasks = ['business_personas', 'dm_personas', 'business_discovery'] as const;
     const allEssentialSucceeded = essentialTasks.every(t => taskStatus[t] === 'done');
+    
     if (allEssentialSucceeded) {
+      // Run persona mapping after essential tasks complete
+      try {
+        updateFn('PROGRESS', { phase: 'persona_mapping', progress: 95 });
+        
+        const { intelligentPersonaMapping, mapDecisionMakersToPersonas } = await import('../tools/persona-mapper');
+        
+        // Map businesses to business personas
+        await intelligentPersonaMapping(search_id);
+        logger.info('Business persona mapping completed', { search_id });
+        
+        // Map decision makers to DM personas  
+        await mapDecisionMakersToPersonas(search_id);
+        logger.info('Decision maker persona mapping completed', { search_id });
+        
+        updateFn('PROGRESS', { phase: 'completed', progress: 100 });
+      } catch (mappingError: any) {
+        logger.warn('Persona mapping failed but search still completed', { 
+          search_id, 
+          error: mappingError?.message || mappingError 
+        });
+      }
+      
       await updateSearchProgress(search_id, 100, 'completed', 'completed', taskStatus);
-      updateFn('PROGRESS', { phase: 'completed', progress: 100 });
     } else {
       await updateSearchProgress(search_id, 0, 'failed', 'failed', taskStatus);
       updateFn('ERROR', { search_id, message: 'One or more essential tasks failed' });

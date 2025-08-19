@@ -1,11 +1,15 @@
 import { fetchWithTimeoutRetry } from './util';
 import { serperSearch } from './serper';
+import { harvestContactEmails, type EmailHarvestResult } from './email-harvesting';
+import { enrichLinkedInProfile, type LinkedInEnrichmentResult } from './linkedin-enrichment';
 import logger from '../lib/logger';
 
 export interface ContactEnrichment {
   email?: string;
+  emails?: EmailHarvestResult[];
   phone?: string;
   linkedin?: string;
+  linkedinProfile?: LinkedInEnrichmentResult;
   verification?: {
     status?: string;
     score?: number;
@@ -93,12 +97,28 @@ async function fetchFromSerper(name: string, company: string): Promise<Partial<C
   }
 }
 
-export async function fetchContactEnrichment(name: string, company: string): Promise<ContactEnrichment> {
+export async function fetchContactEnrichment(
+  name: string, 
+  company: string, 
+  context?: {
+    title?: string;
+    location?: string;
+    website?: string;
+  }
+): Promise<ContactEnrichment> {
   try {
-    // Try multiple sources in parallel
-    const [hunterResult, serperResult] = await Promise.allSettled([
+    // Run comprehensive enrichment in parallel
+    const [hunterResult, serperResult, emailHarvestResult, linkedinResult] = await Promise.allSettled([
       fetchFromHunter(name, company),
-      fetchFromSerper(name, company)
+      fetchFromSerper(name, company),
+      harvestContactEmails(name, company, { 
+        title: context?.title,
+        website: context?.website 
+      }),
+      enrichLinkedInProfile(name, company, {
+        title: context?.title,
+        location: context?.location
+      })
     ]);
     
     // Combine results, preferring higher confidence sources
@@ -114,14 +134,39 @@ export async function fetchContactEnrichment(name: string, company: string): Pro
     // Merge all sources
     combined.sources = results.flatMap(r => r.sources || []);
     
-    // Use best email (highest confidence)
-    const emailResults = results.filter(r => r.email);
-    if (emailResults.length > 0) {
-      const bestEmail = emailResults.reduce((best, current) => 
-        (current.confidence || 0) > (best.confidence || 0) ? current : best
-      );
-      combined.email = bestEmail.email;
-      combined.verification = bestEmail.verification;
+    // Add comprehensive email harvesting results
+    if (emailHarvestResult.status === 'fulfilled' && emailHarvestResult.value.length > 0) {
+      combined.emails = emailHarvestResult.value;
+      combined.sources.push('email_harvesting');
+      
+      // Set primary email to highest confidence one
+      const bestEmail = emailHarvestResult.value[0];
+      if (bestEmail) {
+        combined.email = bestEmail.email;
+        combined.verification = {
+          status: bestEmail.verification.status,
+          score: bestEmail.verification.score
+        };
+      }
+    }
+    
+    // Add LinkedIn enrichment results
+    if (linkedinResult.status === 'fulfilled' && linkedinResult.value.profile) {
+      combined.linkedinProfile = linkedinResult.value;
+      combined.linkedin = linkedinResult.value.profile.profileUrl;
+      combined.sources.push('linkedin_enrichment');
+    }
+    
+    // Use best email from legacy sources if no harvested emails
+    if (!combined.email) {
+      const emailResults = results.filter(r => r.email);
+      if (emailResults.length > 0) {
+        const bestEmail = emailResults.reduce((best, current) => 
+          (current.confidence || 0) > (best.confidence || 0) ? current : best
+        );
+        combined.email = bestEmail.email;
+        combined.verification = bestEmail.verification;
+      }
     }
     
     // Use best phone
@@ -133,22 +178,31 @@ export async function fetchContactEnrichment(name: string, company: string): Pro
       combined.phone = bestPhone.phone;
     }
     
-    // Use LinkedIn from any source
-    const linkedinResults = results.filter(r => r.linkedin);
-    if (linkedinResults.length > 0) {
-      combined.linkedin = linkedinResults[0].linkedin;
+    // Use LinkedIn from legacy sources if no comprehensive result
+    if (!combined.linkedin) {
+      const linkedinResults = results.filter(r => r.linkedin);
+      if (linkedinResults.length > 0) {
+        combined.linkedin = linkedinResults[0].linkedin;
+      }
     }
     
-    // Calculate overall confidence
-    combined.confidence = Math.max(...results.map(r => r.confidence || 0));
+    // Calculate overall confidence (use highest confidence from any source)
+    const confidences = [
+      ...results.map(r => r.confidence || 0),
+      ...(combined.emails ? combined.emails.map(e => e.confidence) : []),
+      combined.linkedinProfile?.confidence || 0
+    ];
+    combined.confidence = Math.max(...confidences, 0);
     
-    logger.info('Contact enrichment completed', { 
+    logger.info('Comprehensive contact enrichment completed', { 
       name, 
       company, 
       sources: combined.sources, 
       hasEmail: !!combined.email, 
       hasPhone: !!combined.phone, 
       hasLinkedIn: !!combined.linkedin,
+      emailsFound: combined.emails?.length || 0,
+      linkedinProfileFound: !!combined.linkedinProfile?.profile,
       confidence: combined.confidence 
     });
     

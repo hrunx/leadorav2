@@ -217,16 +217,17 @@ export interface CampaignRecipient {
   id: string;
   campaign_id: string;
   user_id: string;
+  search_id?: string;
   recipient_type: 'business' | 'decision_maker';
   recipient_id: string;
-  recipient_name: string;
   recipient_email: string;
-  status: 'pending' | 'sent' | 'opened' | 'clicked' | 'replied';
-  sent_at?: string;
-  opened_at?: string;
-  clicked_at?: string;
-  replied_at?: string;
+  recipient_name: string;
+  company_name?: string;
+  title?: string;
+  delivery_status?: 'pending' | 'sent' | 'delivered' | 'opened' | 'clicked' | 'replied' | 'bounced' | 'failed';
+  metadata?: Record<string, unknown>;
   created_at: string;
+  updated_at: string;
 }
 
 export interface LinkedinQueryCache {

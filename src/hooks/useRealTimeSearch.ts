@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import logger from '../lib/logger';
 import { SearchService } from '../services/searchService';
+import { getCachedSearchData } from '../tools/search-cache';
 import type { Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
 
 interface SearchProgress {
@@ -47,6 +48,33 @@ export function useRealTimeSearch(searchId: string | null) {
     try {
       // Only show loading on the very first load to avoid UI flicker on polling
       setData(prev => (hasLoadedOnceRef.current ? prev : { ...prev, isLoading: true }));
+
+      // First, try to get cached data (especially for completed searches)
+      const cachedData = await getCachedSearchData(searchId, { 
+        includeIncomplete: true, 
+        ttlHours: 1 // Cache for 1 hour
+      });
+
+      if (cachedData) {
+        logger.debug('Using cached search data', { searchId, isComplete: cachedData.isComplete });
+        
+        setData({
+          businesses: cachedData.businesses as Business[],
+          businessPersonas: cachedData.businessPersonas as DecisionMakerPersona[],
+          dmPersonas: cachedData.dmPersonas as DecisionMakerPersona[],
+          decisionMakers: cachedData.decisionMakers as DecisionMaker[],
+          marketInsights: cachedData.marketInsights as MarketInsight[],
+          progress: cachedData.progress,
+          isLoading: false
+        });
+        
+        hasLoadedOnceRef.current = true;
+        
+        // If cached data is complete and recent, return early
+        if (cachedData.isComplete) {
+          return;
+        }
+      }
 
       // Load all data in parallel using SearchService (with proxy fallback)
       const progressPromise = (async () => {
@@ -119,6 +147,15 @@ export function useRealTimeSearch(searchId: string | null) {
         };
       });
       hasLoadedOnceRef.current = true;
+
+      // Cache the fresh data if search is complete
+      if (searchProgress?.phase === 'completed' || searchProgress?.status === 'completed') {
+        try {
+          await SearchService.cacheCurrentSearchState(searchId);
+        } catch (cacheError: any) {
+          logger.debug('Failed to cache search state', { searchId, error: cacheError.message });
+        }
+      }
 
     } catch (error: any) {
       logger.warn('Error loading search data', { error: error?.message || String(error) });

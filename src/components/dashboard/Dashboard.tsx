@@ -282,7 +282,7 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
                       <span className={`px-2 py-1 text-xs rounded-full font-medium ${getSearchTypeColor(search.search_type || 'customer')}`}>
                         {search.search_type || 'customer'}
                       </span>
-                      <span className="text-sm text-gray-500">{formatDate(search.timestamp)}</span>
+                      <span className="text-sm text-gray-500">{formatDate(search.timestamp || search.created_at || new Date().toISOString())}</span>
                     </div>
                     <h3 className="font-medium text-gray-900 mb-1">
                       {search.product_service || 'Untitled Search'}
@@ -314,6 +314,11 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
                       }`}>
                         {search.status || 'unknown'}
                       </span>
+                      {search.status === 'completed' && (
+                        <span className="px-2 py-1 text-xs rounded-full font-medium bg-purple-100 text-purple-800">
+                          📦 Cached
+                        </span>
+                      )}
                       {search.industries && search.industries.length > 0 && (
                         <span className="text-xs text-gray-500">
                           {search.industries.slice(0, 2).join(', ')}

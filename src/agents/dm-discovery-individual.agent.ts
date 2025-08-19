@@ -57,13 +57,31 @@ const linkedinSearchTool = tool({
       // Single precise search per company to limit API usage
       const personas = await loadDMPersonas(search_id);
       const topTitles: string[] = Array.isArray(personas)
-        ? personas.slice(0, 3).map((p: any) => String(p?.title || '').trim()).filter(Boolean)
+        ? personas.slice(0, 4).map((p: any) => String(p?.title || '').trim()).filter(Boolean)
         : [];
-      const fallbackTitles = ['Head of', 'Director', 'VP'];
+      const fallbackTitles = ['CEO', 'CTO', 'Director', 'VP', 'Manager'];
       const titles = topTitles.length ? topTitles : fallbackTitles;
       const ctx = (product_service || '').trim();
-      const suffix = ctx ? ` ${ctx}` : '';
-      const queries = titles.map(t => `"${company_name}" site:linkedin.com/in/ ${t}${suffix}`);
+      
+      // Build targeted queries with product context and decision-making keywords
+      const queries = [
+        // Persona-specific with company name
+        ...titles.map(t => `"${company_name}" site:linkedin.com/in/ "${t}" ${ctx}`),
+        
+        // Product-specific decision makers if product context exists
+        ...(ctx ? [
+          `"${company_name}" site:linkedin.com/in/ "${ctx}" (director OR manager OR head)`,
+          `"${company_name}" site:linkedin.com/in/ "${ctx}" (VP OR "Vice President")`,
+          `"${company_name}" site:linkedin.com/in/ "${ctx}" decision`,
+          `"${company_name}" site:linkedin.com/in/ "${ctx}" procurement`
+        ] : []),
+        
+        // Executive fallbacks
+        `"${company_name}" site:linkedin.com/in/ (CEO OR founder)`,
+        `"${company_name}" site:linkedin.com/in/ (CTO OR "Chief Technology Officer")`,
+        `"${company_name}" site:linkedin.com/in/ director`,
+        `"${company_name}" site:linkedin.com/in/ VP`
+      ].filter(q => q.trim().length > 0);
 
       const allEmployees: Employee[] = [];
 
@@ -140,7 +158,7 @@ const linkedinSearchTool = tool({
           // If search returned none, try a broader Google CSE pass with company filter
           if (!result || !result.success || !Array.isArray(result.items) || result.items.length === 0) {
             // Broader fallback without role to avoid undefined variables and still capture profiles
-            const alt = await serperSearch(`site:linkedin.com/in/ ${company_name}${suffix}`, company_country, 10);
+            const alt = await serperSearch(`site:linkedin.com/in/ ${company_name} ${ctx}`, company_country, 10);
             if (alt && alt.success && Array.isArray(alt.items) && alt.items.length) {
               const employees = alt.items
                 .filter((item: SerperItem) => item.link?.includes('linkedin.com/in/'))

@@ -1,6 +1,5 @@
 import { Agent, tool, run } from '@openai/agents';
-import { serperPlaces, serperSearch, retryWithBackoff } from '../tools/serper';
-import { googlePlacesTextSearch } from '../tools/google-places';
+import { serperPlaces, retryWithBackoff } from '../tools/serper';
 import logger from '../lib/logger';
 import { resolveModel } from './clients';
 import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db.write';
@@ -271,22 +270,28 @@ const storeBusinessesTool = tool({
 export const BusinessDiscoveryAgent = new Agent({
   name: 'BusinessDiscoveryAgent',
  instructions: `
-You are a business discovery agent. Your ONLY job is to find real businesses and store them in the database.
+You are a business discovery agent. Your job is to find real businesses based on search type and store them in the database.
+
+SEARCH TYPE LOGIC:
+- SUPPLIER searches: Find businesses that SELL, PROVIDE, or MANUFACTURE the product/service
+- CUSTOMER searches: Find businesses that USE, REQUIRE, or BUY the product/service
 
 STEP-BY-STEP PROCESS (execute in this exact order):
 
 1. FIRST - Extract parameters from user message:
-   - search_id, user_id (required)
-   - product_service, industries, countries, gl
-   - discovery_query (use this for serperPlaces)
+   - search_id, user_id (required)  
+   - product_service, industries, countries, search_type
+   - Build discovery_query based on search_type:
+     * For SUPPLIER: "{product_service} supplier manufacturer sell {industry} {country}"
+     * For CUSTOMER: "{product_service} buyer user client customer {industry} {country}"
 
-2. SECOND - Call serperPlaces immediately:
-   serperPlaces(q=discovery_query, gl=gl, limit=5, search_id=search_id, user_id=user_id)
+2. SECOND - Call serperPlaces with optimized query:
+   serperPlaces(q=discovery_query, gl=country_code, limit=8, search_id=search_id, user_id=user_id)
 
 3. THIRD - IMMEDIATELY store ALL places from serperPlaces:
    storeBusinesses(search_id, user_id, all_places_as_basic_business_objects)
 
-   CRITICAL: Convert each Serper place to this EXACT format (include ALL contact fields):
+   CRITICAL: Convert each Serper place to this EXACT format:
    {
      name: place.name,
      address: place.address,
@@ -297,32 +302,31 @@ STEP-BY-STEP PROCESS (execute in this exact order):
      industry: first_industry,
      country: first_country,
      size: "Unknown",
-     revenue: "Unknown",
+     revenue: "Unknown", 
      description: place.description || "Business discovered via Serper Places",
      match_score: 85,
      persona_id: null,
-     persona_type: "business",
+     persona_type: search_type, // "supplier" or "customer"
      relevant_departments: [],
-     key_products: [],
+     key_products: [product_service],
      recent_activity: []
    }
 
-SKIP ANALYSIS COMPLETELY - JUST STORE BASIC BUSINESSES!
+QUERY EXAMPLES:
+- SUPPLIER search for "CRM software" in "Technology" in "USA":
+  Query: "CRM software provider supplier vendor technology USA"
+  
+- CUSTOMER search for "CRM software" in "Technology" in "USA":
+  Query: "CRM software user client customer technology companies USA"
 
 CRITICAL SUCCESS RULES:
-- MUST call serperPlaces first with the discovery_query from user message  
-- MUST store ALL places immediately (never skip this step!)
-- SKIP analyzeBusiness completely (causes failures)
-- Use limit=5 for maximum results
-- Simple storage only - no complex analysis
+- MUST differentiate supplier vs customer searches
+- MUST call serperPlaces with optimized query  
+- MUST store ALL places immediately
+- Use limit=8 for better coverage
+- Set persona_type to search_type value
 
-MANDATORY FLOW (NO DEVIATIONS):
-  User: "search_id=123 user_id=456 discovery_query='ev chargers sell automotive KSA' gl=sa"
-  You: serperPlaces(q="ev chargers sell automotive KSA", gl="sa", limit=5, search_id="123", user_id="456")
-  You: storeBusinesses("123", "456", converted_places_array)
-DONE - NO MORE STEPS!
-
-START NOW - NO WAITING!`,
+START NOW!`,
   tools: [serperPlacesTool, storeBusinessesTool],
   handoffDescription: 'Discovers real businesses via Serper Places API and stores them immediately for fast results',
   handoffs: [],
@@ -338,237 +342,122 @@ export async function runBusinessDiscovery(search: {
   search_type:'customer'|'supplier'
 }) {
   try {
-    const countriesCsv = search.countries.join(', ');
-    const industriesCsv = search.industries.join(', ');
-    logger.info('Business discovery: starting combined Serper+Google Places search', { countries: search.countries.slice(0,3) });
-
-    const countriesToSearch = (search.countries || []).slice(0, 3);
-    const industry = search.industries?.[0] || '';
-    const { serperPlaces, retryWithBackoff } = await import('../tools/serper');
-
-    async function fetchForCountry(country: string): Promise<any[]> {
-      const gl = countryToGL(country);
-      const queries = [
-        `${search.product_service} ${industry} ${country}`,
-        `${search.product_service} ${industry} company ${country}`,
-        `${search.product_service} company ${country}`
-      ];
-      const results: any[] = [];
-      for (const q of queries) {
-        // 1) Try Serper Places first
-        const sp = await retryWithBackoff(() => serperPlaces(q, country, 12)).catch(() => [] as any[]);
-        if (Array.isArray(sp) && sp.length) {
-          results.push(...sp);
-        }
-        if (results.length >= 12) break;
-        // 2) If still low, try Google Places
-        const gp = await googlePlacesTextSearch(q, gl, 12, country).catch(() => [] as any[]);
-        if (Array.isArray(gp) && gp.length) {
-          results.push(...gp);
-        }
-        if (results.length >= 12) break;
-        // 3) If still low, try Google CSE via serperSearch and convert
-        const cse = await serperSearch(q, country, 10).catch(() => ({ success:false, items:[] as any[] }));
-        if (cse && cse.success && Array.isArray(cse.items) && cse.items.length) {
-          const mapped = cse.items.map((x:any)=>({
-            name: x.title || 'Unknown Business',
-            address: x.snippet || '',
-            phone: '',
-            website: x.link || '',
-            rating: null,
-            city: country,
-            country
-          }));
-          results.push(...mapped);
-        }
-        if (results.length >= 12) break;
-      }
-      return results;
-    }
-
-    const perCountryResults = await Promise.all(countriesToSearch.map(fetchForCountry));
-
-    // Flatten and deduplicate by website/phone/name+country (case-insensitive), also excluding existing DB entries
-    const allPlaces = perCountryResults.flat();
-    const existing2 = await loadBusinesses(search.id);
-    const existing2Any = (existing2 as any[]) || [];
-    const seenWeb2 = new Set(
-      existing2Any.map((b: any) => String(b?.website || '').toLowerCase()).filter(Boolean)
-    );
-    const seenPhone2 = new Set(
-      existing2Any.map((b: any) => String(b?.phone || '').toLowerCase()).filter(Boolean)
-    );
-    const seenNameCountry = new Set(
-      existing2Any.map((b: any) => `${String(b?.name||'').toLowerCase()}|${String(b?.country||'').toLowerCase()}`)
-    );
-    const unique = allPlaces.filter((p: any) => {
-      const w = String(p.website || '').toLowerCase();
-      const ph = String(p.phone || '').toLowerCase();
-      const key = `${String(p.name||'').toLowerCase()}|${String((p.country||'') || countriesToSearch[0] || '').toLowerCase()}`;
-      if (w && seenWeb2.has(w)) return false;
-      if (ph && seenPhone2.has(ph)) return false;
-      if (seenNameCountry.has(key)) return false;
-      if (w) seenWeb2.add(w);
-      if (ph) seenPhone2.add(ph);
-      seenNameCountry.add(key);
-      return true;
+    logger.info('Business discovery: starting agent-based discovery', { 
+      search_type: search.search_type,
+      countries: search.countries.slice(0,3), 
+      product_service: search.product_service 
     });
 
-    const selected = unique.slice(0, 10);
-    if (selected.length > 0) {
-      const rows = selected.map((p: any) =>
-        buildBusinessData({
-          search_id: search.id,
-          user_id: search.user_id,
-          persona_id: null,
-          name: p.name,
-          industry: p.industry || industry || 'General',
-          country: p.country || countriesToSearch[0] || countriesCsv,
-          address: p.address || '',
-          city: p.city || (p.address?.split(',')?.[0] || countriesToSearch[0] || ''),
-          phone: p.phone || undefined,
-          website: p.website || undefined,
-          rating: typeof p.rating === 'number' ? p.rating : undefined,
-          size: 'Unknown',
-          revenue: 'Unknown',
-          description: 'Discovered business candidate',
-          match_score: 80,
-          persona_type: 'business_candidate',
-          relevant_departments: [],
-          key_products: [],
-          recent_activity: []
-        })
-      );
-      logger.info('Inserting discovered businesses', { count: rows.length, search_id: search.id });
-      const insertedBusinesses = await insertBusinesses(rows as any);
-      // Fire-and-forget mapping and DM discovery, matching storeBusinessesTool behavior
-      void mapBusinessesToPersonas(search.id).catch(err => logger.warn('Persona mapping failed', { error: (err as any)?.message || err }));
-      if (insertedBusinesses.length > 0) {
-        initDMDiscoveryProgress(search.id, insertedBusinesses.length);
-        await updateSearchProgress(search.id, 40, 'business_discovery');
-        // Dispatch background jobs per company without awaiting
-        for (const business of insertedBusinesses) {
-          void processBusinessForDM(search.id, search.user_id, business);
-        }
+    // Use the BusinessDiscoveryAgent for primary discovery
+    const countriesToSearch = (search.countries || []).slice(0, 3);
+    const industry = search.industries?.[0] || '';
+    
+    // Build search-type specific discovery queries
+    const buildDiscoveryQuery = (country: string) => {
+      const baseQuery = `${search.product_service} ${industry} ${country}`;
+      if (search.search_type === 'supplier') {
+        return `${baseQuery} supplier manufacturer provider sell vendor`;
+      } else {
+        return `${baseQuery} buyer client customer user company`;
       }
-    } else {
-      // Fallback to agent single-query flow if nothing found
-      const firstCountry = search.countries[0] || '';
-      const gl = countryToGL(firstCountry || countriesCsv);
-      const placesQuery = `${search.product_service} ${industry} ${firstCountry}`.trim();
-      const msg = `search_id=${search.id} user_id=${search.user_id}
- - product_service=${search.product_service}
- - industries=${industriesCsv}
- - countries=${countriesCsv}
- - search_type=${search.search_type}
- 
- MANDATE:
- - Call serperPlaces ONCE with q="${placesQuery}", gl="${gl}", limit=5, search_id="${search.id}", user_id="${search.user_id}"
-  - Immediately call storeBusinesses with ALL returned places (cap 5). Each place must include industry="${industry || industriesCsv}" and country="${firstCountry || countriesCsv}"`;
-      await run(BusinessDiscoveryAgent, [{ role: 'user', content: msg }]);
+    };
 
-      // If agent also produced no businesses, use Google CSE fallback to synthesize basic place entries
-      const afterAgent = await loadBusinesses(search.id);
-      if (!afterAgent || afterAgent.length === 0) {
-        logger.warn('No businesses after agent flow; using CSE fallback');
-        const queries = [
-          `${search.product_service} ${industry} ${firstCountry} company`,
-          `${search.product_service} ${firstCountry} provider vendor`,
-          `${search.product_service} ${industry} ${firstCountry} distributor reseller`
-        ];
-        let aggregated: any[] = [];
-        for (const q of queries) {
-          const chunk = await serperSearch(q, firstCountry || 'United States', 10).catch(() => ({ success:false, items:[] as any[] }));
-          if (chunk && chunk.success && Array.isArray(chunk.items)) aggregated.push(...chunk.items);
-          if (aggregated.length >= 12) break;
-        }
-        // Deduplicate by link
-        const seenLinks = new Set<string>();
-        const uniqueItems = aggregated.filter((x:any) => {
-          const link = String(x.link || '').toLowerCase();
-          if (!link) return false;
-          if (seenLinks.has(link)) return false;
-          seenLinks.add(link);
-          return true;
+    // Try agent-based discovery first for each country
+    for (const country of countriesToSearch) {
+      const discoveryQuery = buildDiscoveryQuery(country);
+      
+      try {
+        const agentMessage = `search_id=${search.id} user_id=${search.user_id} product_service="${search.product_service}" industries="${search.industries.join(', ')}" countries="${country}" search_type=${search.search_type} discovery_query="${discoveryQuery}" gl=${countryToGL(country)}`;
+        
+        await run(BusinessDiscoveryAgent, agentMessage);
+        logger.info('Agent discovery completed for country', { country, search_type: search.search_type });
+      } catch (agentError: any) {
+        logger.warn('Agent discovery failed, falling back to manual search', { 
+          country, 
+          error: agentError.message 
         });
-        logger.info('CSE fallback aggregation', { queries: queries.length, aggregated: aggregated.length, unique: uniqueItems.length });
-        if (uniqueItems.length) {
-          const rows = uniqueItems.slice(0, 8).map((x: any) => buildBusinessData({
-            search_id: search.id,
-            user_id: search.user_id,
-            persona_id: null,
-            name: x.title || 'Unknown Business',
-            industry: industry || 'General',
-            country: firstCountry || countriesCsv.split(',')[0] || 'Global',
-            address: x.snippet || '',
-            city: (x.snippet?.split(',')?.[0] || firstCountry || '') as string,
-            phone: undefined,
-            website: x.link || undefined,
-            rating: undefined,
-            size: 'Unknown',
-            revenue: 'Unknown',
-            description: 'Discovered business candidate',
-            match_score: 70,
-            persona_type: 'business_candidate',
-            relevant_departments: [],
-            key_products: [],
-            recent_activity: []
-          }));
-          try {
-            const inserted = await insertBusinesses(rows as any);
-            logger.info('CSE fallback inserted businesses', { count: (inserted || []).length, search_id: search.id });
-            if (inserted.length > 0) {
-              initDMDiscoveryProgress(search.id, inserted.length);
-              await updateSearchProgress(search.id, 40, 'business_discovery');
-              for (const b of inserted) { void processBusinessForDM(search.id, search.user_id, b as any); }
-            }
-          } catch (e:any) {
-            logger.warn('CSE fallback insert failed', { error: e?.message || e });
-          }
-        }
-        // Hard minimum: if still none, synthesize 5 minimal rows to unblock downstream flows
-        const afterCse = await loadBusinesses(search.id);
-        if (!afterCse || afterCse.length === 0) {
-          logger.warn('No businesses after CSE fallback; inserting minimal synthetic businesses');
-          const synth: any[] = Array.from({ length: 5 }).map((_, i) => buildBusinessData({
-            search_id: search.id,
-            user_id: search.user_id,
-            persona_id: null,
-            name: `${search.product_service} Provider ${i + 1}`,
-            industry: industry || 'General',
-            country: firstCountry || countriesCsv.split(',')[0] || 'Global',
-            address: '',
-            city: firstCountry || '',
-            phone: undefined,
-            website: undefined,
-            rating: undefined,
-            size: 'Unknown',
-            revenue: 'Unknown',
-            description: 'Synthesized business placeholder',
-            match_score: 70,
-            persona_type: 'business_candidate',
-            relevant_departments: [],
-            key_products: [],
-            recent_activity: []
-          }));
-          try {
-            const inserted = await insertBusinesses(synth as any);
-            logger.info('Inserted synthetic businesses', { count: (inserted || []).length, search_id: search.id });
-            if (inserted.length > 0) {
-              initDMDiscoveryProgress(search.id, inserted.length);
-              await updateSearchProgress(search.id, 40, 'business_discovery');
-              for (const b of inserted) { void processBusinessForDM(search.id, search.user_id, b as any); }
-            }
-          } catch (e:any) {
-            logger.warn('Synthetic insert failed', { error: e?.message || e });
-          }
-        }
+        // Fallback to manual search for this country
+        await fallbackDiscovery(search, country, industry);
       }
     }
 
-    logger.info('Completed business discovery', { search_id: search.id });
-  } catch (error) {
-  logger.error('Business discovery failed', { search_id: search.id, error: (error as any)?.message || error });
+    // Check if we have sufficient results
+    const businesses = await loadBusinesses(search.id);
+    logger.info('Business discovery completed', { 
+      total_businesses: businesses.length,
+      search_type: search.search_type 
+    });
+
+    return businesses;
+
+  } catch (error: any) {
+    logger.error('Business discovery failed', { error: error.message });
     throw error;
+  }
+}
+
+// Fallback discovery function for when agent fails
+async function fallbackDiscovery(search: any, country: string, industry: string) {
+  const { serperPlaces, retryWithBackoff } = await import('../tools/serper');
+  
+  try {
+    // Build search-type specific queries
+    const baseQuery = `${search.product_service} ${industry} ${country}`;
+    const queries = search.search_type === 'supplier' 
+      ? [
+          `${baseQuery} supplier manufacturer provider`,
+          `${baseQuery} vendor sell distributor`,
+          `${search.product_service} company ${country}`
+        ]
+      : [
+          `${baseQuery} buyer client customer`,
+          `${baseQuery} user company business`,
+          `${search.product_service} companies ${country}`
+        ];
+
+    const results: any[] = [];
+    for (const q of queries) {
+      // Try Serper Places
+      const sp = await retryWithBackoff(() => serperPlaces(q, country, 8)).catch(() => [] as any[]);
+      if (Array.isArray(sp) && sp.length) {
+        results.push(...sp);
+      }
+      if (results.length >= 12) break;
+    }
+
+    // Store results if found
+    if (results.length > 0) {
+      const businessRows = results.map((place: any) => ({
+        search_id: search.id,
+        user_id: search.user_id,
+        persona_id: null,
+        name: place.name,
+        address: place.address || undefined,
+        phone: place.phone || undefined,
+        website: place.website || undefined,
+        rating: place.rating,
+        city: place.city || country,
+        industry: industry,
+        country: country,
+        size: "Unknown",
+        revenue: "Unknown",
+        description: place.description || "Business discovered via fallback search",
+        match_score: 75,
+        persona_type: search.search_type,
+        relevant_departments: [],
+        key_products: [search.product_service],
+        recent_activity: []
+      }));
+
+      await insertBusinesses(businessRows);
+      logger.info('Fallback discovery stored businesses', { 
+        country, 
+        count: businessRows.length,
+        search_type: search.search_type 
+      });
+    }
+
+  } catch (error: any) {
+    logger.warn('Fallback discovery failed', { country, error: error.message });
   }
 }

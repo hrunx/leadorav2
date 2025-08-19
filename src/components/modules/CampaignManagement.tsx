@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Mail, Users, Building, Filter, Send, Eye, Edit, Trash2, Plus, CheckCircle, Circle, Image, Paperclip, Monitor } from 'lucide-react';
+import { Mail, Users, Building, Filter, Send, Eye, Edit, Trash2, Plus, CheckCircle, Circle, Image, Paperclip, Monitor, Search as SearchIcon, RefreshCw } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { SearchService } from '../../services/searchService';
-//
+import { fetchContactEnrichment } from '../../tools/contact-enrichment';
+import { harvestContactEmails } from '../../tools/email-harvesting';
+import logger from '../../lib/logger';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL } from '../../constants/demo';
 
@@ -59,6 +61,9 @@ export default function CampaignManagement() {
   const [businesses, setBusinesses] = useState<any[]>([]);
   const [decisionMakers, setDecisionMakers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isHarvestingEmails, setIsHarvestingEmails] = useState(false);
+  const [harvestProgress, setHarvestProgress] = useState<{total: number, completed: number, found: number}>({total: 0, completed: 0, found: 0});
+  const [harvestedEmails, setHarvestedEmails] = useState<Record<string, any[]>>({});
 
   // Only pass through verified emails; do not fabricate domains or addresses
   const buildBusinessEmail = useCallback((business: any) => {
@@ -139,6 +144,129 @@ export default function CampaignManagement() {
     { id: '4', name: 'Kevin Brown', title: 'Director of IT', company: 'Global Manufacturing Corp', persona: 'Director of IT', level: 'director', email: 'kevin.brown@globalmanuf.com' },
     { id: '5', name: 'Michelle Rodriguez', title: 'Head of Digital Transformation', company: 'Financial Services Group', persona: 'Head of Digital Transformation', level: 'director', email: 'michelle.rodriguez@finservices.com' }
   ];
+
+  // Email harvesting functionality
+  const harvestEmailsForCampaign = useCallback(async () => {
+    if (isHarvestingEmails) return;
+    
+    setIsHarvestingEmails(true);
+    setHarvestedEmails({});
+    
+    const allContacts = [
+      ...selectedBusinesses.map(id => ({ 
+        id, 
+        type: 'business', 
+        data: businesses.find(b => b.id === id) 
+      })).filter(item => item.data),
+      ...selectedDecisionMakers.map(id => ({ 
+        id, 
+        type: 'dm', 
+        data: decisionMakers.find(dm => dm.id === id) 
+      })).filter(item => item.data)
+    ];
+
+    const total = allContacts.length;
+    setHarvestProgress({ total, completed: 0, found: 0 });
+
+    if (total === 0) {
+      setIsHarvestingEmails(false);
+      return;
+    }
+
+    const results: Record<string, any[]> = {};
+    let completed = 0;
+    let found = 0;
+
+    try {
+      for (const contact of allContacts) {
+        const { id, type, data } = contact;
+        
+        try {
+          let emails: any[] = [];
+          
+          if (type === 'business') {
+            // Harvest emails for business
+            const harvestResult = await harvestContactEmails(
+              data.name, 
+              data.name, 
+              { website: data.website }
+            );
+            emails = harvestResult || [];
+            
+            // Try contact enrichment as backup
+            if (emails.length === 0) {
+              const enrichment = await fetchContactEnrichment(
+                data.name, 
+                data.name, 
+                { website: data.website }
+              );
+              if (enrichment.emails && enrichment.emails.length > 0) {
+                emails = enrichment.emails;
+              } else if (enrichment.email) {
+                emails = [{ 
+                  email: enrichment.email, 
+                  verification: { status: 'unverified', score: 50 },
+                  source: 'enrichment' 
+                }];
+              }
+            }
+          } else {
+            // Harvest emails for decision maker
+            const harvestResult = await harvestContactEmails(
+              data.name, 
+              data.company, 
+              { title: data.title }
+            );
+            emails = harvestResult || [];
+            
+            // Try contact enrichment as backup
+            if (emails.length === 0) {
+              const enrichment = await fetchContactEnrichment(
+                data.name, 
+                data.company, 
+                { title: data.title }
+              );
+              if (enrichment.emails && enrichment.emails.length > 0) {
+                emails = enrichment.emails;
+              } else if (enrichment.email) {
+                emails = [{ 
+                  email: enrichment.email, 
+                  verification: { status: 'unverified', score: 50 },
+                  source: 'enrichment' 
+                }];
+              }
+            }
+          }
+
+          if (emails.length > 0) {
+            results[id] = emails;
+            found += emails.length;
+          }
+
+        } catch (error: any) {
+          logger.warn('Email harvesting failed for contact', { 
+            contactId: id, 
+            error: error.message 
+          });
+        }
+
+        completed++;
+        setHarvestProgress({ total, completed, found });
+        
+        // Rate limiting
+        if (completed < total) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      setHarvestedEmails(results);
+      
+    } catch (error: any) {
+      logger.error('Email harvesting failed', { error: error.message });
+    } finally {
+      setIsHarvestingEmails(false);
+    }
+  }, [selectedBusinesses, selectedDecisionMakers, businesses, decisionMakers, isHarvestingEmails]);
 
   // Sample email templates
   const [emailTemplates] = useState<EmailTemplate[]>([
@@ -736,6 +864,88 @@ Best regards,
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Email Harvesting */}
+              <div className="space-y-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <SearchIcon className="w-5 h-5 text-blue-600 mr-2" />
+                      Email Discovery & Harvesting
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Automatically discover and verify email addresses for selected recipients
+                    </p>
+                  </div>
+                  <button
+                    onClick={harvestEmailsForCampaign}
+                    disabled={isHarvestingEmails || (selectedBusinesses.length + selectedDecisionMakers.length === 0)}
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    {isHarvestingEmails ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <SearchIcon className="w-4 h-4" />
+                    )}
+                    <span>{isHarvestingEmails ? 'Harvesting...' : 'Harvest Emails'}</span>
+                  </button>
+                </div>
+
+                {/* Harvesting Progress */}
+                {isHarvestingEmails && (
+                  <div className="bg-white rounded-lg p-4 border border-blue-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">Progress</span>
+                      <span className="text-sm text-gray-600">
+                        {harvestProgress.completed} / {harvestProgress.total} contacts processed
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                        style={{ width: `${harvestProgress.total > 0 ? (harvestProgress.completed / harvestProgress.total) * 100 : 0}%` }}
+                      ></div>
+                    </div>
+                    <div className="text-sm text-green-600">
+                      ✓ {harvestProgress.found} email addresses discovered
+                    </div>
+                  </div>
+                )}
+
+                {/* Harvested Results */}
+                {Object.keys(harvestedEmails).length > 0 && (
+                  <div className="bg-white rounded-lg p-4 border border-green-200">
+                    <div className="flex items-center mb-3">
+                      <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
+                      <h4 className="font-medium text-gray-900">Email Discovery Results</h4>
+                    </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {Object.entries(harvestedEmails).map(([contactId, emails]) => {
+                        const contact = businesses.find(b => b.id === contactId) || decisionMakers.find(dm => dm.id === contactId);
+                        return (
+                          <div key={contactId} className="bg-gray-50 rounded p-3">
+                            <div className="font-medium text-sm text-gray-900">{contact?.name}</div>
+                            <div className="mt-1 space-y-1">
+                              {emails.map((email, idx) => (
+                                <div key={idx} className="flex items-center justify-between text-xs">
+                                  <span className="text-blue-600">{email.email}</span>
+                                  <span className={`px-2 py-1 rounded ${
+                                    email.verification?.status === 'valid' ? 'bg-green-100 text-green-800' :
+                                    email.verification?.status === 'risky' ? 'bg-yellow-100 text-yellow-800' :
+                                    'bg-gray-100 text-gray-600'
+                                  }`}>
+                                    {email.verification?.status || 'unverified'} ({email.verification?.score || 0}%)
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Recipient Selection */}
