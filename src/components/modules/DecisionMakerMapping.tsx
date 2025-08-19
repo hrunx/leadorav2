@@ -1,12 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Building, User, Crown, Shield, Users, Save, ArrowRight, Target, Filter, UserCheck, Mail, Phone, Linkedin, MapPin, Calendar, Briefcase, MessageSquare, Search, Plus } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
-import logger from '../../lib/logger';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
-import { SearchService } from '../../services/searchService';
-//
-import { supabase } from '../../lib/supabase';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL } from '../../constants/demo';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
@@ -127,13 +123,7 @@ export default function DecisionMakerMapping() {
     };
   };
 
-  // Use realTimeData directly for real users, static data for demo users
-  const decisionMakers: UIDecisionMaker[] = isDemoUser(authState.user?.id, authState.user?.email)
-    ? getStaticDecisionMakers()
-    : realTimeData.decisionMakers.map(transformDecisionMaker);
-
-  // Empty state flag computed early but rendered later to preserve hooks order
-  const showEmpty = !isLoading && !isDemoUser(authState.user?.id, authState.user?.email) && (decisionMakers.length === 0);
+  // Note: decisionMakers variable moved after getStaticDecisionMakers function definition to fix hoisting
 
   // Set hasSearch based on current search state
   useEffect(() => {
@@ -146,17 +136,6 @@ export default function DecisionMakerMapping() {
       setIsLoading(!currentSearch || realTimeData.isLoading);
     }
   }, [currentSearch, authState.user?.id, authState.user?.email, isDemoUser, realTimeData.isLoading]);
-
-  // Show a toast the first time profiles arrive
-  const prevCountRef = useRef<number>(0);
-  useEffect(() => {
-    if (decisionMakers.length > 0 && prevCountRef.current === 0) {
-      setShowFirstArrivalToast(true);
-      const t = setTimeout(() => setShowFirstArrivalToast(false), 2500);
-      return () => clearTimeout(t);
-    }
-    prevCountRef.current = decisionMakers.length;
-  }, [decisionMakers.length]);
 
   const getStaticDecisionMakers = (): UIDecisionMaker[] => [
     {
@@ -490,6 +469,25 @@ export default function DecisionMakerMapping() {
       }
     }
   ];
+
+  // Now we can use getStaticDecisionMakers since it's defined above
+  const decisionMakers: UIDecisionMaker[] = isDemoUser(authState.user?.id, authState.user?.email)
+    ? getStaticDecisionMakers()
+    : realTimeData.decisionMakers.map(transformDecisionMaker);
+
+  // Empty state flag computed after decisionMakers is defined
+  const showEmpty = !isLoading && !isDemoUser(authState.user?.id, authState.user?.email) && (decisionMakers.length === 0);
+
+  // Show a toast the first time profiles arrive - moved after decisionMakers definition
+  const prevCountRef = useRef<number>(0);
+  useEffect(() => {
+    if (decisionMakers.length > 0 && prevCountRef.current === 0) {
+      setShowFirstArrivalToast(true);
+      const t = setTimeout(() => setShowFirstArrivalToast(false), 2500);
+      return () => clearTimeout(t);
+    }
+    prevCountRef.current = decisionMakers.length;
+  }, [decisionMakers.length]);
 
   // Get unique persona types for filter
   const personaTypes = [...new Set(decisionMakers.map(dm => dm.personaType))];

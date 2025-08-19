@@ -453,6 +453,57 @@ export function startPersonaMappingListener(searchId: string) {
 }
 
 /**
+ * Simple business-to-persona mapping as fallback
+ */
+export async function simpleBusinessPersonaMapping(searchId: string) {
+  try {
+    logger.info('Starting simple business persona mapping', { searchId });
+
+    // Get businesses and personas
+    const [businessResult, personaResult] = await Promise.all([
+      supa.from('businesses').select('*').eq('search_id', searchId).is('persona_id', null),
+      supa.from('business_personas').select('*').eq('search_id', searchId).order('rank')
+    ]);
+    
+    if (businessResult.error) throw businessResult.error;
+    if (personaResult.error) throw personaResult.error;
+    
+    const businesses = businessResult.data || [];
+    const personas = personaResult.data || [];
+    
+    if (businesses.length === 0 || personas.length === 0) {
+      logger.debug('No businesses or personas found for mapping', { searchId });
+      return { successful: 0, failed: 0, total: 0 };
+    }
+
+    // Simple deterministic mapping based on industry and size
+    const updates = businesses.map(async (business: BusinessRow) => {
+      const bestPersona = findBestMatchingPersona(business, personas as unknown as BusinessPersonaRow[]);
+      const matchScore = calculatePersonaMatchScore(business, bestPersona);
+      
+      return supa
+        .from('businesses')
+        .update({
+          persona_id: bestPersona.id,
+          persona_type: bestPersona.title,
+          match_score: Math.min(matchScore, 100)
+        })
+        .eq('id', business.id);
+    });
+    
+    const results = await Promise.allSettled(updates);
+    const successful = results.filter(r => r.status === 'fulfilled').length;
+    
+    logger.info('Simple persona mapping completed', { successful, total: businesses.length, searchId });
+    
+    return { successful, failed: businesses.length - successful, total: businesses.length };
+  } catch (error: any) {
+    logger.error('Error in simple persona mapping', { searchId, error: error?.message || error });
+    return { successful: 0, failed: 0, total: 0 };
+  }
+}
+
+/**
  * Enhanced persona mapping using AI-based matching
  * This provides more intelligent mapping based on business characteristics
  */
@@ -472,7 +523,7 @@ export async function intelligentPersonaMapping(searchId: string) {
     
       if (businesses.length === 0 || personas.length === 0) {
       logger.debug('Insufficient data for intelligent mapping', { searchId });
-      return await mapBusinessesToPersonas(searchId); // Fallback to simple mapping
+      return await simpleBusinessPersonaMapping(searchId); // Fallback to simple mapping
     }
     
     // AI-first semantic matching with deterministic fallback per business
@@ -512,7 +563,7 @@ export async function intelligentPersonaMapping(searchId: string) {
   } catch (error: any) {
     logger.error('Error in intelligent persona mapping', { searchId, error: error?.message || error });
     // Fallback to simple mapping
-    return await mapBusinessesToPersonas(searchId);
+    return await simpleBusinessPersonaMapping(searchId);
   }
 }
 

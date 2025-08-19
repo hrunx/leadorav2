@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import type { UserSearch, BusinessPersona, Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
 import { DEMO_USER_ID } from '../constants/demo';
+import { searchCache, type CachedSearchData } from '../tools/search-cache';
 
 export class SearchService {
   private static readonly functionsBase: string = '/.netlify/functions';
@@ -51,6 +52,91 @@ export class SearchService {
       });
     } catch {
       // best-effort; ignore
+    }
+  }
+
+  // Get cached search data or fetch fresh if not available
+  static async getCachedSearchData(
+    searchId: string, 
+    options?: { 
+      forceRefresh?: boolean; 
+      includeIncomplete?: boolean;
+      ttlHours?: number;
+    }
+  ): Promise<CachedSearchData | null> {
+    try {
+      return await searchCache.getCachedSearch(searchId, options);
+    } catch (error: any) {
+      import('../lib/logger').then(({ default: logger }) => 
+        logger.error('Failed to get cached search data', { searchId, error: error.message })
+      ).catch(() => {});
+      return null;
+    }
+  }
+
+  // Cache current search state
+  static async cacheCurrentSearchState(searchId: string): Promise<void> {
+    try {
+      // Fetch all current data
+      const [
+        businesses,
+        businessPersonas,
+        dmPersonas,
+        decisionMakers,
+        marketInsights
+      ] = await Promise.all([
+        this.getBusinesses(searchId),
+        this.getBusinessPersonas(searchId),
+        this.getDecisionMakerPersonas(searchId),
+        this.getDecisionMakers(searchId),
+        this.getMarketInsights(searchId)
+      ]);
+
+      // Get search progress
+      const { data: searchData } = await supabase
+        .from('user_searches')
+        .select('phase, progress_pct, status')
+        .eq('id', searchId)
+        .single();
+
+      const isComplete = searchData?.phase === 'completed' || searchData?.status === 'completed';
+
+      const cachedData: CachedSearchData = {
+        searchId,
+        businesses: businesses || [],
+        businessPersonas: businessPersonas || [],
+        dmPersonas: dmPersonas || [],
+        decisionMakers: decisionMakers || [],
+        marketInsights: marketInsights ? [marketInsights] : [],
+        progress: {
+          phase: searchData?.phase || 'idle',
+          progress_pct: searchData?.progress_pct || 0,
+          businesses_count: businesses?.length || 0,
+          personas_count: (businessPersonas?.length || 0) + (dmPersonas?.length || 0),
+          decision_makers_count: decisionMakers?.length || 0,
+          market_insights_ready: !!marketInsights
+        },
+        lastUpdated: new Date().toISOString(),
+        isComplete
+      };
+
+      await searchCache.cacheSearchData(cachedData);
+      
+    } catch (error: any) {
+      import('../lib/logger').then(({ default: logger }) => 
+        logger.error('Failed to cache search state', { searchId, error: error.message })
+      ).catch(() => {});
+    }
+  }
+
+  // Invalidate cache for a search (useful when data changes)
+  static async invalidateSearchCache(searchId: string): Promise<void> {
+    try {
+      await searchCache.invalidateCache(searchId);
+    } catch (error: any) {
+      import('../lib/logger').then(({ default: logger }) => 
+        logger.error('Failed to invalidate search cache', { searchId, error: error.message })
+      ).catch(() => {});
     }
   }
 
