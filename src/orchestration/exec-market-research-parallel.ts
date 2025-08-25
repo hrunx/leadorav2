@@ -5,6 +5,7 @@ import { loadSearch } from '../tools/db.read';
 import { insertMarketInsights, logApiUsage } from '../tools/db.write';
 import logger from '../lib/logger';
 import { MarketInsightsSchema } from '../lib/marketInsightsSchema';
+import { runMarketResearchAgent } from '../agents/market-research.agent';
 
 export async function execMarketResearchParallel(payload: {
   search_id: string;
@@ -12,6 +13,22 @@ export async function execMarketResearchParallel(payload: {
 }) {
   const search = await loadSearch(payload.search_id);
   if (!search) throw new Error(`Search ${payload.search_id} not found`);
+
+  // Agent-first: delegate to MarketResearchAgent and return
+  try {
+    await runMarketResearchAgent({
+      id: String(search.id),
+      user_id: String(search.user_id),
+      product_service: String((search as any)?.product_service || ''),
+      industries: Array.isArray((search as any)?.industries) ? ((search as any).industries as string[]) : [],
+      countries: Array.isArray((search as any)?.countries) ? ((search as any).countries as string[]) : [],
+      search_type: ((search as any)?.search_type === 'supplier' ? 'supplier' : 'customer') as 'customer'|'supplier'
+    });
+    logger.info('Market research agent completed');
+    return true as any;
+  } catch (e: any) {
+    logger.warn('Market research agent failed; falling back to direct pipeline', { error: e?.message || e });
+  }
 
   const searchData = {
     product_service: search.product_service,

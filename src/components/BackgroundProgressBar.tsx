@@ -1,175 +1,162 @@
-import { useState, useEffect, useCallback } from 'react';
-import logger from '../lib/logger';
-import { Loader, CheckCircle, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 
 interface BackgroundProgressBarProps {
-  searchId: string;
-  isVisible: boolean;
-  onComplete: () => void;
+  searchId: string | null;
+  onClose?: () => void;
 }
 
 interface ProgressData {
   phase: string;
   progress_pct: number;
-  status: string;
-  error?: unknown;
+  data_counts: {
+    businesses: number;
+    business_personas: number;
+    dm_personas: number;
+    decision_makers: number;
+    market_insights: number;
+  };
 }
 
-interface DataCounts {
-  business_personas: number;
-  businesses: number;
-  dm_personas: number;
-  decision_makers: number;
-  market_insights: number;
-}
-
-const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({
-  searchId,
-  isVisible,
-  onComplete
-}) => {
+const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({ searchId, onClose }) => {
   const [progress, setProgress] = useState<ProgressData | null>(null);
-  const [dataCounts, setDataCounts] = useState<DataCounts>({
-    business_personas: 0,
-    businesses: 0,
-    dm_personas: 0,
-    decision_makers: 0,
-    market_insights: 0
-  });
-  const [currentPhase, setCurrentPhase] = useState<string>('starting');
-
-  const pollProgress = useCallback(async () => {
-    try {
-      const response = await fetch('/.netlify/functions/check-progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ search_id: searchId })
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setProgress(data.progress);
-        setDataCounts(data.data_counts);
-
-        // Normalize backend phase aliases
-        const rawPhase = data?.progress?.phase || 'starting';
-        const normalizedPhase = (() => {
-          switch (rawPhase) {
-            case 'personas': return 'business_personas';
-            case 'businesses': return 'business_discovery';
-            case 'market_insights': return 'market_research';
-            case 'parallel_processing': return 'business_discovery';
-            case 'business_personas_completed': return 'business_personas';
-            case 'dm_personas_completed': return 'dm_personas';
-            default: return rawPhase;
-          }
-        })();
-        const pct = Number(data?.progress?.progress_pct || 0);
-        // Derive a UI phase using counts and progress percent
-        const derivedPhase = (() => {
-          if (data.data_counts.market_insights > 0) return 'market_research';
-          if (data.data_counts.decision_makers > 0) return 'decision_makers';
-          if (data.data_counts.businesses > 0) return 'business_discovery';
-          if (data.data_counts.dm_personas >= 3) return 'dm_personas';
-          if (data.data_counts.business_personas >= 3) return 'business_personas';
-          if (normalizedPhase === 'completed' || pct >= 100) return 'completed';
-          if (pct >= 85) return 'market_research';
-          if (pct >= 40) return 'business_discovery';
-          if (pct >= 10) return 'business_personas';
-          return normalizedPhase;
-        })();
-        setCurrentPhase(derivedPhase);
-
-        if (data.progress.phase === 'completed' || data.progress.phase === 'failed') {
-          setTimeout(() => { onComplete(); }, 3000);
-        }
-      }
-    } catch (error: any) {
-      logger.warn('Error polling progress (background bar)', { error: error?.message || String(error) });
-    }
-  }, [onComplete, searchId]);
+  const [isVisible, setIsVisible] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
-    if (isVisible && searchId) {
-      pollProgress();
-      const interval = setInterval(pollProgress, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [isVisible, searchId, pollProgress]);
+    if (!searchId) return;
+
+    const checkProgress = async () => {
+      try {
+        const baseUrl = import.meta.env.MODE === 'development' ? 'http://localhost:8888' : window.location.origin;
+        const response = await fetch(`${baseUrl}/.netlify/functions/check-progress`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ search_id: searchId })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setProgress(data);
+          
+          // Show progress bar if not completed and has some activity
+          const shouldShow = data.progress?.phase !== 'completed' && 
+                            (data.progress?.progress_pct > 0 || 
+                             Object.values(data.data_counts || {}).some((count: any) => count > 0));
+          setIsVisible(shouldShow);
+          
+          // Auto-hide when complete
+          if (data.progress?.phase === 'completed') {
+            setTimeout(() => {
+              setIsVisible(false);
+              onClose?.();
+            }, 3000);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking progress:', error);
+      }
+    };
+
+    checkProgress();
+    const interval = setInterval(checkProgress, 5000);
+    return () => clearInterval(interval);
+  }, [searchId, onClose]);
 
   if (!isVisible || !progress) return null;
 
-  const getStatusText = () => {
-    const phase = currentPhase || progress.phase;
-    const map: Record<string, string> = {
-      starting: 'Starting analysis...',
-      business_personas: dataCounts.businesses > 0 || dataCounts.dm_personas > 0 ? 'Finding businesses...' : 'Generating business personas...',
-      dm_personas: 'Generating decision maker personas...',
-      business_discovery: 'Finding businesses...',
-      decision_makers: 'Mapping decision makers...',
-      market_research: dataCounts.market_insights > 0 ? 'Insights ready' : 'Generating market research...',
-      market_insights: 'Generating market insights...',
-      completed: 'Analysis complete!',
-      failed: 'Analysis failed'
-    };
-    return map[phase] || 'Processing...';
+  const { phase, progress_pct, data_counts } = progress;
+  const isComplete = phase === 'completed';
+  const isError = phase === 'failed' || phase === 'cancelled';
+
+  const getPhaseIcon = () => {
+    if (isComplete) return <CheckCircle className="w-4 h-4 text-green-500" />;
+    if (isError) return <AlertCircle className="w-4 h-4 text-red-500" />;
+    return <Clock className="w-4 h-4 text-blue-500" />;
   };
 
-  const getStatusIcon = () => {
-    if (progress.phase === 'completed') {
-      return <CheckCircle className="w-4 h-4 text-green-500" />;
-    } else if (progress.phase === 'failed') {
-      return <AlertCircle className="w-4 h-4 text-red-500" />;
-    } else {
-      return <Loader className="w-4 h-4 text-blue-500 animate-spin" />;
+  const getPhaseText = () => {
+    switch (phase) {
+      case 'business_discovery': return 'Finding businesses...';
+      case 'business_personas': return 'Generating personas...';
+      case 'dm_personas': return 'Analyzing decision makers...';
+      case 'market_research': return 'Researching market...';
+      case 'completed': return 'Search complete!';
+      case 'failed': return 'Search failed';
+      case 'cancelled': return 'Search cancelled';
+      default: return 'Processing...';
     }
   };
 
   return (
-    <div className="fixed top-4 right-4 bg-white rounded-lg shadow-lg border border-gray-200 p-4 max-w-sm z-40">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center space-x-2">
-          {getStatusIcon()}
-          <span className="text-sm font-medium text-gray-900">{getStatusText()}</span>
+    <div className="fixed top-4 right-4 z-50 max-w-sm">
+      <div className={`bg-white rounded-lg shadow-lg border transition-all duration-300 ${
+        isExpanded ? 'p-4' : 'p-3'
+      }`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2 flex-1">
+            {getPhaseIcon()}
+            <span className="text-sm font-medium text-gray-700 truncate">
+              {getPhaseText()}
+            </span>
+            <span className="text-xs text-gray-500">
+              {progress_pct}%
+            </span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="p-1 hover:bg-gray-100 rounded transition-colors"
+            >
+              <div className={`text-gray-400 transition-transform duration-200 ${
+                isExpanded ? 'rotate-180' : ''
+              }`}>
+                ▼
+              </div>
+            </button>
+            <button
+              onClick={() => setIsVisible(false)}
+              className="p-1 hover:bg-gray-100 rounded transition-colors"
+            >
+              <X className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
         </div>
-        <span className="text-xs text-gray-500">{progress.progress_pct}%</span>
-      </div>
-      
-      {/* Progress bar */}
-      <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
-        <div 
-          className="bg-gradient-to-r from-blue-500 to-purple-600 h-2 rounded-full transition-all duration-500 ease-out"
-          style={{ width: `${progress.progress_pct}%` }}
-        />
-      </div>
 
-      {/* Data counts */}
-      <div className="grid grid-cols-3 gap-2 text-xs text-gray-600">
-        <div className="text-center">
-          <div className="font-semibold text-gray-900">{dataCounts.businesses}</div>
-          <div>Businesses</div>
+        {/* Progress bar */}
+        <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5">
+          <div
+            className={`h-1.5 rounded-full transition-all duration-500 ${
+              isComplete ? 'bg-green-500' : isError ? 'bg-red-500' : 'bg-blue-500'
+            }`}
+            style={{ width: `${Math.min(100, Math.max(0, progress_pct))}%` }}
+          />
         </div>
-        <div className="text-center">
-          <div className="font-semibold text-gray-900">{dataCounts.decision_makers}</div>
-          <div>Contacts</div>
-        </div>
-        <div className="text-center">
-          <div className="font-semibold text-gray-900">{dataCounts.market_insights}</div>
-          <div>Insights</div>
-        </div>
+
+        {/* Expanded details */}
+        {isExpanded && (
+          <div className="mt-3 space-y-2 text-xs">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Businesses:</span>
+                <span className="font-medium">{data_counts.businesses}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Personas:</span>
+                <span className="font-medium">{data_counts.business_personas}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Decision Makers:</span>
+                <span className="font-medium">{data_counts.decision_makers}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Insights:</span>
+                <span className="font-medium">{data_counts.market_insights}</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-
-      {progress.phase === 'completed' && (
-        <div className="mt-2 text-xs text-green-600 font-medium">
-          ✓ Your lead generation is complete!
-        </div>
-      )}
-
-      {progress.phase === 'failed' && (
-        <div className="mt-2 text-xs text-red-600">
-          ⚠ There was an issue. Please try again.
-        </div>
-      )}
     </div>
   );
 };

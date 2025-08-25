@@ -1,17 +1,26 @@
-import { glToCountryName, fetchWithTimeoutRetry } from './util';
+import { glToCountryName, fetchWithTimeoutRetry, countryToGL } from './util';
 import { createClient } from '@supabase/supabase-js';
 import logger from '../lib/logger';
 
-function requireEnv(key: string) {
-  const v = process.env[key];
-  if (!v || v.trim() === '') throw new Error(`${key} is required`);
-  return v;
+function getEnvVar(key: string): string | undefined {
+  // Check if we're in a browser environment (client-side)
+  if (typeof window !== 'undefined') {
+    return import.meta.env[key];
+  }
+  // Server-side (Netlify functions) - use process.env
+  else if (typeof process !== 'undefined' && process.env) {
+    return process.env[key];
+  }
+  // Fallback to import.meta.env
+  else {
+    return import.meta.env?.[key];
+  }
 }
 
 // Lightweight in-process limiter for Serper calls
 let running = 0;
 const queue: Array<() => void> = [];
-const MAX_CONCURRENT = Number(process.env.SERPER_MAX_CONCURRENT || 3);
+const MAX_CONCURRENT = Number(getEnvVar('VITE_SERPER_MAX_CONCURRENT') || getEnvVar('SERPER_MAX_CONCURRENT') || '3');
 async function withLimiter<T>(fn: () => Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const runNext = async () => {
@@ -55,15 +64,17 @@ export async function retryWithBackoff<T>(
 }
 
 // Optional DB-backed cache (response_cache)
-const supa = (process.env.VITE_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
-  ? createClient(process.env.VITE_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession:false, autoRefreshToken:false } })
+const supabaseUrl = getEnvVar('VITE_SUPABASE_URL') || getEnvVar('SUPABASE_URL');
+const supabaseKey = getEnvVar('VITE_SUPABASE_SERVICE_ROLE_KEY') || getEnvVar('SUPABASE_SERVICE_ROLE_KEY');
+const supa = (supabaseUrl && supabaseKey)
+  ? createClient(supabaseUrl, supabaseKey, { auth: { persistSession:false, autoRefreshToken:false } })
   : null;
 
 // type CacheEntry = { response: any; ttl_at: string };
 const memCache = new Map<string, { value:any; ttl:number }>();
-const MAX_CACHE_ENTRIES = Number(process.env.SERPER_CACHE_MAX || 500);
+const MAX_CACHE_ENTRIES = Number(getEnvVar('VITE_SERPER_CACHE_MAX') || getEnvVar('SERPER_CACHE_MAX') || '500');
 const now = () => Date.now();
-const DEFAULT_TTL_MS = Number(process.env.SERPER_CACHE_TTL_MS || 6*60*60*1000); // 6h
+const DEFAULT_TTL_MS = Number(getEnvVar('VITE_SERPER_CACHE_TTL_MS') || getEnvVar('SERPER_CACHE_TTL_MS') || String(6*60*60*1000)); // 6h
 
 async function getCache(cache_key: string): Promise<any|null> {
   try {
@@ -85,7 +96,7 @@ async function getCache(cache_key: string): Promise<any|null> {
   } catch { return null; }
 }
 
-async function setCache(cache_key: string, source: 'serper', response: any, ttlMs = DEFAULT_TTL_MS) {
+async function setCache(cache_key: string, source: 'serper' | 'google_places', response: any, ttlMs = DEFAULT_TTL_MS) {
   try {
     const expires = new Date(now() + ttlMs).toISOString();
     memCache.set(cache_key, { value: response, ttl: now() + ttlMs });
@@ -103,32 +114,8 @@ async function setCache(cache_key: string, source: 'serper', response: any, ttlM
     });
   } catch {}
 }
-// Improved country to GL code mapping
-function glFromCountry(country: string): string {
-  const key = (country || '').toLowerCase().trim();
-  const m = new Map<string, string>([
-    // Saudi Arabia (SA reserved for KSA)
-    ['sa', 'sa'],
-    ['ksa', 'sa'],
-    ['saudi arabia', 'sa'],
-    ['kingdom of saudi arabia', 'sa'],
-    // South Africa supported only by explicit names/codes (no 'sa' alias)
-    ['south africa', 'za'],
-    ['za', 'za'],
-    ['rsa', 'za'],
-    // GCC and others
-    ['united arab emirates', 'ae'], ['uae', 'ae'],
-    ['qatar', 'qa'], ['bahrain', 'bh'], ['kuwait', 'kw'], ['oman', 'om'],
-    ['egypt', 'eg'], ['jordan', 'jo'], ['morocco', 'ma'], ['turkey', 'tr'],
-    // Global
-    ['india', 'in'], ['united states', 'us'], ['usa', 'us'],
-    ['uk', 'gb'], ['united kingdom', 'gb'], ['canada', 'ca'],
-    ['germany', 'de'], ['france', 'fr'], ['spain', 'es'], ['italy', 'it'],
-    ['australia', 'au'], ['singapore', 'sg'], ['nigeria', 'ng'],
-    ['kenya', 'ke'], ['ghana', 'gh'], ['ethiopia', 'et']
-  ]);
-  return m.get(key) || 'us';
-}
+// Delegate GL mapping to centralized util.countryToGL to avoid divergence
+const glFromCountry = (country: string): string => countryToGL(country);
 
 // Deprecated inline timeout function removed; we use fetchWithTimeoutRetry exclusively
 
@@ -141,10 +128,12 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     if (cached) return cached.slice(0, limit);
     
     // Validate SERPER_KEY early to avoid runtime crash messages
-    requireEnv('SERPER_KEY');
+    const serperKey = getEnvVar('VITE_SERPER_KEY') || getEnvVar('SERPER_KEY');
+    if (!serperKey) throw new Error('SERPER_KEY is required');
+    
     const r = await fetchWithTimeoutRetry('https://google.serper.dev/places', {
       method: 'POST',
-      headers: { 'X-API-KEY': process.env.SERPER_KEY!, 'Content-Type': 'application/json' },
+      headers: { 'X-API-KEY': serperKey, 'Content-Type': 'application/json' },
       // request a bit more and trim after filtering
       body: JSON.stringify({ q, gl, num: Math.min(Math.max(limit, 10), 15) })
     }, 10000, 1, 800);
@@ -155,28 +144,52 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
       const isQuota = r.status === 400 && text && text.toLowerCase().includes('not enough credits');
       const isAuthRate = r.status === 401 || r.status === 403 || r.status === 429;
       if (isQuota || isAuthRate) {
-        logger.warn('Serper /places error, attempting Google CSE fallback', { status: r.status, q });
-        const fallback = await googleCseSearch(q, gl, Math.min(limit, 10));
-        if (fallback.success && fallback.items.length > 0) {
-          const placesFromCse = fallback.items.slice(0, limit).map((x: any) => ({
-            name: x.title || 'Unknown Business',
-            address: x.snippet || '',
-            phone: '',
-            website: x.link || '',
-            rating: null,
-            city: country
-          }));
-          logger.debug('Google CSE fallback produced places', { count: placesFromCse.length });
-          return placesFromCse;
+        console.log('🚨 Serper failed, triggering fallback:', { status: r.status, q, gl, country });
+        logger.warn('Serper /places error, attempting Google Places API fallback', { status: r.status, q });
+        
+        // Try Google Places API as fallback
+        try {
+          console.log('🔄 Importing Google Places module...');
+          const { googlePlacesTextSearch } = await import('./google-places');
+          console.log('📍 Calling Google Places API with:', { q, gl, limit: Math.min(limit, 10), country });
+          const placesFromGoogle = await googlePlacesTextSearch(q, gl, Math.min(limit, 10), country);
+          console.log('📊 Google Places API returned:', { count: placesFromGoogle.length, sample: placesFromGoogle[0] });
+          if (placesFromGoogle.length > 0) {
+            console.log('✅ Google Places fallback SUCCESS!');
+            logger.debug('Google Places API fallback produced places', { count: placesFromGoogle.length });
+            await setCache(cacheKey, 'google_places', placesFromGoogle);
+            return placesFromGoogle.slice(0, limit);
+          }
+          console.log('⚠️ Google Places returned 0 results, trying Google CSE');
+          logger.warn('Google Places API fallback returned no results, trying Google CSE');
+        } catch (placesError: any) {
+          console.log('❌ Google Places fallback error:', placesError.message);
+          logger.warn('Google Places API fallback failed', { error: placesError.message });
         }
-        // If fallback failed, return empty array gracefully
-        logger.warn('Google CSE fallback returned no results for places');
+        
+        // For places searches, only use Google Places API as fallback
+        // CSE is for web searches only, not places
+        logger.warn('Google Places API fallback failed, no more fallbacks for places');
         return [];
       }
       throw new Error(`SERPER /places ${r.status}: ${text || 'no body'}`);
     }
     
     const data = await r.json();
+    // If Serper returns no places, attempt Google Places fallback proactively
+    if (!Array.isArray(data?.places) || data.places.length === 0) {
+      try {
+        const { googlePlacesTextSearch } = await import('./google-places');
+        const gp = await googlePlacesTextSearch(q, gl, Math.min(limit, 10), country);
+        if (gp.length > 0) {
+          logger.debug('Serper /places empty; Google Places fallback produced results', { count: gp.length });
+          await setCache(cacheKey, 'google_places', gp);
+          return gp.slice(0, limit);
+        }
+      } catch {}
+      // No fallback results; return empty to avoid blocking
+      return [];
+    }
     let places = (data.places || []).slice(0, limit).map((p: any) => {
       // Extract city from address
       let city = '';
@@ -226,20 +239,8 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
       }));
       places = relaxed.slice(0, Math.max(limit, 5));
     }
-    // If still no places, attempt Google CSE fallback to synthesize place-like entries
-    if (places.length === 0) {
-      const fallback = await googleCseSearch(q, gl, Math.min(limit, 10));
-      if (fallback.success && fallback.items.length > 0) {
-        places = fallback.items.slice(0, limit).map((x: any) => ({
-          name: x.title || 'Unknown Business',
-          address: x.snippet || '',
-          phone: '',
-          website: x.link || '',
-          rating: null,
-          city: country
-        }));
-      }
-    }
+    // For places search, we rely only on Serper Places and Google Places API
+    // No CSE fallback here - CSE is only for web searches
     // After filtering, cap to requested limit, but if only 1 remains and we requested 5+, allow up to 8 to improve UX
     const cap = places.length <= 1 && limit >= 5 ? 8 : limit;
     places = places.slice(0, cap);
@@ -259,10 +260,12 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
     if (cached) return { success: true, items: cached.slice(0, limit) };
 
     // Validate SERPER_KEY early to avoid runtime crash messages
-    requireEnv('SERPER_KEY');
+    const serperKey = getEnvVar('VITE_SERPER_KEY') || getEnvVar('SERPER_KEY');
+    if (!serperKey) throw new Error('SERPER_KEY is required');
+    
     const r = await fetchWithTimeoutRetry('https://google.serper.dev/search', {
       method: 'POST',
-      headers: { 'X-API-KEY': process.env.SERPER_KEY!, 'Content-Type': 'application/json' },
+      headers: { 'X-API-KEY': serperKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ q, gl, num: Math.min(limit, 10) })
     }, 10000, 1, 800);
 
@@ -299,8 +302,8 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
 // Google Custom Search (CSE) fallback
 async function googleCseSearch(q: string, gl: string, limit: number): Promise<{ success: boolean; items: { title: string; link: string; snippet: string }[]; error?: string; status?: number }> {
   try {
-    const key = process.env.GOOGLE_CSE_KEY || process.env.GOOGLE_API_KEY;
-    const cx = process.env.GOOGLE_CSE_CX || (process.env as any).Google_CSE_CX || process.env.GOOGLE_SEARCH_ENGINE_ID;
+    const key = getEnvVar('VITE_GOOGLE_CSE_KEY') || getEnvVar('GOOGLE_CSE_KEY') || getEnvVar('VITE_GOOGLE_API_KEY') || getEnvVar('GOOGLE_API_KEY');
+    const cx = getEnvVar('VITE_GOOGLE_CSE_CX') || getEnvVar('GOOGLE_CSE_CX') || getEnvVar('VITE_GOOGLE_SEARCH_ENGINE_ID') || getEnvVar('GOOGLE_SEARCH_ENGINE_ID');
     if (!key || !cx) {
       logger.warn('Google CSE fallback unavailable: missing GOOGLE_CSE_KEY or GOOGLE_CSE_CX');
       return { success: false, items: [], error: 'cse_missing_keys' };

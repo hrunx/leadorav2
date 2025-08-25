@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Info, ZoomIn, ZoomOut, Download, Share2, ChevronDown, ChevronUp } from 'lucide-react';
+import { ZoomIn, ZoomOut, Download, Share2, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface ChartDataPoint {
   label: string;
@@ -29,7 +29,7 @@ export const InteractiveLineChart: React.FC<InteractiveLineChartProps> = ({
 }) => {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
-  const [selectedRange, setSelectedRange] = useState<{ start: number; end: number } | null>(null);
+  // Selected range reserved for future zoom interactions; omit state to avoid unused warnings
 
   const chartData = useMemo(() => {
     if (!data.length) return [];
@@ -253,7 +253,7 @@ export const InteractiveBarChart: React.FC<InteractiveBarChartProps> = ({
   title,
   data,
   height = 300,
-  horizontal = false,
+  horizontal: _horizontal = false,
   showValues = true,
   onBarClick
 }) => {

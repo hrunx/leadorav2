@@ -215,16 +215,14 @@ class AWSProvider implements EmailProvider {
   private accessKeyId: string;
   private secretAccessKey: string;
   private region: string;
-  private baseUrl: string;
 
   constructor(accessKeyId: string, secretAccessKey: string, region: string = 'us-east-1') {
     this.accessKeyId = accessKeyId;
     this.secretAccessKey = secretAccessKey;
     this.region = region;
-    this.baseUrl = `https://email.${region}.amazonaws.com`;
   }
 
-  async send(request: EmailRequest): Promise<EmailResponse> {
+  async send(_request: EmailRequest): Promise<EmailResponse> {
     try {
       // AWS SES v2 API call would go here
       // For demo purposes, we'll simulate the call
@@ -270,22 +268,37 @@ export class EmailDeliveryService {
     this.initializeProviders();
   }
 
+  private getEnvVar(key: string): string | undefined {
+    // Check if we're in a browser environment (client-side)
+    if (typeof window !== 'undefined') {
+      return import.meta.env[key];
+    }
+    // Server-side (Netlify functions) - use process.env
+    else if (typeof process !== 'undefined' && process.env) {
+      return process.env[key];
+    }
+    // Fallback to import.meta.env
+    else {
+      return import.meta.env?.[key];
+    }
+  }
+
   private initializeProviders() {
-    // Initialize providers based on environment variables
-    const sendgridKey = process.env.SENDGRID_API_KEY || process.env.VITE_SENDGRID_API_KEY;
+    // Initialize providers based on environment variables (works both client and server side)
+    const sendgridKey = this.getEnvVar('VITE_SENDGRID_API_KEY') || this.getEnvVar('SENDGRID_API_KEY');
     if (sendgridKey) {
       this.providers.set('sendgrid', new SendGridProvider(sendgridKey));
     }
 
-    const mailgunKey = process.env.MAILGUN_API_KEY || process.env.VITE_MAILGUN_API_KEY;
-    const mailgunDomain = process.env.MAILGUN_DOMAIN || process.env.VITE_MAILGUN_DOMAIN;
+    const mailgunKey = this.getEnvVar('VITE_MAILGUN_API_KEY') || this.getEnvVar('MAILGUN_API_KEY');
+    const mailgunDomain = this.getEnvVar('VITE_MAILGUN_DOMAIN') || this.getEnvVar('MAILGUN_DOMAIN');
     if (mailgunKey && mailgunDomain) {
       this.providers.set('mailgun', new MailgunProvider(mailgunKey, mailgunDomain));
     }
 
-    const awsKey = process.env.AWS_ACCESS_KEY_ID || process.env.VITE_AWS_ACCESS_KEY_ID;
-    const awsSecret = process.env.AWS_SECRET_ACCESS_KEY || process.env.VITE_AWS_SECRET_ACCESS_KEY;
-    const awsRegion = process.env.AWS_REGION || process.env.VITE_AWS_REGION;
+    const awsKey = this.getEnvVar('VITE_AWS_ACCESS_KEY_ID') || this.getEnvVar('AWS_ACCESS_KEY_ID');
+    const awsSecret = this.getEnvVar('VITE_AWS_SECRET_ACCESS_KEY') || this.getEnvVar('AWS_SECRET_ACCESS_KEY');
+    const awsRegion = this.getEnvVar('VITE_AWS_REGION') || this.getEnvVar('AWS_REGION');
     if (awsKey && awsSecret) {
       this.providers.set('aws_ses', new AWSProvider(awsKey, awsSecret, awsRegion));
     }

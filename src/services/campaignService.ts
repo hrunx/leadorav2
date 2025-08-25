@@ -36,7 +36,7 @@ export class CampaignService {
       // Proxy-first for browser to avoid CORS/RLS
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const response = await fetch(`/.netlify/functions/user-data-proxy?table=email_campaigns&user_id=${queryUserId}`, {
+      const response = await fetch(`${import.meta.env.MODE === 'development' ? 'http://localhost:8888' : window.location.origin}/.netlify/functions/user-data-proxy?table=email_campaigns&user_id=${queryUserId}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
         credentials: 'omit'
@@ -107,7 +107,7 @@ export class CampaignService {
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
         logger.warn('CORS issue detected for campaign_recipients, falling back to proxy...');
         try {
-          const response = await fetch(`/.netlify/functions/user-data-proxy?table=campaign_recipients&campaign_id=${campaignId}`, {
+          const response = await fetch(`${import.meta.env.MODE === 'development' ? 'http://localhost:8888' : window.location.origin}/.netlify/functions/user-data-proxy?table=campaign_recipients&campaign_id=${campaignId}`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
           });

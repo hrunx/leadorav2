@@ -107,7 +107,7 @@ export function useSubscription() {
         } catch (err: any) {
           if (err.message?.includes('Load failed') || err.message?.includes('access control')) {
             try {
-              const response = await fetch(`/.netlify/functions/user-data-proxy?table=subscriptions&user_id=${user.id}`, {
+              const response = await fetch(`${import.meta.env.MODE === 'development' ? 'http://localhost:8888' : window.location.origin}/.netlify/functions/user-data-proxy?table=subscriptions&user_id=${user.id}`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
               });

@@ -1,7 +1,33 @@
 import logger from '../lib/logger';
 
+function readEnv(key: string): string | null {
+  try {
+    if (typeof process !== 'undefined' && process.env && typeof process.env[key] === 'string' && process.env[key]!.trim() !== '') {
+      return process.env[key] as string;
+    }
+  } catch {}
+  try {
+    const vite = (import.meta as any)?.env;
+    if (vite && typeof vite[key] === 'string' && vite[key].trim() !== '') return vite[key];
+  } catch {}
+  return null;
+}
+
 function getPlacesKey(): string | null {
-  return process.env.VITE_GOOGLE_PLACES_KEY || (process.env as any).GOOGLE_PLACES_KEY || null;
+  // Prefer a dedicated server key if provided, then fall back to common names
+  const keys = [
+    'GOOGLE_PLACES_SERVER_KEY',
+    'VITE_GOOGLE_PLACES_SERVER_KEY',
+    'GOOGLE_PLACES_KEY',
+    'VITE_GOOGLE_PLACES_KEY',
+    'GOOGLE_API_KEY',
+    'VITE_GOOGLE_API_KEY'
+  ];
+  for (const k of keys) {
+    const v = readEnv(k);
+    if (v) return v;
+  }
+  return null;
 }
 
 function extractCity(address?: string): string {
@@ -12,17 +38,57 @@ function extractCity(address?: string): string {
 }
 
 export async function googlePlacesTextSearch(q: string, gl: string, limit = 10, fallbackCountry = ''): Promise<Array<{ name: string; address: string; phone: string; website: string; rating: number | null; city: string }>> {
+  const key = getPlacesKey();
+  if (!key) {
+    logger.warn('Google Places key not found; skipping Places fallback');
+    return [];
+  }
+
+  // Attempt Places API (New) v1 first
   try {
-    const key = getPlacesKey();
-    if (!key) {
-      logger.warn('Google Places key not found; skipping Places fallback');
-      return [];
+    const v1Url = 'https://places.googleapis.com/v1/places:searchText';
+    const v1Body = {
+      textQuery: q,
+      regionCode: (gl || '').toUpperCase(),
+    } as any;
+    const v1Resp = await fetch(v1Url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.websiteUri,places.internationalPhoneNumber,places.rating'
+      },
+      body: JSON.stringify(v1Body)
+    });
+    if (v1Resp.ok) {
+      const data: any = await v1Resp.json();
+      const places = Array.isArray(data?.places) ? data.places.slice(0, Math.max(10, limit)) : [];
+      const mapped = places.map((p: any) => ({
+        name: p?.displayName?.text || 'Unknown Business',
+        address: p?.formattedAddress || '',
+        phone: p?.internationalPhoneNumber || '',
+        website: p?.websiteUri || '',
+        rating: typeof p?.rating === 'number' ? p.rating : null,
+        city: extractCity(p?.formattedAddress) || fallbackCountry
+      }));
+      if (mapped.length > 0) {
+        logger.debug('Google Places v1 text search results', { q, gl, count: mapped.length });
+        return mapped.slice(0, limit);
+      }
+    } else {
+      const text = await v1Resp.text();
+      logger.warn('Google Places v1 text search error', { status: v1Resp.status, text });
     }
+  } catch (e: any) {
+    logger.warn('Google Places v1 request failed', { error: e?.message || String(e) });
+  }
+
+  // Fallback to legacy Text Search + Details API
+  try {
     const url = new URL('https://maps.googleapis.com/maps/api/place/textsearch/json');
     url.searchParams.set('query', q);
     if (gl) url.searchParams.set('region', gl);
     url.searchParams.set('key', key);
-    // request more, we will cap later
     const resp = await fetch(url.toString(), { method: 'GET' });
     if (!resp.ok) {
       const text = await resp.text();
@@ -30,9 +96,11 @@ export async function googlePlacesTextSearch(q: string, gl: string, limit = 10, 
       return [];
     }
     const data: any = await resp.json();
-    const results: any[] = Array.isArray(data?.results) ? data.results.slice(0, Math.max(10, limit)) : [];
-    if (results.length === 0) return [];
-    // details fetch for top N
+    if (!Array.isArray(data?.results) || data.results.length === 0) {
+      logger.warn('Google Places legacy text search returned no results', { status: data?.status, error_message: data?.error_message });
+      return [];
+    }
+    const results: any[] = data.results.slice(0, Math.max(10, limit));
     const top = results.slice(0, limit);
     const detailed = await Promise.all(
       top.map(async (r) => {
@@ -49,6 +117,9 @@ export async function googlePlacesTextSearch(q: string, gl: string, limit = 10, 
               const det = await detResp.json();
               phone = det?.result?.formatted_phone_number || '';
               website = det?.result?.website || '';
+            } else {
+              const t = await detResp.text();
+              logger.warn('Google Places details error', { status: detResp.status, text: t });
             }
           }
         } catch {}
@@ -62,7 +133,7 @@ export async function googlePlacesTextSearch(q: string, gl: string, limit = 10, 
         };
       })
     );
-    logger.debug('Google Places text search results', { q, gl, count: detailed.length });
+    logger.debug('Google Places legacy text search results', { q, gl, count: detailed.length });
     return detailed;
   } catch (e: any) {
     logger.warn('Google Places fallback failed', { error: e?.message || String(e) });

@@ -115,7 +115,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       throw new Error('User not authenticated');
     }
     
-    if (process.env.NODE_ENV !== 'production') {
+    if (import.meta.env.MODE !== 'production') {
       logger.debug('Creating search for user:', authState.user.id, authState.user.email);
     }
     

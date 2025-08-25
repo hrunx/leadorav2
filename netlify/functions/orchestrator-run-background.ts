@@ -92,7 +92,6 @@ export const handler: Handler = async (event) => {
   };
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   // background functions return 202 immediately, Netlify runs the handler async
-  let stopPersonaListener: (() => Promise<void>) | null = null;
   let cancelled = false;
   try {
     const { search_id, user_id } = JSON.parse(event.body || '{}');
@@ -103,114 +102,21 @@ export const handler: Handler = async (event) => {
     // PHASE 0
     await updateProgress(search_id, 'starting', 0);
 
-    // Load orchestrator parts dynamically to reduce cold-start/bundle issues
-    const [
-      { execBusinessPersonas },
-      { execDMPersonas },
-      { execBusinessDiscovery },
-      { execMarketResearchParallel },
-      personaMapper,
-      { appendAgentEvent }
-    ] = await Promise.all([
-      import('../../src/orchestration/exec-business-personas'),
-      import('../../src/orchestration/exec-dm-personas'),
-      import('../../src/orchestration/exec-business-discovery'),
-      import('../../src/orchestration/exec-market-research-parallel'),
-      import('../../src/tools/persona-mapper'),
-      import('../../src/tools/db.write')
+    // Use Agent-driven orchestrator for coordination
+    const [{ runOrchestratorAgent }] = await Promise.all([
+      import('../../src/agents/orchestrator.agent')
     ]);
-    const { startPersonaMappingListener, mapBusinessesToPersonas } = personaMapper;
 
-    // START ALL AGENTS IN PARALLEL - everything begins immediately!
-    logger.info('Starting all agents in parallel for maximum speed...');
-
-    // Start market research in background (non-blocking)
-    const marketResearchPromise = retry(() =>
-      withTimeout(execMarketResearchParallel({ search_id, user_id }), 120_000, 'market_research')
-    ).catch(e => {
-      logger.warn('Market research failed (non-blocking)', { error: e.message });
-      return null;
-    });
-
-    // Start business discovery immediately (non-blocking)
-    await updateProgress(search_id, 'business_discovery', 5);
-    // Defer business→persona mapping until business personas are ready; still keep listener ready
-    stopPersonaListener = startPersonaMappingListener(search_id);
-    const businessDiscoveryPromise = retry(() =>
-      withTimeout(execBusinessDiscovery({ search_id, user_id }), 120_000, 'business_discovery')
-    ).catch(e => {
-      logger.warn('Business discovery failed (non-blocking)', { error: e.message });
-      return null;
-    });
-
-    // Start business personas first (non-blocking), then DM personas once business personas exist
-    await updateProgress(search_id, 'business_personas', 10);
-    logger.info('Starting business persona generation...');
-    const businessPersonasPromise = retry(() => withTimeout(limiter(() => execBusinessPersonas({ search_id, user_id })), 90_000, 'business_personas'))
-      .catch(e => {
-        logger.warn('Business persona generation failed (non-blocking)', { error: e?.message || e });
-        return null;
-      });
-    void appendAgentEvent(search_id, 'STARTED_BUSINESS_PERSONAS');
-
-    // Poll for business personas to exist (max ~30s) before starting DM personas to align with requested pipeline
-    const waitForBusinessPersonas = async () => {
-      const start = Date.now();
-      while (Date.now() - start < 30000) {
-        const { count } = await supa
-          .from('business_personas')
-          .select('id', { count: 'exact', head: true })
-          .eq('search_id', search_id);
-        if ((count || 0) > 0) return true;
-        await sleep(1500);
-      }
-      return false;
-    };
-    // Check cancellation flag from DB before continuing
-    const checkCancelled = async () => {
-      const { data } = await supa.from('user_searches').select('status').eq('id', search_id).single();
-      cancelled = (data?.status === 'cancelled');
-      return cancelled;
-    };
-    const haveBusinessPersonas = cancelled ? false : await waitForBusinessPersonas();
-    if (!haveBusinessPersonas) {
-      logger.warn('Business personas not detected in time; continuing to start DM personas to avoid delay');
-    }
-    await updateProgress(search_id, 'dm_personas', 12);
-    logger.info('Starting decision-maker persona generation...');
-    const dmPersonasPromise = retry(() => withTimeout(limiter(() => execDMPersonas({ search_id, user_id })), 90_000, 'dm_personas'))
-      .catch(e => {
-        logger.warn('DM persona generation failed (non-blocking)', { error: e?.message || e });
-        return null;
-      });
-    void appendAgentEvent(search_id, 'STARTED_DM_PERSONAS', { after_business_personas: haveBusinessPersonas });
-
-    // After personas exist, perform initial business→persona mapping in batch
-    try {
-      await mapBusinessesToPersonas(search_id);
-    } catch (e: any) {
-      logger.warn('Initial business→persona mapping failed (will retry via listener)', { error: e?.message || e });
-    }
-
-    // Business discovery continues in background; update progress snapshot
-    await updateProgress(search_id, 'business_discovery', 40);
-
-    // PHASE 4: Wait for market research to complete (should be doing work in background)
-    await updateProgress(search_id, 'market_research', 85);
-    logger.info('Waiting for market research to complete...');
-    const marketResult = await marketResearchPromise;
-    if (marketResult) {
-      logger.info('Market research completed successfully');
-    } else {
-      logger.warn('Market research failed - using fallback data');
-    }
-
-    // Ensure business discovery has finished before marking completed
-    await businessDiscoveryPromise;
-    // Best-effort wait for personas, but do not block completion
-    try { await businessPersonasPromise; } catch {}
-    try { await dmPersonasPromise; } catch {}
-    if (!await checkCancelled()) {
+    // Single call: let the MainOrchestratorAgent coordinate sub-agents
+    await runOrchestratorAgent({ search_id, user_id });
+    // best-effort: check cancelled flag
+    const isCancelled = await (async () => {
+      try {
+        const { data } = await supa.from('user_searches').select('status').eq('id', search_id).single();
+        return (data?.status === 'cancelled');
+      } catch { return false; }
+    })();
+    if (!isCancelled) {
       await updateProgress(search_id, 'completed', 100);
     } else {
       logger.info('Search was cancelled; marking cancelled state retained');
@@ -230,6 +136,6 @@ export const handler: Handler = async (event) => {
     } catch {}
     return { statusCode: 202, headers: cors, body: 'accepted' }; // background function always returns 202
   } finally {
-    if (stopPersonaListener) await stopPersonaListener();
+    // no-op
   }
 };

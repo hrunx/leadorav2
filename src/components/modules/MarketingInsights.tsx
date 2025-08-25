@@ -162,7 +162,7 @@ export default function MarketingInsights() {
   }, [sources]);
 
   // ---- Lightweight chart helpers (inline SVG) ----
-  const palette = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+  const palette = useMemo(() => ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'], []);
   // Utility function for clamping values
   const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n));
 

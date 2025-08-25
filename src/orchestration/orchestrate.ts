@@ -76,29 +76,10 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         run: async () => {
           // Run main discovery flow
           await runBusinessDiscovery(agentSearch);
-          // Guard: if still 0 businesses, call debug endpoint to force insert from aggregated candidates
-          // Only in development or when explicitly enabled
+          // Guard: if still 0 businesses, just log; debug fallback removed for clean prod codebase
           const after = await loadBusinesses(search_id).catch(() => [] as any[]);
           if (!after || after.length === 0) {
-            const enableDebugFallback = process.env.ENABLE_DEBUG_FALLBACK === 'true' || 
-                                        process.env.NODE_ENV === 'development' || 
-                                        process.env.NETLIFY_DEV === 'true';
-            
-            if (enableDebugFallback) {
-              try {
-                const res = await fetch(`${process.env.LOCAL_BASE_URL || 'http://localhost:8888'}/.netlify/functions/debug-business-discovery`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ search_id, insert: true })
-                });
-                if (!res.ok) throw new Error(`debug-business-discovery status ${res.status}`);
-                logger.info('Used debug fallback to insert businesses', { search_id });
-              } catch (e: any) {
-                logger.warn('debug-business-discovery guard failed', { error: e?.message || e });
-              }
-            } else {
-              logger.warn('No businesses found and debug fallback disabled', { search_id });
-            }
+            logger.warn('No businesses found after discovery', { search_id });
           }
         },
         onSuccess: async () => {
