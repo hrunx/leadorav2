@@ -26,28 +26,11 @@ export async function execBusinessDiscovery(payload: {
   // Run the primary discovery flow
   await runBusinessDiscovery(agentSearch);
   
-  // Guard: if still no businesses, force insert via debug discovery endpoint (aggregates Serper, Google Places, CSE)
+  // Guard retained for future enhancements; skip debug fallback in production cleanup
   try {
     const after = await loadBusinesses(agentSearch.id);
     if (!after || after.length === 0) {
-      // Try remote base first (if provided), then fallback to local dev base
-      const localBase = process.env.LOCAL_BASE_URL || 'http://localhost:8888';
-      const bases = [process.env.URL, process.env.DEPLOY_URL, localBase].filter(Boolean) as string[];
-      let ok = false;
-      for (const b of bases) {
-        try {
-          const res = await fetch(`${b}/.netlify/functions/debug-business-discovery`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ search_id: agentSearch.id, insert: true })
-          });
-          if (res.ok) { ok = true; break; }
-          logger.warn('debug-business-discovery guard non-OK', { base: b, status: res.status });
-        } catch (e:any) {
-          logger.warn('debug-business-discovery guard fetch failed', { base: b, error: e?.message || e });
-        }
-      }
-      if (!ok) logger.warn('debug-business-discovery guard failed across all bases');
+      logger.warn('No businesses discovered for search', { search_id: agentSearch.id });
     }
   } catch (e:any) {
     logger.warn('execBusinessDiscovery guard failed', { error: e?.message || e });

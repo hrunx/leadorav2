@@ -2,9 +2,10 @@ import { supabase } from '../lib/supabase';
 import type { UserSearch, BusinessPersona, Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
 import { DEMO_USER_ID } from '../constants/demo';
 import { searchCache, type CachedSearchData } from '../tools/search-cache';
+import { getNetlifyFunctionsBaseUrl } from '../utils/baseUrl';
 
 export class SearchService {
-  private static readonly functionsBase: string = '/.netlify/functions';
+  private static readonly functionsBase: string = getNetlifyFunctionsBaseUrl();
   // Lightweight in-memory caches to avoid spamming functions on dashboard load, scoped per user
   private static searchesCacheByUser: Map<string, { ts: number; data: any[] }> = new Map();
   private static readonly TTL_MS = 5000; // 5s cache TTL for dashboard views
@@ -16,7 +17,7 @@ export class SearchService {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const resp = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_makers&user_id=${userId}`, {
+      const resp = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=decision_makers&user_id=${userId}`, {
         method: 'GET', headers: { 'Accept': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, credentials: 'omit'
       });
       if (!resp.ok) return [] as any;
@@ -31,7 +32,7 @@ export class SearchService {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const resp = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&user_id=${userId}`, {
+      const resp = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=businesses&user_id=${userId}`, {
         method: 'GET', headers: { 'Accept': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, credentials: 'omit'
       });
       if (!resp.ok) return [] as any;
@@ -45,7 +46,7 @@ export class SearchService {
   // Expose a cancel endpoint to stop orchestration when navigating away
   static async cancelOrchestration(searchId: string): Promise<void> {
     try {
-      await fetch(`${this.functionsBase}/orchestrator-cancel`, {
+      await fetch(`${this.functionsBase}/.netlify/functions/orchestrator-cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_id: searchId })
@@ -163,7 +164,7 @@ export class SearchService {
     if (userId !== DEMO_USER_ID) {
       try {
         // Call the orchestrator API to start agent processing
-        const response = await fetch(`${this.functionsBase}/orchestrator-start`, {
+        const response = await fetch(`${this.functionsBase}/.netlify/functions/orchestrator-start`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -208,7 +209,7 @@ export class SearchService {
        try {
           const { data: { session } } = await supabase.auth.getSession();
           const token = session?.access_token;
-          const proxyResp = await fetch(`${this.functionsBase}/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
+          const proxyResp = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
           method: 'GET', headers: { 'Accept': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, credentials: 'omit'
         });
         if (proxyResp.ok) {
@@ -258,7 +259,7 @@ export class SearchService {
       if (error.message?.includes('Load failed') || error.message?.includes('access control')) {
         import('../lib/logger').then(({ default: logger }) => logger.warn('CORS issue detected, falling back to proxy...')).catch(()=>{});
         try {
-          const response = await fetch(`${this.functionsBase}/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
+          const response = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=user_searches&user_id=${targetUserId}`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -331,7 +332,7 @@ export class SearchService {
     // Prefer proxy to avoid CORS/RLS issues in browsers (Safari)
     const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
     const queryUserId = (userId === 'demo-user' || !isUuid(userId)) ? DEMO_USER_ID : userId;
-    const proxyUrl = `/.netlify/functions/user-data-proxy?table=decision_makers&user_id=${queryUserId}`;
+    const proxyUrl = `${this.functionsBase}/.netlify/functions/user-data-proxy?table=decision_makers&user_id=${queryUserId}`;
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
@@ -392,7 +393,7 @@ export class SearchService {
   static async getBusinessPersonas(searchId: string): Promise<BusinessPersona[]> {
     try {
       // Try proxy first
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=business_personas&search_id=${searchId}`, { 
+      const response = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=business_personas&search_id=${searchId}`, { 
         method: 'GET', 
         headers: { 'Accept': 'application/json' }, 
         credentials: 'omit' 
@@ -489,7 +490,7 @@ export class SearchService {
   static async getBusinesses(searchId: string): Promise<Business[]> {
     try {
       // Try proxy first
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=businesses&search_id=${searchId}`, { 
+      const response = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=businesses&search_id=${searchId}`, { 
         method: 'GET', 
         headers: { 'Accept': 'application/json' }, 
         credentials: 'omit' 
@@ -567,7 +568,7 @@ export class SearchService {
   static async getDecisionMakerPersonas(searchId: string): Promise<DecisionMakerPersona[]> {
     // Proxy-first
     try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
+      const response = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
         const arr = await response.json();
         return (Array.isArray(arr) ? arr : []) as any;
@@ -626,7 +627,7 @@ export class SearchService {
   static async getDecisionMakers(searchId: string): Promise<DecisionMaker[]> {
     // Proxy-first
     try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
+      const response = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
         const arr = await response.json();
         return (Array.isArray(arr) ? arr : []) as any;
@@ -675,7 +676,7 @@ export class SearchService {
   static async getMarketInsights(searchId: string): Promise<MarketInsight | null> {
     // Proxy-first
     try {
-      const response = await fetch(`${this.functionsBase}/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
+      const response = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
         const arr = await response.json();
         return (Array.isArray(arr) && arr.length > 0) ? (arr[0] as any) : null;

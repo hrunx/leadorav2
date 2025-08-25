@@ -79,7 +79,7 @@ export function useRealTimeSearch(searchId: string | null) {
       // Load all data in parallel using SearchService (with proxy fallback)
       const progressPromise = (async () => {
         try {
-          const r = await fetch(`/.netlify/functions/user-data-proxy?table=user_searches&search_id=${searchId}`, {
+          const r = await fetch(`${import.meta.env.MODE === 'development' ? 'http://localhost:8888' : window.location.origin}/.netlify/functions/user-data-proxy?table=user_searches&search_id=${searchId}`, {
             method: 'GET',
             headers: { 'Accept': 'application/json' }
           });

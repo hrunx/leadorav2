@@ -260,11 +260,12 @@ function AppContent() {
         </div>
 
         {/* Background Progress Bar */}
-        <BackgroundProgressBar
-          searchId={currentSearchId || ''}
-          isVisible={showBackgroundProgress && !!currentSearchId}
-          onComplete={() => setShowBackgroundProgress(false)}
-        />
+        {showBackgroundProgress && currentSearchId && (
+          <BackgroundProgressBar
+            searchId={currentSearchId}
+            onClose={() => setShowBackgroundProgress(false)}
+          />
+        )}
       </main>
     </div>
   );

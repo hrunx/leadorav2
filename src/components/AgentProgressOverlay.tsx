@@ -103,9 +103,9 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
           return normalizedPhase;
         })();
         setCurrentPhase(derivedPhase);
-        // Early navigation ONLY when business personas are ready
+        // Early navigation when business personas are ready (even 1 is enough to show the page)
         if (!hasNavigatedEarly &&
-            data.data_counts.business_personas >= 3 &&
+            data.data_counts.business_personas >= 1 &&
             onEarlyNavigation) {
           setHasNavigatedEarly(true);
           setTimeout(() => {
@@ -116,7 +116,7 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
         // Only complete automatically when finished AND business personas exist,
         // so users are not navigated into an empty screen
         if (data.progress.phase === 'completed') {
-          if (data.data_counts.business_personas >= 3) {
+          if (data.data_counts.business_personas >= 1) {
             setTimeout(() => { onComplete(); }, 2000);
           }
         } else if (data.progress.phase === 'failed') {

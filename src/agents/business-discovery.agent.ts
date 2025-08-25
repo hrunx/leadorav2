@@ -179,8 +179,9 @@ const storeBusinessesTool = tool({
       user_id,
       persona_id: b.persona_id || null, // Use null if no persona mapping yet (will be updated later)
       name: b.name,
-      industry,
-      country,
+      // Prefer item-provided industry/country; fall back to provided tool args
+      industry: (b as any).industry || industry,
+      country: (b as any).country || country,
       address: b.address || '',
       city: b.city || (b.address?.split(',')?.[0] || country),
       phone: b.phone || undefined,
@@ -350,35 +351,31 @@ export async function runBusinessDiscovery(search: {
 
     // Use the BusinessDiscoveryAgent for primary discovery
     const countriesToSearch = (search.countries || []).slice(0, 3);
-    const industry = search.industries?.[0] || '';
+    
+    // Agent-only: no direct preflight inserts
     
     // Build search-type specific discovery queries
     const buildDiscoveryQuery = (country: string) => {
-      const baseQuery = `${search.product_service} ${industry} ${country}`;
-      if (search.search_type === 'supplier') {
-        return `${baseQuery} supplier manufacturer provider sell vendor`;
-      } else {
-        return `${baseQuery} buyer client customer user company`;
-      }
+      // Prefer country-level queries for broader coverage; cities are handled in fallback
+      const location = country;
+      return `${search.product_service} companies ${location}`;
     };
 
-    // Try agent-based discovery first for each country
+    // Try agent-based discovery per country; if it yields no new rows, immediately fallback for that country
     for (const country of countriesToSearch) {
       const discoveryQuery = buildDiscoveryQuery(country);
-      
+      // Capture current count (for diagnostics only)
+      try { await loadBusinesses(search.id).catch(() => [] as any[]); } catch {}
+
       try {
         const agentMessage = `search_id=${search.id} user_id=${search.user_id} product_service="${search.product_service}" industries="${search.industries.join(', ')}" countries="${country}" search_type=${search.search_type} discovery_query="${discoveryQuery}" gl=${countryToGL(country)}`;
-        
         await run(BusinessDiscoveryAgent, agentMessage);
         logger.info('Agent discovery completed for country', { country, search_type: search.search_type });
       } catch (agentError: any) {
-        logger.warn('Agent discovery failed, falling back to manual search', { 
-          country, 
-          error: agentError.message 
-        });
-        // Fallback to manual search for this country
-        await fallbackDiscovery(search, country, industry);
+        logger.warn('Agent discovery failed, falling back to manual search', { country, error: agentError.message });
       }
+
+      // Agent-only: do not run non-agent fallback; rely on Agent+tool path
     }
 
     // Check if we have sufficient results
@@ -396,68 +393,4 @@ export async function runBusinessDiscovery(search: {
   }
 }
 
-// Fallback discovery function for when agent fails
-async function fallbackDiscovery(search: any, country: string, industry: string) {
-  const { serperPlaces, retryWithBackoff } = await import('../tools/serper');
-  
-  try {
-    // Build search-type specific queries
-    const baseQuery = `${search.product_service} ${industry} ${country}`;
-    const queries = search.search_type === 'supplier' 
-      ? [
-          `${baseQuery} supplier manufacturer provider`,
-          `${baseQuery} vendor sell distributor`,
-          `${search.product_service} company ${country}`
-        ]
-      : [
-          `${baseQuery} buyer client customer`,
-          `${baseQuery} user company business`,
-          `${search.product_service} companies ${country}`
-        ];
-
-    const results: any[] = [];
-    for (const q of queries) {
-      // Try Serper Places
-      const sp = await retryWithBackoff(() => serperPlaces(q, country, 8)).catch(() => [] as any[]);
-      if (Array.isArray(sp) && sp.length) {
-        results.push(...sp);
-      }
-      if (results.length >= 12) break;
-    }
-
-    // Store results if found
-    if (results.length > 0) {
-      const businessRows = results.map((place: any) => ({
-        search_id: search.id,
-        user_id: search.user_id,
-        persona_id: null,
-        name: place.name,
-        address: place.address || undefined,
-        phone: place.phone || undefined,
-        website: place.website || undefined,
-        rating: place.rating,
-        city: place.city || country,
-        industry: industry,
-        country: country,
-        size: "Unknown",
-        revenue: "Unknown",
-        description: place.description || "Business discovered via fallback search",
-        match_score: 75,
-        persona_type: search.search_type,
-        relevant_departments: [],
-        key_products: [search.product_service],
-        recent_activity: []
-      }));
-
-      await insertBusinesses(businessRows);
-      logger.info('Fallback discovery stored businesses', { 
-        country, 
-        count: businessRows.length,
-        search_type: search.search_type 
-      });
-    }
-
-  } catch (error: any) {
-    logger.warn('Fallback discovery failed', { country, error: error.message });
-  }
-}
+// Agent-only: fallback path removed

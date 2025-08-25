@@ -1,3 +1,4 @@
+import { Agent, tool, run } from '@openai/agents';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import logger from '../lib/logger';
 import { insertMarketInsights, markSearchCompleted, logApiUsage } from '../tools/db.write';
@@ -337,4 +338,72 @@ OUTPUT JSON SCHEMA EXACTLY:
     logger.error('Market research failed', { search_id: search.id, error: (error as any)?.message || error });
     throw new Error('MARKET_RESEARCH_FAILED');
   }
+}
+
+// --- Agent-first version ---
+const storeMarketInsightsTool = tool({
+  name: 'storeMarketInsights',
+  description: 'Persist market insights once as a single row for the search.',
+  parameters: {
+    type: 'object',
+    properties: {
+      search_id: { type: 'string' },
+      user_id: { type: 'string' },
+      tam_data: { type: 'object', additionalProperties: true },
+      sam_data: { type: 'object', additionalProperties: true },
+      som_data: { type: 'object', additionalProperties: true },
+      competitor_data: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      trends: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      opportunities: { type: 'object', additionalProperties: true },
+      sources: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      analysis_summary: { type: 'string' },
+      research_methodology: { type: 'string' }
+    },
+    required: ['search_id','user_id','tam_data','sam_data','som_data','competitor_data','trends','opportunities'],
+    additionalProperties: true
+  } as const,
+  strict: true,
+  execute: async (input: any) => {
+    const row = {
+      search_id: String(input.search_id),
+      user_id: String(input.user_id),
+      tam_data: input.tam_data || {},
+      sam_data: input.sam_data || {},
+      som_data: input.som_data || {},
+      competitor_data: Array.isArray(input.competitor_data) ? input.competitor_data : [],
+      trends: Array.isArray(input.trends) ? input.trends : [],
+      opportunities: input.opportunities || {},
+      sources: Array.isArray(input.sources) ? input.sources : [],
+      analysis_summary: typeof input.analysis_summary === 'string' ? input.analysis_summary : undefined,
+      research_methodology: typeof input.research_methodology === 'string' ? input.research_methodology : undefined
+    };
+    await insertMarketInsights(row as any);
+    await markSearchCompleted(String(input.search_id));
+    return { success: true };
+  }
+});
+
+export const MarketResearchAgent = new Agent({
+  name: 'MarketResearchAgent',
+  tools: [storeMarketInsightsTool],
+  model: resolveModel('primary'),
+  handoffDescription: 'Generates investor-grade market insights and stores them via tool',
+  handoffs: [],
+  instructions: `You are an expert market research analyst. Using the provided search context, produce high-quality, source-grounded market insights and then call storeMarketInsights ONCE with the full JSON. Output NOTHING else.
+
+Context keys you will receive: search_id, user_id, product_service, industries, countries, search_type.
+Requirements:
+- Provide country-specific TAM, SAM, SOM with calculation and explicit assumptions.
+- Competitors: 4–8 with share/revenue/growth and citations.
+- Trends: 4–8 with impact and citations.
+- Opportunities: summary + actionable playbook and timing.
+- Include sources array.
+- When done, call storeMarketInsights with the full object.`
+});
+
+export async function runMarketResearchAgent(search: {
+  id:string; user_id:string; product_service:string; industries:string[]; countries:string[]; search_type:'customer'|'supplier'
+}) {
+  const msg = `search_id=${search.id} user_id=${search.user_id} product_service="${search.product_service}" industries="${(search.industries||[]).join(', ')}" countries="${(search.countries||[]).join(', ')}" search_type=${search.search_type}`;
+  await run(MarketResearchAgent, msg);
 }
