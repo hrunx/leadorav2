@@ -1,4 +1,5 @@
-import { runBusinessPersonas } from '../agents/business-persona.agent';
+import { BusinessPersonaAgent } from '../agents/business-persona.agent';
+import { run as runAgent } from '@openai/agents';
 import { loadSearch, loadBusinessPersonas } from '../tools/db.read';
 import { insertBusinessPersonas, updateSearchProgress } from '../tools/db.write';
 import { callOpenAIChatJSON, resolveModel } from '../agents/clients';
@@ -20,12 +21,16 @@ export async function execBusinessPersonas(payload: {
     countries: Array.isArray((search as any)?.countries) ? ((search as any).countries as string[]) : [],
     search_type: ((search as any)?.search_type === 'supplier' ? 'supplier' : 'customer') as 'customer' | 'supplier',
   };
-  // Run agent with a watchdog timeout (allow slower LLM responses)
+  // Run Agent (tool-driven) with a short watchdog timeout for fast first personas
   const RUN_TIMEOUT_MS = Math.max(20000, Number(process.env.BP_AGENT_TIMEOUT_MS || 20000));
   try {
     const outcome = await Promise.race<string>([
-      runBusinessPersonas(agentSearch).then(() => 'success').catch((e: any) => {
-        logger.warn('runBusinessPersonas error (non-blocking)', { search_id: agentSearch.id, error: e?.message || e });
+      (async () => {
+        const msg = `search_id=${agentSearch.id} user_id=${agentSearch.user_id} product_service="${agentSearch.product_service}" industries="${agentSearch.industries.join(', ')}" countries="${agentSearch.countries.join(', ')}" search_type=${agentSearch.search_type}`;
+        await runAgent(BusinessPersonaAgent, msg);
+        return 'success';
+      })().catch((e:any)=>{
+        logger.warn('BusinessPersonaAgent run failed', { search_id: agentSearch.id, error: e?.message || e });
         return 'error';
       }),
       new Promise<string>((resolve) => setTimeout(() => resolve('timeout'), RUN_TIMEOUT_MS))
