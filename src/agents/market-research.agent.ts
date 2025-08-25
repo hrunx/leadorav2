@@ -360,7 +360,7 @@ const storeMarketInsightsTool = tool({
       research_methodology: { type: 'string' }
     },
     required: ['search_id','user_id','tam_data','sam_data','som_data','competitor_data','trends','opportunities'],
-    additionalProperties: true
+    additionalProperties: false
   } as const,
   strict: true,
   execute: async (input: any) => {
