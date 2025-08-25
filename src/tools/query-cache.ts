@@ -28,21 +28,35 @@ const makeKey = (company: string, query: string) => `${company}::${query}`.toLow
 export async function hasSeenQuery(company: string, query: string): Promise<boolean> {
   const supa = getSupabaseClient();
   const key = makeKey(company, query);
-  const { data, error } = await supa.from(TABLE).select('key').eq('key', key).limit(1);
-  if (error) {
-    logger.warn('query-cache hasSeenQuery failed', { error: error.message || error });
+  try {
+    const { data, error } = await supa.from(TABLE).select('key').eq('key', key).limit(1);
+    if (error) throw error;
+    return Array.isArray(data) && data.length > 0;
+  } catch (e: any) {
+    const msg = String(e?.message || e || '');
+    if ((e && (e.code === '42P01')) || /does not exist/i.test(msg)) {
+      // table missing; treat as cache miss silently
+      return false;
+    }
+    logger.warn('query-cache hasSeenQuery failed', { error: msg });
     return false;
   }
-  return Array.isArray(data) && data.length > 0;
 }
 
 export async function markSeenQuery(company: string, query: string): Promise<void> {
   const supa = getSupabaseClient();
   const key = makeKey(company, query);
   const now = new Date().toISOString();
-  const { error } = await supa.from(TABLE).upsert({ key, created_at: now }, { onConflict: 'key' });
-  if (error) {
-    logger.warn('query-cache markSeenQuery failed', { error: error.message || error });
+  try {
+    const { error } = await supa.from(TABLE).upsert({ key, created_at: now }, { onConflict: 'key' });
+    if (error) throw error;
+  } catch (e: any) {
+    const msg = String(e?.message || e || '');
+    if ((e && (e.code === '42P01')) || /does not exist/i.test(msg)) {
+      // Ignore if table doesn't exist
+    } else {
+      logger.warn('query-cache markSeenQuery failed', { error: msg });
+    }
   }
   try {
     await cleanupOldEntries();
@@ -54,10 +68,17 @@ export async function markSeenQuery(company: string, query: string): Promise<voi
 export async function cleanupOldEntries(): Promise<void> {
   const supa = getSupabaseClient();
   const cutoff = new Date(Date.now() - TTL_MS).toISOString();
-  const { error } = await supa.from(TABLE).delete().lt('created_at', cutoff);
-  if (error) {
-    logger.warn('query-cache cleanup delete failed', { error: error.message || error });
-    throw error;
+  try {
+    const { error } = await supa.from(TABLE).delete().lt('created_at', cutoff);
+    if (error) throw error;
+  } catch (e: any) {
+    const msg = String(e?.message || e || '');
+    if ((e && (e.code === '42P01')) || /does not exist/i.test(msg)) {
+      // table missing; nothing to cleanup
+      return;
+    }
+    logger.warn('query-cache cleanup delete failed', { error: msg });
+    throw e;
   }
 }
 
