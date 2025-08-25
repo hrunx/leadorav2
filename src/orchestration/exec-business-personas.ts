@@ -21,7 +21,7 @@ export async function execBusinessPersonas(payload: {
     search_type: ((search as any)?.search_type === 'supplier' ? 'supplier' : 'customer') as 'customer' | 'supplier',
   };
   // Run agent with a watchdog timeout (allow slower LLM responses)
-  const RUN_TIMEOUT_MS = Math.max(90000, Number(process.env.BP_AGENT_TIMEOUT_MS || 90000));
+  const RUN_TIMEOUT_MS = Math.max(20000, Number(process.env.BP_AGENT_TIMEOUT_MS || 20000));
   try {
     const outcome = await Promise.race<string>([
       runBusinessPersonas(agentSearch).then(() => 'success').catch((e: any) => {
@@ -41,17 +41,17 @@ export async function execBusinessPersonas(payload: {
   try {
     const existing = await loadBusinessPersonas(agentSearch.id);
     if (!existing || existing.length === 0) {
-      const minimalPrompt = `Return ONLY JSON with exactly 3 personas for search_id=${agentSearch.id}. Keys per item: title, rank (1..3), match_score (80..100), demographics:{industry,companySize,geography,revenue}, market_potential:{totalCompanies,avgDealSize,conversionRate}. No prose.`;
+      const minimalPrompt = `Return ONLY JSON: {"personas":[{...},{...},{...}]} for search_id=${agentSearch.id}. Each item keys: title, rank (1..3), match_score (80..100), demographics:{industry,companySize,geography,revenue}, market_potential:{totalCompanies,avgDealSize,conversionRate}.`;
       try {
         const text = await callOpenAIChatJSON({
-          model: resolveModel('ultraLight'),
+          model: resolveModel('light'),
           system: 'You are a JSON generator. Output must be valid JSON object with key "personas".',
           user: minimalPrompt,
-          temperature: 0.2,
-          maxTokens: 600,
+          temperature: 0.1,
+          maxTokens: 500,
           requireJsonObject: true,
           verbosity: 'low',
-          timeoutMs: 8000,
+          timeoutMs: 7000,
           retries: 0
         });
         try {

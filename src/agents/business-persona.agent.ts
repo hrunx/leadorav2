@@ -44,7 +44,7 @@ const personaSchema: any = {
     locations: { type: 'array', items: {} }
   },
   required: ['title', 'rank', 'match_score'],
-  additionalProperties: false
+  additionalProperties: true
 };
 
 const validatePersona = ajv.compile(personaSchema);
@@ -74,7 +74,7 @@ const storeBusinessPersonasTool = tool({
             locations: { type: 'array', items: { type: 'object', additionalProperties: true } }
           },
           required: ['title','rank','match_score'],
-          additionalProperties: false
+          additionalProperties: true
         }
       }
     },
@@ -84,9 +84,8 @@ const storeBusinessPersonasTool = tool({
   strict: true,
   execute: async (input: unknown) => {
     const { search_id, user_id, personas } = input as StoreBusinessPersonasToolInput;
-
-    if (!Array.isArray(personas) || personas.length !== 3) {
-      throw new Error('Expected exactly 3 personas.');
+    if (!Array.isArray(personas) || personas.length < 1) {
+      throw new Error('Expected at least 1 persona.');
     }
     for (const p of personas) {
       if (!validatePersona(p)) {
@@ -115,6 +114,9 @@ const storeBusinessPersonasTool = tool({
     try {
       const inserted = await insertBusinessPersonas(rows);
       result.inserted_count = Array.isArray(inserted) ? inserted.length : 0;
+      try {
+        await updateSearchProgress(search_id, 10, 'business_personas');
+      } catch {}
       
       // Trigger business-persona remapping after tool execution
       if (inserted && Array.isArray(inserted) && inserted.length > 0) {
