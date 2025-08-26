@@ -1,4 +1,4 @@
-import { BusinessPersonaAgent } from '../agents/business-persona.agent';
+import { BusinessPersonaAgent, runBusinessPersonas as runBPDetailed } from '../agents/business-persona.agent';
 import { run as runAgent } from '@openai/agents';
 import { loadSearch, loadBusinessPersonas } from '../tools/db.read';
 import { insertBusinessPersonas, updateSearchProgress, appendAgentEvent } from '../tools/db.write';
@@ -53,6 +53,27 @@ export async function execBusinessPersonas(payload: {
     logger.info('BusinessPersonaAgent post-run check', { search_id: agentSearch.id, count: existingCount });
     try { await appendAgentEvent(agentSearch.id, 'bp_post_run_check', { count: existingCount }); } catch {}
     if (!existing || existing.length === 0) {
+      // Fallback 1: Use robust direct LLM pipeline with triage (GPT-5 -> Gemini -> DeepSeek)
+      try {
+        await runBPDetailed({
+          id: agentSearch.id,
+          user_id: agentSearch.user_id,
+          product_service: agentSearch.product_service,
+          industries: agentSearch.industries,
+          countries: agentSearch.countries,
+          search_type: agentSearch.search_type
+        });
+      } catch (e:any) {
+        logger.warn('runBPDetailed fallback failed', { search_id: agentSearch.id, error: e?.message || e });
+      }
+      // Re-check after robust fallback
+      const afterDetailed = await loadBusinessPersonas(agentSearch.id);
+      if (Array.isArray(afterDetailed) && afterDetailed.length > 0) {
+        logger.info('Personas present after detailed fallback', { search_id: agentSearch.id, count: afterDetailed.length });
+        return true;
+      }
+
+      // Fallback 2: Minimal ultra-fast JSON-only generation and insert
       const minimalPrompt = `Return ONLY JSON: {"personas":[{...},{...},{...}]} for search_id=${agentSearch.id}. Each item keys: title, rank (1..3), match_score (80..100), demographics:{industry,companySize,geography,revenue}, market_potential:{totalCompanies,avgDealSize,conversionRate}.`;
       try {
         const text = await callOpenAIChatJSON({
