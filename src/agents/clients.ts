@@ -128,10 +128,10 @@ export const modelRouter = {
     );
   },
   ultraLight(): string {
-    return (
-      process.env.OPENAI_ULTRA_LIGHT_MODEL ||
-      'gpt-4o-mini'  // Ultra fast for simple tasks
-    );
+    const envModel = process.env.OPENAI_ULTRA_LIGHT_MODEL;
+    // Force non‑GPT‑5 model for minimal JSON fallback to avoid Responses quirks
+    if (envModel && /^gpt-5/i.test(envModel)) return 'gpt-4o-mini';
+    return envModel || 'gpt-4o-mini';
   }
 };
 
