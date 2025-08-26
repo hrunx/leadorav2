@@ -1,7 +1,7 @@
 import { BusinessPersonaAgent } from '../agents/business-persona.agent';
 import { run as runAgent } from '@openai/agents';
 import { loadSearch, loadBusinessPersonas } from '../tools/db.read';
-import { insertBusinessPersonas, updateSearchProgress } from '../tools/db.write';
+import { insertBusinessPersonas, updateSearchProgress, appendAgentEvent } from '../tools/db.write';
 import { callOpenAIChatJSON, resolveModel } from '../agents/clients';
 import logger from '../lib/logger';
 
@@ -25,6 +25,7 @@ export async function execBusinessPersonas(payload: {
   const RUN_TIMEOUT_MS = Math.max(20000, Number(process.env.BP_AGENT_TIMEOUT_MS || 20000));
   try {
     logger.info('BusinessPersonaAgent starting', { search_id: agentSearch.id, model: resolveModel('light') });
+    try { await appendAgentEvent(agentSearch.id, 'bp_exec_start', { model: resolveModel('light') }); } catch {}
     const outcome = await Promise.race<string>([
       (async () => {
         const msg = `search_id=${agentSearch.id} user_id=${agentSearch.user_id} product_service="${agentSearch.product_service}" industries="${agentSearch.industries.join(', ')}" countries="${agentSearch.countries.join(', ')}" search_type=${agentSearch.search_type}`;
@@ -39,14 +40,18 @@ export async function execBusinessPersonas(payload: {
     if (outcome === 'timeout') {
       logger.warn('runBusinessPersonas timed out', { search_id: agentSearch.id });
     }
+    try { await appendAgentEvent(agentSearch.id, 'bp_exec_outcome', { outcome }); } catch {}
   } catch (e: any) {
     logger.warn('runBusinessPersonas failed', { search_id: agentSearch.id, error: e?.message || e });
+    try { await appendAgentEvent(agentSearch.id, 'bp_exec_exception', { error: String(e?.message || e).slice(0,200) }); } catch {}
   }
 
   // If still empty, run a final ultra-fast minimal LLM generation (strict LLM, minimal schema)
   try {
     const existing = await loadBusinessPersonas(agentSearch.id);
-    logger.info('BusinessPersonaAgent post-run check', { search_id: agentSearch.id, count: Array.isArray(existing)? existing.length : 0 });
+    const existingCount = Array.isArray(existing)? existing.length : 0;
+    logger.info('BusinessPersonaAgent post-run check', { search_id: agentSearch.id, count: existingCount });
+    try { await appendAgentEvent(agentSearch.id, 'bp_post_run_check', { count: existingCount }); } catch {}
     if (!existing || existing.length === 0) {
       const minimalPrompt = `Return ONLY JSON: {"personas":[{...},{...},{...}]} for search_id=${agentSearch.id}. Each item keys: title, rank (1..3), match_score (80..100), demographics:{industry,companySize,geography,revenue}, market_potential:{totalCompanies,avgDealSize,conversionRate}.`;
       try {
@@ -80,6 +85,7 @@ export async function execBusinessPersonas(payload: {
             await insertBusinessPersonas(rows);
             await updateSearchProgress(agentSearch.id, 15, 'business_personas');
             logger.info('Inserted minimal LLM personas', { search_id: agentSearch.id });
+            try { await appendAgentEvent(agentSearch.id, 'bp_minimal_inserted', { count: rows.length }); } catch {}
             
             // Trigger business-persona remapping after inserting new personas
             try {
@@ -92,17 +98,22 @@ export async function execBusinessPersonas(payload: {
             }
           }
           else {
-            logger.warn('Minimal LLM personas call returned empty array', { search_id: agentSearch.id, raw: text?.slice?.(0,300) });
+            const sample = (text || '').slice(0, 300);
+            logger.warn('Minimal LLM personas call returned empty array', { search_id: agentSearch.id, raw: sample });
+            try { await appendAgentEvent(agentSearch.id, 'bp_minimal_empty', { sample }); } catch {}
           }
         } catch (e: any) {
           logger.warn('Minimal LLM personas parse failed', { search_id: agentSearch.id, error: e?.message || e });
+          try { await appendAgentEvent(agentSearch.id, 'bp_minimal_parse_failed', { error: String(e?.message || e).slice(0,200) }); } catch {}
         }
       } catch (e: any) {
         logger.warn('Minimal LLM personas call failed', { search_id: agentSearch.id, error: e?.message || e });
+        try { await appendAgentEvent(agentSearch.id, 'bp_minimal_call_failed', { error: String(e?.message || e).slice(0,200) }); } catch {}
       }
     }
   } catch (e: any) {
     logger.warn('Business personas post-check failed', { search_id: agentSearch.id, error: e?.message || e });
+    try { await appendAgentEvent(agentSearch.id, 'bp_post_run_exception', { error: String(e?.message || e).slice(0,200) }); } catch {}
   }
   return true;
 }
