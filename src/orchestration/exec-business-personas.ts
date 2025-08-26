@@ -24,6 +24,7 @@ export async function execBusinessPersonas(payload: {
   // Run Agent (tool-driven) with a short watchdog timeout for fast first personas
   const RUN_TIMEOUT_MS = Math.max(20000, Number(process.env.BP_AGENT_TIMEOUT_MS || 20000));
   try {
+    logger.info('BusinessPersonaAgent starting', { search_id: agentSearch.id, model: resolveModel('light') });
     const outcome = await Promise.race<string>([
       (async () => {
         const msg = `search_id=${agentSearch.id} user_id=${agentSearch.user_id} product_service="${agentSearch.product_service}" industries="${agentSearch.industries.join(', ')}" countries="${agentSearch.countries.join(', ')}" search_type=${agentSearch.search_type}`;
@@ -45,11 +46,12 @@ export async function execBusinessPersonas(payload: {
   // If still empty, run a final ultra-fast minimal LLM generation (strict LLM, minimal schema)
   try {
     const existing = await loadBusinessPersonas(agentSearch.id);
+    logger.info('BusinessPersonaAgent post-run check', { search_id: agentSearch.id, count: Array.isArray(existing)? existing.length : 0 });
     if (!existing || existing.length === 0) {
       const minimalPrompt = `Return ONLY JSON: {"personas":[{...},{...},{...}]} for search_id=${agentSearch.id}. Each item keys: title, rank (1..3), match_score (80..100), demographics:{industry,companySize,geography,revenue}, market_potential:{totalCompanies,avgDealSize,conversionRate}.`;
       try {
         const text = await callOpenAIChatJSON({
-          model: resolveModel('light'),
+          model: resolveModel('ultraLight'),
           system: 'You are a JSON generator. Output must be valid JSON object with key "personas".',
           user: minimalPrompt,
           temperature: 0.1,
@@ -88,6 +90,9 @@ export async function execBusinessPersonas(payload: {
             } catch (error: any) {
               logger.warn('Failed to import persona mapping', { search_id: agentSearch.id, error: error?.message || error });
             }
+          }
+          else {
+            logger.warn('Minimal LLM personas call returned empty array', { search_id: agentSearch.id, raw: text?.slice?.(0,300) });
           }
         } catch (e: any) {
           logger.warn('Minimal LLM personas parse failed', { search_id: agentSearch.id, error: e?.message || e });

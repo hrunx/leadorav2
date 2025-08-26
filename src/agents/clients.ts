@@ -30,8 +30,14 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 setDefaultOpenAIClient(openai as unknown as any);
 
 // --- Global OpenAI rate limiter (applies to both direct calls and Agents SDK) ---
-const OPENAI_MAX_CONCURRENT = Math.max(1, Number(process.env.OPENAI_MAX_CONCURRENT || 2));
-const OPENAI_MIN_DELAY_MS = Math.max(0, Number(process.env.OPENAI_MIN_DELAY_MS || 300));
+function coerceNumberEnv(value: any, fallback: number): number {
+  const direct = Number(value);
+  if (Number.isFinite(direct)) return direct;
+  const match = String(value || '').match(/\d+/);
+  return match ? Number(match[0]) : fallback;
+}
+const OPENAI_MAX_CONCURRENT = Math.max(1, coerceNumberEnv(process.env.OPENAI_MAX_CONCURRENT, 2));
+const OPENAI_MIN_DELAY_MS = Math.max(0, coerceNumberEnv(process.env.OPENAI_MIN_DELAY_MS, 300));
 let openAiRunning = 0;
 const openAiQueue: Array<() => void> = [];
 let lastOpenAiCallAt = 0;
@@ -148,37 +154,39 @@ export async function callOpenAIChatJSON(params: {
   timeoutMs?: number;
   retries?: number;
 }): Promise<string> {
-  const payload: any = {
-    model: params.model,
-    messages: [
-      params.system ? { role: 'system', content: params.system } : undefined,
-      { role: 'user', content: params.user }
-    ].filter(Boolean),
-  };
   const isGpt5 = /^gpt-5/i.test(params.model);
-  if (!isGpt5 && typeof params.temperature === 'number') {
-    payload.temperature = params.temperature;
-  }
-  if (typeof params.maxTokens === 'number') {
-    if (isGpt5) {
-      payload.max_completion_tokens = params.maxTokens;
-    } else {
-      payload.max_tokens = params.maxTokens;
-    }
-  }
-  // GPT‑5 structured output and verbosity controls
-  if (isGpt5 && params.requireJsonObject) {
-    payload.response_format = { type: 'json_object' };
-  }
-  if (isGpt5 && params.verbosity) {
-    payload.verbosity = params.verbosity;
-  }
   const doCall = async () => {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), params.timeoutMs || 0);
     try {
-      const res = await withOpenAiLimiter(() => openai.chat.completions.create(payload as any, { signal: controller.signal as any }));
-      return (res.choices?.[0]?.message?.content || '').trim();
+      if (isGpt5) {
+        // Use Responses API for GPT‑5
+        const input = params.system ? `System:\n${params.system}\n\nUser:\n${params.user}` : params.user;
+        const res: any = await withOpenAiLimiter(() => openai.responses.create({
+          model: params.model,
+          input,
+          ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
+          ...(typeof params.maxTokens === 'number' ? { max_output_tokens: params.maxTokens } : {}),
+          ...(params.requireJsonObject ? { response_format: { type: 'json_object' } } : {})
+        } as any, { signal: controller.signal as any }));
+        const text = (res as any)?.output_text
+          || ((res as any)?.output?.[0]?.content?.map?.((c: any) => c?.text || c?.content || '').join('') || '')
+          || '';
+        return String(text || '').trim();
+      } else {
+        // Use Chat Completions API for non‑GPT‑5
+        const payload: any = {
+          model: params.model,
+          messages: [
+            params.system ? { role: 'system', content: params.system } : undefined,
+            { role: 'user', content: params.user }
+          ].filter(Boolean),
+          ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
+          ...(typeof params.maxTokens === 'number' ? { max_tokens: params.maxTokens } : {})
+        };
+        const res = await withOpenAiLimiter(() => openai.chat.completions.create(payload as any, { signal: controller.signal as any }));
+        return (res.choices?.[0]?.message?.content || '').trim();
+      }
     } finally {
       clearTimeout(t);
     }

@@ -162,7 +162,7 @@ CRITICAL: Call storeBusinessPersonas tool ONCE with complete data. Do not retry.
   handoffDescription: 'Generates 3 hyper-personalized business personas tailored to exact search criteria',
   handoffs: [],
   // Use primary GPT-5 for higher quality, faster convergence
-  model: 'gpt-4o-mini'
+  model: resolveModel('light')
 });
 
   // --- Helper: Validate persona realism ---
