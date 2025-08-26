@@ -113,6 +113,7 @@ REFERENCES (augment with additional reputable sources as needed):\n${sourcesForP
           { role: 'system', content: systemPrompt },
           { role: 'user', content: basePrompt }
         ],
+        // For Chat Completions, response_format is valid and keeps strict JSON
         response_format: { type: 'json_object' }
       });
       analysis = res.choices?.[0]?.message?.content || '';

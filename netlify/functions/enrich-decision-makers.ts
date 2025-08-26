@@ -66,11 +66,12 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
     let responseText = '';
     try {
       const res = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-mini',
         messages: [
           { role: 'system', content: 'You output ONLY valid JSON object.' },
           { role: 'user', content: prompt }
         ],
+        // Keep response_format for Chat Completions; safe for non-GPT-5 models
         response_format: { type: 'json_object' },
         temperature: 0.3,
         max_tokens: 800

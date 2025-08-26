@@ -118,20 +118,18 @@ export const modelRouter = {
     return (
       process.env.OPENAI_PRIMARY_MODEL ||
       process.env.OPENAI_DEFAULT_MODEL ||
-      'gpt-4o-mini'  // Changed to gpt-4o-mini as primary for speed and cost
+      'gpt-5'
     );
   },
   light(): string {
     return (
       process.env.OPENAI_LIGHT_MODEL ||
-      'gpt-4o-mini'  // Fast model for persona generation
+      'gpt-5-mini'
     );
   },
   ultraLight(): string {
     const envModel = process.env.OPENAI_ULTRA_LIGHT_MODEL;
-    // Force non‑GPT‑5 model for minimal JSON fallback to avoid Responses quirks
-    if (envModel && /^gpt-5/i.test(envModel)) return 'gpt-4o-mini';
-    return envModel || 'gpt-4o-mini';
+    return envModel || 'gpt-5-nano';
   }
 };
 
@@ -162,13 +160,18 @@ export async function callOpenAIChatJSON(params: {
       if (isGpt5) {
         // Use Responses API for GPT‑5
         const input = params.system ? `System:\n${params.system}\n\nUser:\n${params.user}` : params.user;
-        const res: any = await withOpenAiLimiter(() => openai.responses.create({
+        const req: any = {
           model: params.model,
           input,
           ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
-          ...(typeof params.maxTokens === 'number' ? { max_output_tokens: params.maxTokens } : {}),
-          ...(params.requireJsonObject ? { response_format: { type: 'json_object' } } : {})
-        } as any, { signal: controller.signal as any }));
+          ...(typeof params.maxTokens === 'number' ? { max_output_tokens: params.maxTokens } : {})
+        };
+        if (params.requireJsonObject) {
+          // New Responses API JSON control moved under text.format
+          req.modalities = ['text'];
+          req.text = { format: 'json' };
+        }
+        const res: any = await withOpenAiLimiter(() => openai.responses.create(req as any, { signal: controller.signal as any }));
         const text = (res as any)?.output_text
           || ((res as any)?.output?.[0]?.content?.map?.((c: any) => c?.text || c?.content || '').join('') || '')
           || '';

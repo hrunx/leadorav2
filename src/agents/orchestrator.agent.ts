@@ -12,8 +12,41 @@ const startBusinessDiscovery = tool({
   } as const,
   strict: true,
   execute: async (input: any) => {
-    const { execBusinessDiscovery } = await import('../orchestration/exec-business-discovery');
-    await execBusinessDiscovery({ search_id: String(input.search_id), user_id: String(input.user_id) });
+    const isLocalDev = String(process.env.NETLIFY_DEV) === 'true' || process.env.NODE_ENV === 'development' || String(process.env.LOCAL_FAST_BP) === '1';
+    if (isLocalDev) {
+      const [{ loadSearch }, { insertBusinesses, updateSearchProgress }] = await Promise.all([
+        import('../tools/db.read'),
+        import('../tools/db.write')
+      ]);
+      const s: any = await loadSearch(String(input.search_id));
+      if (!s) return { ok:false, error:'search_not_found' } as any;
+      const industry = Array.isArray(s.industries) && s.industries.length ? String(s.industries[0]) : 'General';
+      const country = Array.isArray(s.countries) && s.countries.length ? String(s.countries[0]) : 'United States';
+      const bases = [
+        { name: `${industry} Solutions LLC`, city: 'Main City' },
+        { name: `${industry} Tech Corp`, city: 'Capital City' },
+        { name: `${industry} Partners Inc`, city: 'Regional Hub' }
+      ];
+      const rows = bases.map((b, i) => ({
+        search_id: s.id,
+        user_id: s.user_id,
+        name: b.name,
+        industry,
+        country,
+        address: `${b.city}, ${country}`,
+        city: b.city,
+        size: i === 0 ? 'Small (10-50)' : i === 1 ? 'Mid (50-500)' : 'Enterprise (500+)',
+        revenue: i === 0 ? '$1M-$10M' : i === 1 ? '$10M-$100M' : '$100M+',
+        description: `Seed business inserted during fast dev path for ${industry}`,
+        match_score: 80 + (2 - i) * 3,
+        persona_type: (s.search_type === 'supplier' ? 'supplier' : 'customer')
+      }));
+      await insertBusinesses(rows as any);
+      try { await updateSearchProgress(String(s.id), 25, 'business_discovery'); } catch {}
+    } else {
+      const { execBusinessDiscovery } = await import('../orchestration/exec-business-discovery');
+      await execBusinessDiscovery({ search_id: String(input.search_id), user_id: String(input.user_id) });
+    }
     return { ok: true } as const;
   }
 });
@@ -96,8 +129,35 @@ const startDMPersonas = tool({
   } as const,
   strict: true,
   execute: async (input: any) => {
-    const { execDMPersonas } = await import('../orchestration/exec-dm-personas');
-    await execDMPersonas({ search_id: String(input.search_id), user_id: String(input.user_id) });
+    const isLocalDev = String(process.env.NETLIFY_DEV) === 'true' || process.env.NODE_ENV === 'development' || String(process.env.LOCAL_FAST_BP) === '1';
+    if (isLocalDev) {
+      const [{ loadSearch }, { insertDMPersonas, updateSearchProgress }] = await Promise.all([
+        import('../tools/db.read'),
+        import('../tools/db.write')
+      ]);
+      const s: any = await loadSearch(String(input.search_id));
+      if (!s) return { ok:false, error:'search_not_found' } as any;
+      const rows = [
+        { title: 'IT Manager', rank: 1 },
+        { title: 'Operations Director', rank: 2 },
+        { title: 'Head of Sales', rank: 3 }
+      ].map((b, i) => ({
+        search_id: s.id,
+        user_id: s.user_id,
+        title: b.title,
+        rank: b.rank,
+        match_score: 85 + (2 - i) * 3,
+        demographics: { department: b.title.includes('IT') ? 'IT' : b.title.includes('Sales') ? 'Sales' : 'Operations' },
+        characteristics: { motivations: ['Efficiency','ROI'] },
+        behaviors: { decisionTimeline: i === 0 ? '2-4 months' : i === 1 ? '1-3 months' : '3-6 months' },
+        market_potential: { influence_level: 7 + (2 - i) }
+      }));
+      await insertDMPersonas(rows as any);
+      try { await updateSearchProgress(String(s.id), 20, 'dm_personas'); } catch {}
+    } else {
+      const { execDMPersonas } = await import('../orchestration/exec-dm-personas');
+      await execDMPersonas({ search_id: String(input.search_id), user_id: String(input.user_id) });
+    }
     return { ok: true } as const;
   }
 });
@@ -113,8 +173,33 @@ const startMarketResearch = tool({
   } as const,
   strict: true,
   execute: async (input: any) => {
-    const { execMarketResearchParallel } = await import('../orchestration/exec-market-research-parallel');
-    await execMarketResearchParallel({ search_id: String(input.search_id), user_id: String(input.user_id) });
+    const isLocalDev = String(process.env.NETLIFY_DEV) === 'true' || process.env.NODE_ENV === 'development' || String(process.env.LOCAL_FAST_BP) === '1';
+    if (isLocalDev) {
+      const [{ loadSearch }, { insertMarketInsights, updateSearchProgress }] = await Promise.all([
+        import('../tools/db.read'),
+        import('../tools/db.write')
+      ]);
+      const s: any = await loadSearch(String(input.search_id));
+      if (!s) return { ok:false, error:'search_not_found' } as any;
+      const row = {
+        search_id: String(s.id),
+        user_id: String(s.user_id),
+        tam_data: { value: '$2.4B', growth: '+12%', description: 'Total market', calculation: 'Aggregated reports', source: 'https://example.com/tam' },
+        sam_data: { value: '$450M', growth: '+10%', description: 'Serviceable market', calculation: 'Segment share', source: 'https://example.com/sam' },
+        som_data: { value: '$60M', growth: '+8%', description: 'Obtainable market', calculation: 'Realistic penetration', source: 'https://example.com/som' },
+        competitor_data: [ { name: 'Leader Corp', marketShare: 20, revenue: '$800M', growth: '+5%', source: 'https://example.com/comp' } ],
+        trends: [ { trend: 'Digital adoption', impact: 'High', growth: '+15%', description: 'Strong digitization trend', source: 'https://example.com/trend' } ],
+        opportunities: { summary: 'Strong SMB adoption potential', playbook: ['Target SMB', 'Bundle integrations'], market_gaps: ['Underserved regions'], timing: 'Favorable' },
+        sources: [ { title: 'Seed Source', url: 'https://example.com' } ],
+        analysis_summary: 'Seed market insights for fast dev path',
+        research_methodology: 'Seeded for local testing'
+      } as any;
+      await insertMarketInsights(row);
+      try { await updateSearchProgress(String(s.id), 80, 'market_research'); } catch {}
+    } else {
+      const { execMarketResearchParallel } = await import('../orchestration/exec-market-research-parallel');
+      await execMarketResearchParallel({ search_id: String(input.search_id), user_id: String(input.user_id) });
+    }
     return { ok: true } as const;
   }
 });
@@ -122,7 +207,7 @@ const startMarketResearch = tool({
 export const OrchestratorAgent = new Agent({
   name: 'MainOrchestratorAgent',
   tools: [startBusinessPersonas, startDMPersonas, startBusinessDiscovery, startMarketResearch],
-  model: 'gpt-4o-mini',
+  model: 'gpt-5-mini',
   handoffDescription: 'Coordinates sub-agents to complete a search run',
   handoffs: [],
   instructions: `You orchestrate the entire search pipeline. Steps:

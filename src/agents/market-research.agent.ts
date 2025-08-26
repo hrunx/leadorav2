@@ -360,6 +360,7 @@ const storeMarketInsightsTool = tool({
           confidence: { type: 'number' },
           verified: { type: 'boolean' }
         },
+        required: ['value','growth','description','calculation','source'],
         additionalProperties: false
       },
       sam_data: {
@@ -373,6 +374,7 @@ const storeMarketInsightsTool = tool({
           confidence: { type: 'number' },
           verified: { type: 'boolean' }
         },
+        required: ['value','growth','description','calculation','source'],
         additionalProperties: false
       },
       som_data: {
@@ -386,6 +388,7 @@ const storeMarketInsightsTool = tool({
           confidence: { type: 'number' },
           verified: { type: 'boolean' }
         },
+        required: ['value','growth','description','calculation','source'],
         additionalProperties: false
       },
       competitor_data: {
@@ -400,6 +403,7 @@ const storeMarketInsightsTool = tool({
             notes: { type: 'string' },
             source: { type: 'string' }
           },
+          required: ['name','source'],
           additionalProperties: false
         }
       },
@@ -414,6 +418,7 @@ const storeMarketInsightsTool = tool({
             description: { type: 'string' },
             source: { type: 'string' }
           },
+          required: ['trend','impact','source'],
           additionalProperties: false
         }
       },
@@ -425,6 +430,7 @@ const storeMarketInsightsTool = tool({
           market_gaps: { type: 'array', items: { type: 'string' } },
           timing: { type: 'string' }
         },
+        required: ['summary'],
         additionalProperties: false
       },
       sources: {
