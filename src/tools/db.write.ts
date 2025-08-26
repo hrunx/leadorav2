@@ -162,7 +162,11 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
   }));
   
   const supa = getSupabaseClient();
-  const { data, error } = await supa.from('decision_makers').insert(basicRows).select('id,name,company,title,linkedin');
+  // Use upsert to avoid unique constraint errors on (search_id, linkedin)
+  const { data, error } = await supa
+    .from('decision_makers')
+    .upsert(basicRows, { onConflict: 'search_id,linkedin', ignoreDuplicates: true })
+    .select('id,name,company,title,linkedin');
   if (error) throw error; 
   const search_id = basicRows?.[0]?.search_id as string | undefined;
   if (search_id) {

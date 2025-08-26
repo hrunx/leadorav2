@@ -349,13 +349,97 @@ const storeMarketInsightsTool = tool({
     properties: {
       search_id: { type: 'string' },
       user_id: { type: 'string' },
-      tam_data: { type: 'object', additionalProperties: true },
-      sam_data: { type: 'object', additionalProperties: true },
-      som_data: { type: 'object', additionalProperties: true },
-      competitor_data: { type: 'array', items: { type: 'object', additionalProperties: true } },
-      trends: { type: 'array', items: { type: 'object', additionalProperties: true } },
-      opportunities: { type: 'object', additionalProperties: true },
-      sources: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      tam_data: {
+        type: 'object',
+        properties: {
+          value: { type: 'string' },
+          growth: { type: 'string' },
+          description: { type: 'string' },
+          calculation: { type: 'string' },
+          source: { type: 'string' },
+          confidence: { type: 'number' },
+          verified: { type: 'boolean' }
+        },
+        additionalProperties: false
+      },
+      sam_data: {
+        type: 'object',
+        properties: {
+          value: { type: 'string' },
+          growth: { type: 'string' },
+          description: { type: 'string' },
+          calculation: { type: 'string' },
+          source: { type: 'string' },
+          confidence: { type: 'number' },
+          verified: { type: 'boolean' }
+        },
+        additionalProperties: false
+      },
+      som_data: {
+        type: 'object',
+        properties: {
+          value: { type: 'string' },
+          growth: { type: 'string' },
+          description: { type: 'string' },
+          calculation: { type: 'string' },
+          source: { type: 'string' },
+          confidence: { type: 'number' },
+          verified: { type: 'boolean' }
+        },
+        additionalProperties: false
+      },
+      competitor_data: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            marketShare: { type: 'number' },
+            revenue: { type: 'string' },
+            growth: { type: 'string' },
+            notes: { type: 'string' },
+            source: { type: 'string' }
+          },
+          additionalProperties: false
+        }
+      },
+      trends: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            trend: { type: 'string' },
+            impact: { type: 'string' },
+            growth: { type: 'string' },
+            description: { type: 'string' },
+            source: { type: 'string' }
+          },
+          additionalProperties: false
+        }
+      },
+      opportunities: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string' },
+          playbook: { type: 'array', items: { type: 'string' } },
+          market_gaps: { type: 'array', items: { type: 'string' } },
+          timing: { type: 'string' }
+        },
+        additionalProperties: false
+      },
+      sources: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            url: { type: 'string' },
+            date: { type: 'string' },
+            used_for: { type: 'array', items: { type: 'string' } }
+          },
+          additionalProperties: false
+        }
+      },
       analysis_summary: { type: 'string' },
       research_methodology: { type: 'string' }
     },

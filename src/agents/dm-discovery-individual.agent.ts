@@ -24,6 +24,23 @@ interface Employee {
   enrichment_status?: string;
 }
 
+// helper to filter out existing LinkedIns for the search
+async function filterExistingByLinkedin(search_id: string, employees: Employee[]): Promise<Employee[]> {
+  try {
+    const links = employees.map(e => e.linkedin).filter(Boolean);
+    if (links.length === 0) return employees;
+    const { data } = await sharedSupa
+      .from('decision_makers')
+      .select('linkedin')
+      .eq('search_id', search_id)
+      .in('linkedin', links);
+    const existing = new Set<string>((data || []).map((d: any) => d.linkedin));
+    return employees.filter(e => !existing.has(e.linkedin));
+  } catch {
+    return employees;
+  }
+}
+
 type SerperItem = { link?: string; title?: string; snippet?: string };
 
 const linkedinSearchTool = tool({
@@ -83,7 +100,7 @@ const linkedinSearchTool = tool({
         `"${company_name}" site:linkedin.com/in/ VP`
       ].filter(q => q.trim().length > 0);
 
-      const allEmployees: Employee[] = [];
+      let allEmployees: Employee[] = [];
 
       // Cleanup old cached queries (non-blocking)
       const cacheExpiryIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -203,6 +220,8 @@ const linkedinSearchTool = tool({
       }
       
       const endTime = Date.now();
+      // Filter out DMs that already exist in this search by linkedin URL
+      allEmployees = await filterExistingByLinkedin(search_id, allEmployees);
       
       // Log API usage
       try {
