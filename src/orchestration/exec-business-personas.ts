@@ -4,6 +4,7 @@ import { loadSearch, loadBusinessPersonas } from '../tools/db.read';
 import { insertBusinessPersonas, updateSearchProgress, appendAgentEvent } from '../tools/db.write';
 import { callOpenAIChatJSON, resolveModel } from '../agents/clients';
 import logger from '../lib/logger';
+import { generateBusinessPersonasFast } from '../agents/fast-persona-generator';
 
 export async function execBusinessPersonas(payload: {
   search_id: string;
@@ -21,6 +22,22 @@ export async function execBusinessPersonas(payload: {
     countries: Array.isArray((search as any)?.countries) ? ((search as any).countries as string[]) : [],
     search_type: ((search as any)?.search_type === 'supplier' ? 'supplier' : 'customer') as 'customer' | 'supplier',
   };
+
+  // Development short-circuit: avoid Netlify CLI 30s timeout by inserting fast personas
+  const isLocalDev =
+    String(process.env.NETLIFY_DEV) === 'true' ||
+    process.env.NODE_ENV === 'development' ||
+    String(process.env.LOCAL_FAST_BP) === '1';
+  if (isLocalDev) {
+    try {
+      const inserted = await generateBusinessPersonasFast(agentSearch);
+      try { await appendAgentEvent(agentSearch.id, 'bp_fast_dev_inserted', { count: Array.isArray(inserted) ? inserted.length : 0 }); } catch {}
+      logger.info('Fast dev path used for Business Personas', { search_id: agentSearch.id });
+      return true;
+    } catch (e:any) {
+      logger.warn('Fast dev path failed, continuing with agent path', { search_id: agentSearch.id, error: e?.message || e });
+    }
+  }
   // Run Agent (tool-driven) with a short watchdog timeout for fast first personas
   const RUN_TIMEOUT_MS = Math.max(20000, Number(process.env.BP_AGENT_TIMEOUT_MS || 20000));
   try {
