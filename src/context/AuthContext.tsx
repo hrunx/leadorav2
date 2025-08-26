@@ -104,19 +104,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           subscriptionStatus: session.user.user_metadata?.subscriptionStatus || 'demo'
         };
         dispatch({ type: 'LOGIN_SUCCESS', payload: user });
-        // Persist app session copy for refresh resilience
+        // Persist app session copy for refresh resilience (informational only)
         try { localStorage.setItem('leadora_app_user', JSON.stringify(user)); } catch {}
       } else {
-        // No Supabase session — attempt to restore OTP app session from localStorage
-        try {
-          const raw = localStorage.getItem('leadora_app_user');
-          if (raw) {
-            const cached = JSON.parse(raw) as User;
-            if (cached && cached.id && cached.email) {
-              dispatch({ type: 'LOGIN_SUCCESS', payload: cached });
-            }
-          }
-        } catch {}
+        // No Supabase session — do not trust local cache for auth. Require sign-in.
       }
       dispatch({ type: 'SET_LOADING', payload: false });
     };

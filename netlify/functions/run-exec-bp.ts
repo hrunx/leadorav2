@@ -13,6 +13,10 @@ export const handler: Handler = async (event) => {
   try {
     const { search_id, user_id } = JSON.parse(event.body || '{}');
     if (!search_id || !user_id) return { statusCode: 400, headers, body: JSON.stringify({ ok: false, error: 'search_id and user_id required' }) };
+    // Enforce auth for persona execution
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(user_id))) {
+      return { statusCode: 401, headers, body: JSON.stringify({ ok:false, error:'auth_required' }) };
+    }
     const { execBusinessPersonas } = await import('../../src/orchestration/exec-business-personas');
     await execBusinessPersonas({ search_id: String(search_id), user_id: String(user_id) });
     // Post-check count to surface result

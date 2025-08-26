@@ -100,6 +100,12 @@ export default function SearchSelection() {
   };
 
   const handleSearch = async () => {
+    // Require authentication for searches
+    if (!authState.isAuthenticated || !authState.user?.id || authState.user.id === 'demo-user') {
+      alert('Please sign in to start a real search.');
+      window.dispatchEvent(new CustomEvent('navigate', { detail: 'profile' }));
+      return;
+    }
     // Validation checks
     if (!searchType || !productService.trim()) return;
     

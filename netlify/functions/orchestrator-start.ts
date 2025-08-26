@@ -15,6 +15,10 @@ export const handler: Handler = async (event) => {
     if (!search_id || !user_id) {
       return { statusCode: 400, headers: cors, body: JSON.stringify({ ok:false, error:'search_id and user_id required' }) };
     }
+    // Enforce auth: require a valid Supabase user to continue (avoid anonymous runs)
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(user_id))) {
+      return { statusCode: 401, headers: cors, body: JSON.stringify({ ok:false, error:'auth_required' }) };
+    }
 
     // Call the background runner
     // Use local fallback when URL/DEPLOY_URL is not set (functions:serve/dev)
