@@ -71,10 +71,10 @@ const storeBusinessPersonasTool = tool({
             characteristics: { type: 'object', additionalProperties: true },
             behaviors: { type: 'object', additionalProperties: true },
             market_potential: { type: 'object', additionalProperties: true },
-            locations: { type: 'array', items: { type: 'object', additionalProperties: true } }
+            locations: { type: 'array', items: { type: 'string' } }
           },
           required: ['title','rank','match_score'],
-          additionalProperties: true
+          additionalProperties: false
         }
       }
     },

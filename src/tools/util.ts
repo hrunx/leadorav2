@@ -9,17 +9,18 @@ const GL_BY_ISO2: Record<string, string> = {
 };
 
 export const countryToGL = (country: string): string => {
-  const c = (country || '').toLowerCase().trim();
+  const safe = typeof country === 'string' ? country : '';
+  const c = safe.toLowerCase().trim();
   
   // Handle special case for SA abbreviation - DEFAULT TO SAUDI ARABIA
-  if (country.toUpperCase() === 'SA') {
+  if (safe.toUpperCase() === 'SA') {
     // SA defaults to Saudi Arabia (original ISO code)
     // Removed console to achieve zero-console policy
     return 'sa';
   }
   
   // Direct ISO2 lookup first
-  const iso2 = country.toUpperCase();
+  const iso2 = safe.toUpperCase();
   if (GL_BY_ISO2[iso2]) return GL_BY_ISO2[iso2];
   
   // Fuzzy matching for common variations (order matters - Saudi Arabia ALWAYS first!)

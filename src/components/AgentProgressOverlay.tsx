@@ -60,68 +60,56 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_id: searchId })
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setProgress(data.progress);
-        setDataCounts(data.data_counts);
-        // Flag once when we see initial data so UI can show "Live results" hint
-        if (!firstDataSeen && (
-          data.data_counts.business_personas > 0 ||
-          data.data_counts.dm_personas > 0 ||
-          data.data_counts.businesses > 0 ||
-          data.data_counts.decision_makers > 0 ||
-          data.data_counts.market_insights > 0
-        )) {
-          setFirstDataSeen(true);
+      if (!response.ok) return;
+      const data = await response.json();
+      setProgress(data.progress);
+      setDataCounts(data.data_counts);
+      if (!firstDataSeen && (
+        data.data_counts.business_personas > 0 ||
+        data.data_counts.dm_personas > 0 ||
+        data.data_counts.businesses > 0 ||
+        data.data_counts.decision_makers > 0 ||
+        data.data_counts.market_insights > 0
+      )) {
+        setFirstDataSeen(true);
+      }
+      const rawPhase = data.progress.phase || 'starting';
+      const normalizedPhase = ((): string => {
+        switch (rawPhase) {
+          case 'personas': return 'business_personas';
+          case 'businesses': return 'business_discovery';
+          case 'market_insights': return 'market_research';
+          case 'parallel_processing': return 'business_discovery';
+          case 'business_personas_completed': return 'business_personas';
+          case 'dm_personas_completed': return 'dm_personas';
+          default: return rawPhase;
         }
-        // Normalize any legacy/alias phases coming from backend to UI phases
-        const rawPhase = data.progress.phase || 'starting';
-        const normalizedPhase = ((): string => {
-          switch (rawPhase) {
-            case 'personas': return 'business_personas';
-            case 'businesses': return 'business_discovery';
-            case 'market_insights': return 'market_research';
-            case 'parallel_processing': return 'business_discovery';
-            case 'business_personas_completed': return 'business_personas';
-            case 'dm_personas_completed': return 'dm_personas';
-            default: return rawPhase;
-          }
-        })();
-        // Derive a safe UI phase from data counts and progress percentage
-        const pct = Number(data?.progress?.progress_pct || 0);
-        const derivedPhase = (() => {
-          if (data.data_counts.market_insights > 0) return 'market_research';
-          if (data.data_counts.decision_makers > 0) return 'decision_makers';
-          if (data.data_counts.businesses > 0) return 'business_discovery';
-          if (data.data_counts.dm_personas >= 3) return 'dm_personas';
-          if (data.data_counts.business_personas >= 3) return 'business_personas';
-          if (normalizedPhase === 'completed' || pct >= 100) return 'completed';
-          if (pct >= 85) return 'market_research';
-          if (pct >= 40) return 'business_discovery';
-          if (pct >= 10) return 'business_personas';
-          return normalizedPhase;
-        })();
-        setCurrentPhase(derivedPhase);
-        // Early navigation when business personas are ready (even 1 is enough to show the page)
-        if (!hasNavigatedEarly &&
-            data.data_counts.business_personas >= 1 &&
-            onEarlyNavigation) {
-          setHasNavigatedEarly(true);
-          setTimeout(() => {
-            onEarlyNavigation();
-          }, 1000);
+      })();
+      const pct = Number(data?.progress?.progress_pct || 0);
+      const derivedPhase = (() => {
+        if (data.data_counts.market_insights > 0) return 'market_research';
+        if (data.data_counts.decision_makers > 0) return 'decision_makers';
+        if (data.data_counts.businesses > 0) return 'business_discovery';
+        if (data.data_counts.dm_personas >= 3) return 'dm_personas';
+        if (data.data_counts.business_personas >= 1) return 'business_personas';
+        if (normalizedPhase === 'completed' || pct >= 100) return 'completed';
+        if (pct >= 85) return 'market_research';
+        if (pct >= 40) return 'business_discovery';
+        if (pct >= 10) return 'business_personas';
+        return normalizedPhase;
+      })();
+      setCurrentPhase(derivedPhase);
+      // Early navigation ASAP once first persona exists
+      if (!hasNavigatedEarly && data.data_counts.business_personas >= 1 && onEarlyNavigation) {
+        setHasNavigatedEarly(true);
+        onEarlyNavigation();
+      }
+      if (data.progress.phase === 'completed') {
+        if (data.data_counts.business_personas >= 1) {
+          setTimeout(() => { onComplete(); }, 1000);
         }
-        
-        // Only complete automatically when finished AND business personas exist,
-        // so users are not navigated into an empty screen
-        if (data.progress.phase === 'completed') {
-          if (data.data_counts.business_personas >= 1) {
-            setTimeout(() => { onComplete(); }, 2000);
-          }
-        } else if (data.progress.phase === 'failed') {
-          setTimeout(() => { onComplete(); }, 2000);
-        }
+      } else if (data.progress.phase === 'failed') {
+        setTimeout(() => { onComplete(); }, 1000);
       }
     } catch (error: any) {
       logger.warn('Error polling progress', { error: error?.message || String(error) });
@@ -131,7 +119,7 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
   useEffect(() => {
     if (isVisible && searchId) {
       pollProgress();
-      const interval = setInterval(pollProgress, 3000);
+      const interval = setInterval(pollProgress, 2000);
       return () => clearInterval(interval);
     }
   }, [isVisible, searchId, pollProgress]);

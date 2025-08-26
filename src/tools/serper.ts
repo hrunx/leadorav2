@@ -253,7 +253,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
 
 export async function serperSearch(q: string, country: string, limit = 5): Promise<{ success: boolean; items: { title: string; link: string; snippet: string }[]; error?: string; status?: number }> {
   return retryWithBackoff(async () => withLimiter(async () => {
-    const gl = glFromCountry(country);
+    const gl = glFromCountry(country || 'US');
     logger.debug('Serper Search query', { q, country, gl });
     const cacheKey = `serper:search:${gl}:${limit}:${q}`;
     const cached = await getCache(cacheKey);
