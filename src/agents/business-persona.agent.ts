@@ -44,7 +44,7 @@ const personaSchema: any = {
     locations: { type: 'array', items: {} }
   },
   required: ['title', 'rank', 'match_score'],
-  additionalProperties: true
+  additionalProperties: false
 };
 
 const validatePersona = ajv.compile(personaSchema);
@@ -59,8 +59,8 @@ const storeBusinessPersonasTool = tool({
       user_id: { type: 'string' },
       personas: {
         type: 'array',
-        minItems: 1,
-        maxItems: 5,
+        minItems: 3,
+        maxItems: 3,
         items: {
           type: 'object',
           properties: {
@@ -161,8 +161,7 @@ CRITICAL: Call storeBusinessPersonas tool ONCE with complete data. Do not retry.
   tools: [storeBusinessPersonasTool],
   handoffDescription: 'Generates 3 hyper-personalized business personas tailored to exact search criteria',
   handoffs: [],
-  // Use primary GPT-5 for higher quality, faster convergence
-  model: resolveModel('light')
+  model: resolveModel('primary')
 });
 
   // --- Helper: Validate persona realism ---
@@ -261,7 +260,7 @@ export async function runBusinessPersonas(search: {
       }
     }
 
-    // LLM-first approach
+    // LLM-first approach modeled after DMPersona flow with strict validation and repairs
 
     const improvedPrompt = `Generate 3 business personas (COMPANY ARCHETYPES) for:
 - search_id=${search.id}
@@ -292,13 +291,46 @@ CRITICAL: Each persona must have:
     };
 
     const acceptPersonas = (arr: any[]): Persona[] => {
-      const take = (arr || []).slice(0, 3);
-      if (take.length === 0) return [];
-      const sanitized = take.map((p, i) => sanitizePersona('business', p, i, search));
+      const three = (arr || []).slice(0,3);
+      if (three.length !== 3) return [];
+      const sanitized = three.map((p, i) => sanitizePersona('business', p, i, search));
       const validated = sanitized
         .map(p => validateMarketPotential(p, search.id))
         .filter((p): p is Persona => p !== null);
-      return validated;
+      return validated.length === 3 ? validated : [];
+    };
+
+    const repairPersonas = async (arr: Persona[]): Promise<Persona[]> => {
+      const prompt = `Repair these 3 business personas so they satisfy schema and constraints.
+Keep titles and essence, but fill any missing fields and ensure arrays have at least 3 concrete items.
+Context: product_service=${search.product_service}; industries=${search.industries.join(', ')}; countries=${search.countries.join(', ')}.
+Return ONLY JSON: {"personas": [ ...3 items... ]}
+Personas: ${JSON.stringify(arr)}`;
+      try {
+        const text = await callOpenAIChatJSON({
+          model: resolveModel('primary'),
+          system: 'Output ONLY JSON {"personas": [...]} with exactly 3 items.',
+          user: prompt,
+          temperature: 0.2,
+          maxTokens: 1000,
+          requireJsonObject: true,
+          timeoutMs: 12000,
+          retries: 1,
+        });
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) return accepted;
+      } catch {}
+      try {
+        const text = await callGeminiText('gemini-2.0-flash', prompt, 12000, 1);
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) return accepted;
+      } catch {}
+      try {
+        const text = await callDeepseekChatJSON({ user: prompt, temperature: 0.3, maxTokens: 1200, timeoutMs: 12000, retries: 0 });
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length === 3) return accepted;
+      } catch {}
+      return arr;
     };
 
     const hasGenericTitles = (arr: Persona[]): boolean => {
@@ -320,18 +352,20 @@ CRITICAL: Each persona must have:
           model: resolveModel('primary'),
           system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete persona objects.',
           user: improvedPrompt,
-          temperature: 0.2,
-          maxTokens: 1000,
+          temperature: 0.25,
+          maxTokens: 1200,
           requireJsonObject: true,
           timeoutMs: 20000,
           retries: 1
         });
-        const arr = tryParsePersonas(text);
-        const accepted = acceptPersonas((arr || []).slice(0, 3));
-        if (accepted.length === 3) {
+        const accepted = acceptPersonas(tryParsePersonas(text));
+        if (accepted.length !== 3) {
+          const repaired = await repairPersonas(accepted);
+          if (repaired.length === 3) personas = repaired;
+        } else {
           personas = accepted;
-          import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with GPT-4o-mini', { search_id: search.id })).catch(()=>{});
         }
+        if (personas.length === 3) import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with GPT-4o-mini', { search_id: search.id })).catch(()=>{});
       } catch (error: any) {
         import('../lib/logger').then(({ default: logger }) => logger.warn('GPT-4o-mini failed for business personas, trying Gemini', { search_id: search.id, error: error?.message })).catch(()=>{});
       }
@@ -340,12 +374,14 @@ CRITICAL: Each persona must have:
         try {
           // 2) Gemini fallback
           const text = await callGeminiText('gemini-2.0-flash-exp', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 20000, 1);
-          const arr = tryParsePersonas(text);
-          const accepted = acceptPersonas((arr || []).slice(0, 3));
-          if (accepted.length === 3) {
+          const accepted = acceptPersonas(tryParsePersonas(text));
+          if (accepted.length !== 3) {
+            const repaired = await repairPersonas(accepted);
+            if (repaired.length === 3) personas = repaired;
+          } else {
             personas = accepted;
-            import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with Gemini', { search_id: search.id })).catch(()=>{});
           }
+          if (personas.length === 3) import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with Gemini', { search_id: search.id })).catch(()=>{});
         } catch (error: any) {
           import('../lib/logger').then(({ default: logger }) => logger.warn('Gemini failed for business personas, trying DeepSeek', { search_id: search.id, error: error?.message })).catch(()=>{});
         }
@@ -361,12 +397,14 @@ CRITICAL: Each persona must have:
             timeoutMs: 20000, 
             retries: 1 
           });
-          const arr = tryParsePersonas(text);
-          const accepted = acceptPersonas((arr || []).slice(0, 3));
-          if (accepted.length === 3) {
+          const accepted = acceptPersonas(tryParsePersonas(text));
+          if (accepted.length !== 3) {
+            const repaired = await repairPersonas(accepted);
+            if (repaired.length === 3) personas = repaired;
+          } else {
             personas = accepted;
-            import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with DeepSeek', { search_id: search.id })).catch(()=>{});
           }
+          if (personas.length === 3) import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with DeepSeek', { search_id: search.id })).catch(()=>{});
         } catch (error: any) {
           import('../lib/logger').then(({ default: logger }) => logger.error('All LLM fallbacks failed for business personas', { search_id: search.id, error: error?.message })).catch(()=>{});
         }
