@@ -44,6 +44,7 @@ export const handler: Handler = async (event) => {
   const isLocalHost = hostOnly === 'localhost' || hostOnly === '127.0.0.1';
   const isLanHost = !!hostOnly && lanRegex.test(hostOnly);
   const allowDev = isLocalOrigin || isLocalHost || isLanOrigin || isLanHost;
+  const isProd = Boolean(process.env.NETLIFY === 'true' || process.env.NODE_ENV === 'production' || process.env.URL);
   // Validate required env after we can return CORS headers
   if (!supabaseUrl) {
     return {
@@ -147,12 +148,15 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Query Supabase REST without service role; pass through anon and user token
+    // Query Supabase REST; pass anon or service role where appropriate
     const restUrl = `${supabaseUrl}/rest/v1/${path}?${params.toString()}`;
-    // In local/LAN development, when no user token is available, prefer using the
-    // service role key to bypass RLS for search-scoped queries as well. This
-    // ensures UI can read rows (e.g., market_insights) immediately after agents insert them.
-    const useServiceRole = (!token && allowDev && !!supabaseServiceKey);
+    // Allow service-role for search-scoped reads in production (and dev), when no user token is available
+    const searchScoped = Boolean(search_id) || Boolean(id);
+    const forceServiceEnv = String(process.env.PROXY_ALLOW_SERVICE_READ || '').trim() === '1';
+    const useServiceRole = (!token && !!supabaseServiceKey && (allowDev || (isProd && searchScoped) || forceServiceEnv));
+    if (useServiceRole) {
+      try { console.info('[user-data-proxy] using service-role for read', { table, search_id: search_id || null, id: id || null }); } catch {}
+    }
     const response = await fetch(restUrl, {
       headers: {
         apikey: String(useServiceRole ? supabaseServiceKey : supabaseAnonKey),
