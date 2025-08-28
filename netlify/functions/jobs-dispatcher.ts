@@ -16,6 +16,7 @@ export const handler: Handler = async (_event) => {
   const maxToClaim = 5;
   let processed = 0;
   try {
+    logger.info('jobs-dispatcher tick', { workerId });
     for (let i = 0; i < maxToClaim; i++) {
       // Claim one job at a time via RPC
       const { data: job, error } = await client.rpc('claim_job', { worker_id: workerId, wanted_types: null });
@@ -26,17 +27,19 @@ export const handler: Handler = async (_event) => {
       if (!job || (Array.isArray(job) && job.length === 0)) break;
       const row = Array.isArray(job) ? job[0] : job; // RPC returns setof jobs
       try {
+        logger.info('processing job', { id: row.id, type: row.type });
         await processJob(row);
         await client.rpc('complete_job', { job_id: row.id, worker_id: workerId });
+        logger.info('job completed', { id: row.id, type: row.type });
         processed++;
       } catch (e: any) {
-        logger.warn('Job failed; scheduling retry', { id: row.id, error: e?.message || String(e) });
+        logger.warn('job failed; scheduling retry', { id: row.id, type: row.type, error: e?.message || String(e) });
         await client.rpc('fail_job', { job_id: row.id, worker_id: workerId, error_text: String(e?.message || e), backoff_seconds: 30 });
       }
     }
+    logger.info('jobs-dispatcher finished', { workerId, processed });
     return { statusCode: 200, headers, body: JSON.stringify({ ok: true, processed }) };
   } catch (e: any) {
     return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: e.message, processed }) };
   }
 };
-

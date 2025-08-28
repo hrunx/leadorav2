@@ -361,9 +361,7 @@ const storeMarketInsightsTool = tool({
           growth: { type: 'string' },
           description: { type: 'string' },
           calculation: { type: 'string' },
-          source: { type: 'string' },
-          confidence: { type: 'number' },
-          verified: { type: 'boolean' }
+          source: { type: 'string' }
         },
         required: ['value','growth','description','calculation','source'],
         additionalProperties: false
@@ -375,9 +373,7 @@ const storeMarketInsightsTool = tool({
           growth: { type: 'string' },
           description: { type: 'string' },
           calculation: { type: 'string' },
-          source: { type: 'string' },
-          confidence: { type: 'number' },
-          verified: { type: 'boolean' }
+          source: { type: 'string' }
         },
         required: ['value','growth','description','calculation','source'],
         additionalProperties: false
@@ -389,9 +385,7 @@ const storeMarketInsightsTool = tool({
           growth: { type: 'string' },
           description: { type: 'string' },
           calculation: { type: 'string' },
-          source: { type: 'string' },
-          confidence: { type: 'number' },
-          verified: { type: 'boolean' }
+          source: { type: 'string' }
         },
         required: ['value','growth','description','calculation','source'],
         additionalProperties: false
@@ -457,7 +451,7 @@ const storeMarketInsightsTool = tool({
     required: ['search_id','user_id','tam_data','sam_data','som_data','competitor_data','trends','opportunities'],
     additionalProperties: false
   } as const,
-  strict: true,
+  strict: false,
   execute: async (input: any) => {
     const row = {
       search_id: String(input.search_id),

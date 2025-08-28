@@ -39,9 +39,10 @@ export const handler: Handler = async (event) => {
       jobs = data || [];
     }
 
+    // Light log to Netlify
+    try { console.info('[check-jobs]', { search_id: search_id || null, status_counts: (counts || []).length, recent_count: jobs.length }); } catch {}
     return { statusCode: 200, headers, body: JSON.stringify({ counts: counts || [], recent: jobs }) };
   } catch (e: any) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: e.message }) };
   }
 };
-

@@ -203,18 +203,8 @@ export async function callOpenAIChatJSON(params: {
           ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
           ...(typeof params.maxTokens === 'number' ? { max_output_tokens: params.maxTokens } : {})
         };
-        // Prefer JSON Schema when provided. Else fall back to simple JSON object formatting.
-        if (params.jsonSchema) {
-          req.response_format = {
-            type: 'json_schema',
-            json_schema: {
-              name: params.schemaName || 'structured_output',
-              schema: params.jsonSchema,
-              strict: true
-            }
-          };
-        } else if (params.requireJsonObject) {
-          req.modalities = ['text'];
+        // Responses API expects text.format; do not send response_format or modalities here.
+        if (params.jsonSchema || params.requireJsonObject) {
           req.text = { format: 'json' };
         }
         const res: any = await withOpenAiLimiter(() => openai.responses.create(req as any, { signal: controller.signal as any }));
