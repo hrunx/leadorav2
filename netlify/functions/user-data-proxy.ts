@@ -103,6 +103,7 @@ export const handler: Handler = async (event) => {
   };
 
   const path = tableMap[table];
+  const isUserSearches = path === 'user_searches';
 
   if (!path) {
     return {
@@ -134,7 +135,11 @@ export const handler: Handler = async (event) => {
   // Build Supabase REST query
   const params = new URLSearchParams();
   params.append('select', '*');
-  if (search_id) params.append('search_id', `eq.${search_id}`);
+  if (search_id) {
+    // Special-case primary key for user_searches
+    if (isUserSearches) params.append('id', `eq.${search_id}`);
+    else params.append('search_id', `eq.${search_id}`);
+  }
   if (user_id) params.append('user_id', `eq.${user_id}`);
   if (id) params.append('id', `eq.${id}`);
   if (table === 'campaign_recipients') {
@@ -158,7 +163,7 @@ export const handler: Handler = async (event) => {
       try { console.info('[user-data-proxy] client-read(service-role)', { table, search_id: search_id || null, id: id || null, user_id: user_id || null }); } catch {}
       const supa = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
       let query = supa.from(path).select('*');
-      if (search_id) query = query.eq('search_id', search_id);
+      if (search_id) query = isUserSearches ? query.eq('id', search_id) : query.eq('search_id', search_id);
       if (user_id) query = query.eq('user_id', user_id);
       if (id) query = query.eq('id', id);
       if (path === 'campaign_recipients' && campaign_id) query = query.eq('campaign_id', campaign_id);

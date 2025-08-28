@@ -345,7 +345,59 @@ export async function runBusinessDiscovery(search: {
     }
 
     // Check if we have sufficient results
-    const businesses = await loadBusinesses(search.id);
+    let businesses = await loadBusinesses(search.id);
+
+    // Fallback: If agent/tool path produced 0 businesses, perform a direct Serper Places query
+    if (!businesses || businesses.length === 0) {
+      logger.warn('Agent-based discovery yielded no businesses; running direct Serper fallback');
+      const countriesToFallback = (search.countries || []).slice(0, 3);
+      const firstIndustry = Array.isArray(search.industries) && search.industries.length > 0
+        ? String(search.industries[0])
+        : 'General';
+      const insertedIds: string[] = [];
+      for (const country of countriesToFallback) {
+        try {
+          const discoveryQuery = `${search.product_service} companies ${country}`;
+          const places = await serperPlaces(discoveryQuery, country, 8);
+          if (Array.isArray(places) && places.length > 0) {
+            const rows = places.slice(0, 5).map((p: any) => buildBusinessData({
+              search_id: search.id,
+              user_id: search.user_id,
+              persona_id: null,
+              name: String(p?.name || 'Unknown Business'),
+              industry: firstIndustry,
+              country: String(country || 'United States'),
+              address: String(p?.address || ''),
+              city: String(p?.city || country || ''),
+              phone: String(p?.phone || ''),
+              website: String(p?.website || ''),
+              rating: typeof p?.rating === 'number' ? p.rating : undefined,
+              size: 'Unknown',
+              revenue: 'Unknown',
+              description: String(p?.description || 'Business discovered via Serper Places'),
+              match_score: 85,
+              persona_type: search.search_type,
+              relevant_departments: [],
+              key_products: [search.product_service],
+              recent_activity: []
+            }));
+            const inserted = await insertBusinesses(rows as any);
+            const bizIds = (inserted || []).map((b: any) => String(b.id));
+            insertedIds.push(...bizIds);
+          }
+        } catch (fallbackError: any) {
+          logger.warn('Serper fallback failed for country', { country, error: fallbackError?.message || fallbackError });
+        }
+      }
+      if (insertedIds.length > 0) {
+        try { initDMDiscoveryProgress(search.id, insertedIds.length); } catch {}
+        try { await updateSearchProgress(search.id, 40, 'business_discovery'); } catch {}
+        try { await enqueueJob('dm_discovery_batch', { search_id: search.id, user_id: search.user_id, business_ids: insertedIds, product_service: search.product_service }); } catch {}
+      }
+      // Reload after fallback
+      businesses = await loadBusinesses(search.id);
+    }
+
     logger.info('Business discovery completed', { 
       total_businesses: businesses.length,
       search_type: search.search_type 
