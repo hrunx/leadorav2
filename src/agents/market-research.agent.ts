@@ -451,7 +451,7 @@ const storeMarketInsightsTool = tool({
     required: ['search_id','user_id','tam_data','sam_data','som_data','competitor_data','trends','opportunities'],
     additionalProperties: false
   } as const,
-  strict: false,
+  strict: true,
   execute: async (input: any) => {
     const row = {
       search_id: String(input.search_id),

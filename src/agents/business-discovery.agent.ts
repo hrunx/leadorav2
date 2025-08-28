@@ -28,6 +28,7 @@ const serperPlacesTool = tool({
     required: ['q', 'gl', 'limit', 'search_id', 'user_id'],
     additionalProperties: false
   } as const,
+  strict: true,
   execute: async (input: unknown) => {
     const { q, gl, limit, search_id, user_id } = input as { q: string; gl: string; limit: number; search_id: string; user_id: string };
     const startTime = Date.now();
@@ -139,6 +140,7 @@ const storeBusinessesTool = tool({
     required: ['search_id', 'user_id', 'items'],
     additionalProperties: false
   } as const,
+  strict: true,
   execute: async (input: unknown) => {
 
     const { search_id, user_id, industry, country, items } = input as {
