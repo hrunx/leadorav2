@@ -74,6 +74,7 @@ const linkedinSearchTool = tool({
       // Build a single precise query per company to minimize API calls
       const ctx = (product_service || '').trim();
       const singleQuery = `"${company_name}" site:linkedin.com/in/${ctx ? ` ${ctx}` : ''}`.trim();
+      logger.info('[DM] LinkedIn singleQuery', { company_name, company_country, q: singleQuery, search_id });
 
       let allEmployees: Employee[] = [];
 
@@ -103,6 +104,7 @@ const linkedinSearchTool = tool({
             .maybeSingle();
           if (!cached) {
             const result = await serperSearch(singleQuery, company_country, 10);
+            logger.info('[DM] LinkedIn search results', { count: Array.isArray(result?.items) ? result.items.length : 0, company_name, search_id });
             if (result && result.success && Array.isArray(result.items)) {
               const employees = result.items
                 .filter((item: SerperItem) =>

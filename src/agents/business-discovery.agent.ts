@@ -34,7 +34,9 @@ const serperPlacesTool = tool({
     const startTime = Date.now();
     try {
       const capped = Math.max(1, Math.min(Number(limit) || 5, 15));
+      logger.info('[DISCOVERY] serperPlaces query', { q, gl, limit: capped, search_id });
       const places = await retryWithBackoff(() => serperPlaces(q, gl, capped));
+      logger.info('[DISCOVERY] serperPlaces results', { count: Array.isArray(places) ? places.length : 0, sample: Array.isArray(places) && places[0] ? places[0] : null });
       const endTime = Date.now();
 
       // Log API usage (with error handling)
@@ -75,7 +77,7 @@ const serperPlacesTool = tool({
       logger.warn('Failed to log API usage', { error: (logError as any)?.message || logError });
       }
 
-      logger.error('Serper Places API Error', { status, error: error.message || error });
+      logger.error('[DISCOVERY] Serper Places API Error', { status, error: error.message || error });
       throw error;
     }
   }

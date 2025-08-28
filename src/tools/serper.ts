@@ -119,7 +119,7 @@ const glFromCountry = (country: string): string => countryToGL(country);
 export async function serperPlaces(q: string, country: string, limit = 10) {
   return retryWithBackoff(async () => withLimiter(async () => {
     const gl = glFromCountry(country);
-    logger.debug('Serper Places query', { q, country, gl });
+    logger.info('[SERPER] Places query', { q, country, gl, limit });
     const cacheKey = `serper:places:${gl}:${limit}:${q}`;
     const cached = await getCache(cacheKey);
     if (cached) return cached.slice(0, limit);
@@ -141,27 +141,20 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
       const isQuota = r.status === 400 && text && text.toLowerCase().includes('not enough credits');
       const isAuthRate = r.status === 401 || r.status === 403 || r.status === 429;
       if (isQuota || isAuthRate) {
-        console.log('🚨 Serper failed, triggering fallback:', { status: r.status, q, gl, country });
-        logger.warn('Serper /places error, attempting Google Places API fallback', { status: r.status, q });
+        logger.warn('[SERPER] /places auth/quota error, trying Google Places fallback', { status: r.status, text });
         
         // Try Google Places API as fallback
         try {
-          console.log('🔄 Importing Google Places module...');
           const { googlePlacesTextSearch } = await import('./google-places');
-          console.log('📍 Calling Google Places API with:', { q, gl, limit: Math.min(limit, 10), country });
           const placesFromGoogle = await googlePlacesTextSearch(q, gl, Math.min(limit, 10), country);
-          console.log('📊 Google Places API returned:', { count: placesFromGoogle.length, sample: placesFromGoogle[0] });
           if (placesFromGoogle.length > 0) {
-            console.log('✅ Google Places fallback SUCCESS!');
-            logger.debug('Google Places API fallback produced places', { count: placesFromGoogle.length });
+            logger.info('[SERPER] Google Places fallback produced results', { count: placesFromGoogle.length });
             await setCache(cacheKey, 'google_places', placesFromGoogle);
             return placesFromGoogle.slice(0, limit);
           }
-          console.log('⚠️ Google Places returned 0 results, trying Google CSE');
-          logger.warn('Google Places API fallback returned no results, trying Google CSE');
+          logger.warn('[SERPER] Google Places fallback returned 0 results');
         } catch (placesError: any) {
-          console.log('❌ Google Places fallback error:', placesError.message);
-          logger.warn('Google Places API fallback failed', { error: placesError.message });
+          logger.warn('[SERPER] Google Places fallback error', { error: placesError.message });
         }
         
         // For places searches, only use Google Places API as fallback
@@ -242,7 +235,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     const cap = places.length <= 1 && limit >= 5 ? 8 : limit;
     places = places.slice(0, cap);
     
-    logger.debug('Serper Places results', { count: places.length, q, country });
+    logger.info('[SERPER] Places final results', { count: places.length, q, country });
     await setCache(cacheKey, 'serper', places);
     return places;
   }));
@@ -251,7 +244,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
 export async function serperSearch(q: string, country: string, limit = 5): Promise<{ success: boolean; items: { title: string; link: string; snippet: string }[]; error?: string; status?: number }> {
   return retryWithBackoff(async () => withLimiter(async () => {
     const gl = glFromCountry(country || 'US');
-    logger.debug('Serper Search query', { q, country, gl });
+    logger.info('[SERPER] Search query', { q, country, gl, limit });
     const cacheKey = `serper:search:${gl}:${limit}:${q}`;
     const cached = await getCache(cacheKey);
     if (cached) return { success: true, items: cached.slice(0, limit) };
@@ -272,7 +265,7 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
       const isQuota = r.status === 400 && text && text.toLowerCase().includes('not enough credits');
       const isAuthRate = r.status === 401 || r.status === 403 || r.status === 429;
       if (isQuota || isAuthRate) {
-        logger.warn('Serper /search error, attempting Google CSE fallback', { status: r.status, q });
+        logger.warn('[SERPER] /search auth/quota error; attempting Google CSE fallback', { status: r.status, q });
         const fallback = await googleCseSearch(q, gl, Math.min(limit, 10));
         if (fallback.success) return fallback;
         // If CSE is blocked or keys missing, return empty success so downstream can continue
@@ -290,7 +283,7 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
       title: x.title, link: x.link, snippet: x.snippet
     }));
 
-    logger.debug('Serper Search results', { count: results.length, q, country });
+    logger.info('[SERPER] Search final results', { count: results.length, q, country });
     await setCache(cacheKey, 'serper', results);
     return { success: true, items: results };
   }));
