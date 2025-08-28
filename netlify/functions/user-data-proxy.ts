@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
@@ -148,15 +149,40 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Query Supabase REST; pass anon or service role where appropriate
-    const restUrl = `${supabaseUrl}/rest/v1/${path}?${params.toString()}`;
-    // Allow service-role for search-scoped reads in production (and dev), when no user token is available
+    // Allow service-role for search/id scoped reads in production or dev — use client SDK for guaranteed visibility
     const searchScoped = Boolean(search_id) || Boolean(id);
     const forceServiceEnv = String(process.env.PROXY_ALLOW_SERVICE_READ || '').trim() === '1';
     const useServiceRole = (!token && !!supabaseServiceKey && (allowDev || (isProd && searchScoped) || forceServiceEnv));
-    if (useServiceRole) {
-      try { console.info('[user-data-proxy] using service-role for read', { table, search_id: search_id || null, id: id || null }); } catch {}
+
+    if (useServiceRole && searchScoped) {
+      try { console.info('[user-data-proxy] client-read(service-role)', { table, search_id: search_id || null, id: id || null, user_id: user_id || null }); } catch {}
+      const supa = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      let query = supa.from(path).select('*');
+      if (search_id) query = query.eq('search_id', search_id);
+      if (user_id) query = query.eq('user_id', user_id);
+      if (id) query = query.eq('id', id);
+      if (path === 'campaign_recipients' && campaign_id) query = query.eq('campaign_id', campaign_id);
+      // Try ordering by created_at if the column exists; ignore errors
+      let data: any[] | null = null;
+      try {
+        const { data: ordered, error: orderErr } = await query.order('created_at', { ascending: false });
+        if (!orderErr) data = ordered as any[];
+      } catch {}
+      if (!data) {
+        const { data: plain, error } = await query;
+        if (error) {
+          try { console.warn('[user-data-proxy] client-read error', { error: error.message }); } catch {}
+          // fall through to REST
+        } else {
+          return { statusCode: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(plain || []) };
+        }
+      } else {
+        return { statusCode: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(data || []) };
+      }
     }
+
+    // REST fallback
+    const restUrl = `${supabaseUrl}/rest/v1/${path}?${params.toString()}`;
     const response = await fetch(restUrl, {
       headers: {
         apikey: String(useServiceRole ? supabaseServiceKey : supabaseAnonKey),
@@ -167,30 +193,14 @@ export const handler: Handler = async (event) => {
     });
 
     if (!response.ok) {
-      // Be forgiving in dev: normalize any upstream non-OK to 200 with empty list
-      // and surface the upstream code for debugging
-      return {
-        statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Upstream-Status': String(response.status) },
-        body: JSON.stringify([])
-      };
+      return { statusCode: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Upstream-Status': String(response.status) }, body: JSON.stringify([]) };
     }
-
     const data = await response.json();
-    return {
-      statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify(data || [])
-    };
+    return { statusCode: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(data || []) };
   } catch (error: any) {
     const errMsg = String(error?.message || error);
     const warnHeaders = { 'X-Proxy-Error': 'fetch_failed', 'X-Proxy-Error-Message': errMsg.slice(0, 200) };
-    // Normalize network errors to empty response to avoid UI CORS noise
-    return {
-      statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', ...warnHeaders },
-      body: JSON.stringify([])
-    };
+    return { statusCode: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json', ...warnHeaders }, body: JSON.stringify([]) };
   }
 };
 
