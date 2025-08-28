@@ -84,21 +84,12 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
         },
         onSuccess: async () => {
           updateFn('BUSINESSES_FOUND', { search_id });
-          // Auto-trigger decision maker enrichment after business discovery
+          // Defer mapping and DM discovery via jobs dispatcher; enrichment will run after DM insertions
           try {
-            const base = process.env.URL || process.env.DEPLOY_URL || process.env.LOCAL_BASE_URL || 'http://localhost:8888';
-            const enrichResponse = await fetch(`${base}/.netlify/functions/enrich-decision-makers`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ search_id })
-            });
-            if (enrichResponse.ok) {
-              logger.info('Auto-triggered decision maker enrichment', { search_id });
-            } else {
-              logger.warn('Failed to auto-trigger enrichment', { search_id, status: enrichResponse.status });
-            }
+            const { enqueueJob } = await import('../tools/jobs');
+            await enqueueJob('persona_mapping', { search_id });
           } catch (error: any) {
-            logger.warn('Error auto-triggering enrichment', { search_id, error: error?.message });
+            logger.warn('Failed to enqueue persona mapping', { search_id, error: error?.message });
           }
         },
       },
@@ -143,17 +134,9 @@ export async function orchestrate(search_id: string, _user_id: string, sendUpdat
       // Run persona mapping after essential tasks complete
       try {
         updateFn('PROGRESS', { phase: 'persona_mapping', progress: 95 });
-        
-        const { intelligentPersonaMapping, mapDecisionMakersToPersonas } = await import('../tools/persona-mapper');
-        
-        // Map businesses to business personas
-        await intelligentPersonaMapping(search_id);
-        logger.info('Business persona mapping completed', { search_id });
-        
-        // Map decision makers to DM personas  
-        await mapDecisionMakersToPersonas(search_id);
-        logger.info('Decision maker persona mapping completed', { search_id });
-        
+        const { enqueueJob } = await import('../tools/jobs');
+        await enqueueJob('persona_mapping', { search_id });
+        await enqueueJob('dm_persona_mapping', { search_id });
         updateFn('PROGRESS', { phase: 'completed', progress: 100 });
       } catch (mappingError: any) {
         logger.warn('Persona mapping failed but search still completed', { 

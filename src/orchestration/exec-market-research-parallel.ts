@@ -131,7 +131,7 @@ REFERENCES (augment with additional reputable sources as needed):\n${sourcesForP
       // Fallback to Gemini
       provider = 'gemini';
       try {
-        const gText = await callGeminiText('gemini-1.5-pro', `${systemPrompt}\n\n${basePrompt}`);
+        const gText = await callGeminiText('gemini-2.0-flash', `${systemPrompt}\n\n${basePrompt}`);
         analysis = gText || '';
         await logApiUsage({
           user_id: String(search.user_id || ''),
@@ -140,7 +140,7 @@ REFERENCES (augment with additional reputable sources as needed):\n${sourcesForP
           endpoint: 'generateContent',
           status: 200,
           ms: Date.now() - startTime,
-          request: { model: 'gemini-1.5-pro', product: productStr },
+          request: { model: 'gemini-2.0-flash', product: productStr },
           response: { text_length: analysis.length }
         });
       } catch {

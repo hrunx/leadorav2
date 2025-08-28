@@ -4,6 +4,8 @@ import logger from '../lib/logger';
 import { insertMarketInsights, markSearchCompleted, logApiUsage } from '../tools/db.write';
 import { extractJson } from '../tools/json';
 import { serperSearch } from '../tools/serper';
+import { jsonSchemaFromZod } from '../lib/structured';
+import { MarketInsightsSchema } from '../lib/marketInsightsSchema';
 async function getCheerio(): Promise<null | typeof import('cheerio')> {
   try {
     const mod = await import('cheerio');
@@ -180,16 +182,19 @@ OUTPUT JSON SCHEMA EXACTLY:
       // 1) Try OpenAI GPT‑5 (preferred)
       let text: string | null = null;
       try {
+        const schema = jsonSchemaFromZod('MarketInsights', MarketInsightsSchema);
         text = await callOpenAIChatJSON({
           model: modelMini,
-          system: 'You are an expert market research analyst that outputs ONLY valid JSON per the user specification.',
+          system: 'You output ONLY valid JSON that matches the provided schema.',
           user: prompt,
           temperature: 0.3,
           maxTokens: 5000,
-          requireJsonObject: true,
+          jsonSchema: schema,
+          schemaName: 'MarketInsights',
           verbosity: 'low',
           timeoutMs: 20000,
-          retries: 2
+          retries: 2,
+          meta: { user_id: search.user_id, search_id: search.id, endpoint: 'market_research' }
         });
         providerUsed = 'openai';
       } catch (e) {

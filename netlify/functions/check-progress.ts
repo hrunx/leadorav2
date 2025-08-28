@@ -134,8 +134,10 @@ export const handler: Handler = async (event) => {
           supa.from('businesses').select('id').eq('search_id', search_id),
           supa.from('decision_maker_personas').select('id').eq('search_id', search_id),
           supa.from('decision_makers').select('id').eq('search_id', search_id),
-          supa.from('decision_makers').select('id').eq('search_id', search_id).eq('enrichment_status', 'pending'),
-          supa.from('decision_makers').select('id').eq('search_id', search_id).eq('enrichment_status', 'done'),
+          // Consider both 'pending' and 'attempted' as not yet completed enrichment
+          supa.from('decision_makers').select('id').eq('search_id', search_id).in('enrichment_status', ['pending','attempted']),
+          // Consider 'done' and 'enriched' as completed enrichment
+          supa.from('decision_makers').select('id').eq('search_id', search_id).in('enrichment_status', ['done','enriched']),
           supa.from('market_insights').select('id').eq('search_id', search_id)
         ]).then(([bp, biz, dmp, dm, dmpend, dmdone, mi]) => [
           bp.data?.length || 0,

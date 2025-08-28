@@ -302,8 +302,8 @@ export async function serperSearch(q: string, country: string, limit = 5): Promi
 // Google Custom Search (CSE) fallback
 async function googleCseSearch(q: string, gl: string, limit: number): Promise<{ success: boolean; items: { title: string; link: string; snippet: string }[]; error?: string; status?: number }> {
   try {
-    const key = getEnvVar('VITE_GOOGLE_CSE_KEY') || getEnvVar('GOOGLE_CSE_KEY') || getEnvVar('VITE_GOOGLE_API_KEY') || getEnvVar('GOOGLE_API_KEY');
-    const cx = getEnvVar('VITE_GOOGLE_CSE_CX') || getEnvVar('GOOGLE_CSE_CX') || getEnvVar('VITE_GOOGLE_SEARCH_ENGINE_ID') || getEnvVar('GOOGLE_SEARCH_ENGINE_ID');
+    const key = getEnvVar('VITE_GOOGLE_CSE_KEY') || getEnvVar('GOOGLE_CSE_KEY') || getEnvVar('VITE_GOOGLE_API_KEY') || getEnvVar('GOOGLE_API_KEY') || getEnvVar('Google_CSE_KEY');
+    const cx = getEnvVar('VITE_GOOGLE_CSE_CX') || getEnvVar('GOOGLE_CSE_CX') || getEnvVar('VITE_GOOGLE_SEARCH_ENGINE_ID') || getEnvVar('GOOGLE_SEARCH_ENGINE_ID') || getEnvVar('Google_CSE_CX');
     if (!key || !cx) {
       logger.warn('Google CSE fallback unavailable: missing GOOGLE_CSE_KEY or GOOGLE_CSE_CX');
       return { success: false, items: [], error: 'cse_missing_keys' };

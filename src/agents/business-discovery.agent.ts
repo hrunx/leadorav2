@@ -6,10 +6,9 @@ import { insertBusinesses, updateSearchProgress, logApiUsage } from '../tools/db
 import { loadBusinesses } from '../tools/db.read';
 
 import { countryToGL, buildBusinessData } from '../tools/util';
-import { mapBusinessesToPersonas } from '../tools/persona-mapper';
-import { triggerInstantDMDiscovery, processBusinessForDM, initDMDiscoveryProgress } from '../tools/instant-dm-discovery';
+import { initDMDiscoveryProgress } from '../tools/instant-dm-discovery';
+import { enqueueJob } from '../tools/jobs';
 import type { Business } from '../tools/instant-dm-discovery';
-import pLimit from 'p-limit';
 
 // Generate semantic variations of search queries using synonyms and industry jargon
 // removed multi-query generator to enforce a single precise query flow per user request
@@ -85,7 +84,7 @@ const serperPlacesTool = tool({
 
 const storeBusinessesTool = tool({
   name: 'storeBusinesses',
-  description: 'Insert businesses with Gemini 2.0 Flash enrichment (departments/products/activity).',
+  description: 'Insert discovered businesses (fast insert; enrichment and DM discovery run in background jobs).',
   parameters: {
     type: 'object',
     properties: {
@@ -213,8 +212,8 @@ const storeBusinessesTool = tool({
     // rows are already deduplicated; insert only new businesses
     logger.info('Inserting businesses', { count: rowsForInsert.length, search_id });
     const insertedBusinesses: any[] = await insertBusinesses(rowsForInsert as any);
-    // 🚀 PERSONA MAPPING (fire-and-forget)
-    void mapBusinessesToPersonas(search_id).catch(err => logger.warn('Persona mapping failed', { error: err?.message || err }));
+    // 🚀 PERSONA MAPPING (deferred via jobs)
+    void enqueueJob('persona_mapping', { search_id }).catch(err => logger.warn('Persona mapping enqueue failed', { error: err?.message || err }));
 
     // Initialize DM discovery progress and update search progress once
     if (insertedBusinesses.length > 0) {
@@ -222,47 +221,10 @@ const storeBusinessesTool = tool({
       await updateSearchProgress(search_id, 40, 'business_discovery');
     }
 
-    // 🚀 INSTANT DM DISCOVERY: Trigger DM search for each business immediately with batching
-    // Limit DM lookups to avoid hammering external APIs.
-    // With a batch size of 3 and a 500ms gap, expected throughput is ~6 businesses/sec.
-    const limit = pLimit(3);
-    const batchSize = 3;
-    const succeededIds = new Set<string>();
-
-    for (let i = 0; i < insertedBusinesses.length; i += batchSize) {
-      const batch = insertedBusinesses.slice(i, i + batchSize);
-
-      await Promise.all(
-        batch.map((business: any) =>
-          limit(async () => {
-            const ok = await processBusinessForDM(search_id, user_id, {
-              ...business,
-              country,
-              industry
-            });
-            if (ok) {
-              succeededIds.add(String(business.id));
-            }
-          })
-        )
-      );
-
-      // simple backoff between batches to ease external API pressure
-      if (i + batchSize < insertedBusinesses.length) {
-        await new Promise((r) => setTimeout(r, 500));
-      }
-    }
-
-    // Fallback: trigger batch discovery only for businesses not processed individually
-    const pendingBusinesses = insertedBusinesses.filter((b: any) => !succeededIds.has(String(b.id)));
-    if (pendingBusinesses.length > 0) {
-      logger.debug('Triggering instant DM discovery (fallback)', { count: pendingBusinesses.length, search_id });
-      await triggerInstantDMDiscovery(
-        search_id,
-        user_id,
-        pendingBusinesses as any,
-        { initializeProgress: true }
-      );
+    // 🚀 INSTANT DM DISCOVERY: enqueue durable batch job instead of inline API fanout
+    if (insertedBusinesses.length > 0) {
+      const business_ids = insertedBusinesses.map((b: any) => String(b.id));
+      await enqueueJob('dm_discovery_batch', { search_id, user_id, business_ids, country, industry });
     }
     return insertedBusinesses;
   }

@@ -5,6 +5,8 @@ import { loadPersonaCache } from '../tools/db.read';
 import { resolveModel, callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
 import { extractJson } from '../tools/json';
 import { ensureUniqueTitles } from './business-persona.helpers';
+import { ZBusinessPersonasPayload } from '../lib/schemas';
+import { jsonSchemaFromZod } from '../lib/structured';
 
 import {
   sanitizePersona,
@@ -307,15 +309,18 @@ Context: product_service=${search.product_service}; industries=${search.industri
 Return ONLY JSON: {"personas": [ ...3 items... ]}
 Personas: ${JSON.stringify(arr)}`;
       try {
+        const schema = jsonSchemaFromZod('BusinessPersonasPayload', ZBusinessPersonasPayload);
         const text = await callOpenAIChatJSON({
           model: resolveModel('primary'),
-          system: 'Output ONLY JSON {"personas": [...]} with exactly 3 items.',
+          system: 'You output ONLY valid JSON matching the provided schema.',
           user: prompt,
           temperature: 0.2,
           maxTokens: 1000,
-          requireJsonObject: true,
+          jsonSchema: schema,
+          schemaName: 'BusinessPersonasPayload',
           timeoutMs: 12000,
           retries: 1,
+          meta: { user_id: search.user_id, search_id: search.id, endpoint: 'business_personas' }
         });
         const accepted = acceptPersonas(tryParsePersonas(text));
         if (accepted.length === 3) return accepted;
@@ -345,18 +350,21 @@ Personas: ${JSON.stringify(arr)}`;
     };
 
     if (!personas.length) {
-      // Sequential fallback: GPT-4o-mini -> Gemini -> DeepSeek
+      // Sequential fallback: GPT-5-mini -> Gemini -> DeepSeek
       try {
-        // 1) Try GPT-4o-mini first
+        // 1) Try GPT-5-mini first
+        const schema = jsonSchemaFromZod('BusinessPersonasPayload', ZBusinessPersonasPayload);
         const text = await callOpenAIChatJSON({
           model: resolveModel('primary'),
-          system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete persona objects.',
+          system: 'You output ONLY valid JSON matching the provided schema.',
           user: improvedPrompt,
           temperature: 0.25,
           maxTokens: 1200,
-          requireJsonObject: true,
+          jsonSchema: schema,
+          schemaName: 'BusinessPersonasPayload',
           timeoutMs: 20000,
-          retries: 1
+          retries: 1,
+          meta: { user_id: search.user_id, search_id: search.id, endpoint: 'business_personas' }
         });
         const accepted = acceptPersonas(tryParsePersonas(text));
         if (accepted.length !== 3) {
@@ -365,15 +373,15 @@ Personas: ${JSON.stringify(arr)}`;
         } else {
           personas = accepted;
         }
-        if (personas.length === 3) import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with GPT-4o-mini', { search_id: search.id })).catch(()=>{});
+        if (personas.length === 3) import('../lib/logger').then(({ default: logger }) => logger.info('Business personas generated with GPT-5-mini', { search_id: search.id })).catch(()=>{});
       } catch (error: any) {
-        import('../lib/logger').then(({ default: logger }) => logger.warn('GPT-4o-mini failed for business personas, trying Gemini', { search_id: search.id, error: error?.message })).catch(()=>{});
+        import('../lib/logger').then(({ default: logger }) => logger.warn('GPT-5-mini failed for business personas, trying Gemini', { search_id: search.id, error: error?.message })).catch(()=>{});
       }
 
       if (!personas.length) {
         try {
           // 2) Gemini fallback
-          const text = await callGeminiText('gemini-2.0-flash-exp', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 20000, 1);
+          const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 20000, 1);
           const accepted = acceptPersonas(tryParsePersonas(text));
           if (accepted.length !== 3) {
             const repaired = await repairPersonas(accepted);

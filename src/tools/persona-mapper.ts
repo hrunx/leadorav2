@@ -380,12 +380,24 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     logger.info('Mapping businesses to personas', { businesses: businesses.length, personas: personas.length, searchId });
 
-    // Intelligent mapping logic: use AI when enabled, fallback to heuristic
+    // Intelligent mapping logic: prefer vector similarity, fallback to AI/heuristic
     const updates = businesses.map(async (business: BusinessRow) => {
       let bestId: string | null = null;
       let scoreNum = 0;
-      const ai = await scoreBusinessToPersonasLLM(business, personas as unknown as BusinessPersonaRow[]).catch(() => null);
-      if (ai && ai.personaId) { bestId = ai.personaId; scoreNum = ai.score; }
+      // Try embedding‑based match first (fast, deterministic)
+      try {
+        const { data: vec } = await supa.rpc('match_business_best_persona', { business_id: business.id }).maybeSingle();
+        if (vec && (vec as any).persona_id) {
+          bestId = String((vec as any).persona_id);
+          const s = Number((vec as any).score || 0);
+          scoreNum = Math.max(60, Math.min(100, Math.round(s * 100)));
+        }
+      } catch {}
+      // If no vector match, attempt AI semantic scoring
+      if (!bestId) {
+        const ai = await scoreBusinessToPersonasLLM(business, personas as unknown as BusinessPersonaRow[]).catch(() => null);
+        if (ai && ai.personaId) { bestId = ai.personaId; scoreNum = ai.score; }
+      }
       if (!bestId) {
         const bestPersona = findBestMatchingPersona(business, personas);
         bestId = bestPersona.id; scoreNum = calculatePersonaMatchScore(business, bestPersona);
@@ -612,11 +624,27 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
 
     const updates = dms.map(async (dm: { id: string; title: string; department?: string; level?: string; name: string }) => {
       let bestId: string | null = null;
-      const ai = await scoreDMToPersonasLLM(dm as unknown as DecisionMakerRow, personas as unknown as DMPersonaRow[]).catch(() => null);
-      if (ai && ai.personaId) bestId = ai.personaId;
+      // Vector-first mapping
+      try {
+        const { data: top2 } = await supa.rpc('match_dm_top2_personas', { dm_id: dm.id });
+        if (Array.isArray(top2) && top2.length) {
+          const a = top2[0];
+          bestId = String((a as any).persona_id);
+          // epsilon tie-break: if top2 within 0.03 score difference, try LLM refinement
+          if (top2.length > 1) {
+            const s0 = Number((top2[0] as any).score || 0);
+            const s1 = Number((top2[1] as any).score || 0);
+            if (Math.abs(s0 - s1) <= 0.03) {
+              const ai = await scoreDMToPersonasLLM(dm as unknown as DecisionMakerRow, personas as unknown as DMPersonaRow[]).catch(() => null);
+              if (ai && ai.personaId) bestId = ai.personaId;
+            }
+          }
+        }
+      } catch {}
+      // Heuristic fallback
       if (!bestId) {
         const persona = mapDMToPersona(dm as unknown as { title?: string }, personas as unknown as Array<{ id?: string; title?: string }>);
-        const fallbackId = (persona && persona.id) ? String(persona.id) : String(personas[0]?.id);
+        const fallbackId = (persona && (persona as any).id) ? String((persona as any).id) : String(personas[0]?.id);
         bestId = fallbackId;
       }
       return supa.from('decision_makers').update({ persona_id: bestId }).eq('id', dm.id);

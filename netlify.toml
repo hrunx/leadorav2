@@ -7,3 +7,8 @@ node_version = "20"
 node_bundler = "esbuild"
 # Don't externalize @openai/* — let esbuild fully bundle for Node Lambda
 external_node_modules = []
+
+[[scheduled.functions]]
+name = "jobs-dispatcher"
+# Run every minute to drain the queue quickly without hammering
+schedule = "* * * * *"

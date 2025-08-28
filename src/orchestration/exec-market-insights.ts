@@ -93,7 +93,7 @@ Return only valid JSON, no other text.`;
 
   const startTime = Date.now();
   try {
-    const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = gemini.getGenerativeModel({ model: 'gemini-2.0-flash' });
     const result = await model.generateContent(prompt);
     const text = result.response.text();
     
@@ -105,7 +105,7 @@ Return only valid JSON, no other text.`;
       endpoint: 'generateContent',
       status: 200,
       ms: Date.now() - startTime,
-      request: { model: 'gemini-1.5-flash', prompt_length: prompt.length },
+      request: { model: 'gemini-2.0-flash', prompt_length: prompt.length },
       response: { response_length: text.length }
     });
     
@@ -149,7 +149,7 @@ Return only valid JSON, no other text.`;
       endpoint: 'generateContent',
       status: 500,
       ms: Date.now() - startTime,
-      request: { model: 'gemini-1.5-flash', prompt_length: prompt.length },
+      request: { model: 'gemini-2.0-flash', prompt_length: prompt.length },
       response: { error: error.message }
     });
     throw error;

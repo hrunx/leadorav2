@@ -70,6 +70,13 @@ export const insertBusinessPersonas = async (rows: any[]) => {
   const search_id = rows?.[0]?.search_id as string | undefined;
   if (search_id) {
     try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
+    // Enqueue persona mapping and embeddings
+    try {
+      const { enqueueJob } = await import('./jobs');
+      await enqueueJob('persona_mapping', { search_id });
+      const persona_ids = (data || []).map((d: any) => d.id);
+      if (persona_ids.length) await enqueueJob('compute_bp_embeddings', { persona_ids });
+    } catch (e: any) { logger.warn('enqueue jobs failed (business_personas)', { error: e?.message || e }); }
   }
   return data!;
 };
@@ -126,6 +133,13 @@ export const insertBusinesses = async (rows: BusinessInsertRow[]) => {
   const search_id = rows?.[0]?.search_id as string | undefined;
   if (search_id) {
     try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
+    // Enqueue persona mapping + embeddings compute for businesses
+    try {
+      const { enqueueJob } = await import('./jobs');
+      await enqueueJob('persona_mapping', { search_id });
+      const business_ids = (data || []).map((d: any) => d.id);
+      if (business_ids.length) await enqueueJob('compute_business_embeddings', { business_ids });
+    } catch (e: any) { logger.warn('enqueue jobs failed (businesses)', { error: e?.message || e }); }
   }
   // Ensure returned objects include mandatory fields promised by callers
   const ensured = (data || []).map((ret, idx) => {
@@ -146,6 +160,12 @@ export const insertDMPersonas = async (rows: any[]) => {
   const search_id = rows?.[0]?.search_id as string | undefined;
   if (search_id) {
     try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
+    try {
+      const { enqueueJob } = await import('./jobs');
+      await enqueueJob('dm_persona_mapping', { search_id });
+      const persona_ids = (data || []).map((d: any) => d.id);
+      if (persona_ids.length) await enqueueJob('compute_dm_persona_embeddings', { persona_ids });
+    } catch (e: any) { logger.warn('enqueue jobs failed (dm_personas)', { error: e?.message || e }); }
   }
   return data!;
 };
@@ -171,6 +191,13 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
   const search_id = basicRows?.[0]?.search_id as string | undefined;
   if (search_id) {
     try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
+    // Enqueue embeddings + DM persona mapping
+    try {
+      const { enqueueJob } = await import('./jobs');
+      const dm_ids = (data || []).map((d: any) => d.id);
+      if (dm_ids.length) await enqueueJob('compute_dm_embeddings', { dm_ids });
+      await enqueueJob('dm_persona_mapping', { search_id });
+    } catch (e: any) { logger.warn('enqueue jobs failed (decision_makers)', { error: e?.message || e }); }
   }
   return data!;
 };

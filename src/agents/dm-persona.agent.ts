@@ -298,16 +298,21 @@ Personas: ${JSON.stringify(arr)}`;
     };
 
     try {
-      // 1) GPT-4o-mini primary
+      // 1) GPT‑5 primary with structured outputs
+      const { jsonSchemaFromZod } = await import('../lib/structured');
+      const { ZDMPersonasPayload } = await import('../lib/schemas');
+      const schema = jsonSchemaFromZod('DMPersonasPayload', ZDMPersonasPayload);
       const text = await callOpenAIChatJSON({
         model: resolveModel('primary'),
-        system: 'Return ONLY JSON: {"personas": [ ... ] } with exactly 3 complete decision-maker persona objects.',
+        system: 'You output ONLY valid JSON matching the provided schema.',
         user: improvedPrompt,
         temperature: 0.3,
         maxTokens: 1400,
-        requireJsonObject: true,
+        jsonSchema: schema,
+        schemaName: 'DMPersonasPayload',
         timeoutMs: 20000,
         retries: 1,
+        meta: { user_id: search.user_id, search_id: search.id, endpoint: 'dm_personas' },
       });
 
       const accepted = acceptPersonas(tryParsePersonas(text));
@@ -320,16 +325,16 @@ Personas: ${JSON.stringify(arr)}`;
       if (rejected.length) rejectedPersonas.push(...rejected);
       if (valid.length === 3) {
         personas = await ensureProductServiceKeywords(valid);
-        import('../lib/logger').then(({ default: logger }) => logger.info('DM personas generated with GPT-4o-mini', { search_id: search.id })).catch(()=>{});
+        import('../lib/logger').then(({ default: logger }) => logger.info('DM personas generated with GPT-5-mini', { search_id: search.id })).catch(()=>{});
       }
 
     } catch (error: any) {
-      import('../lib/logger').then(({ default: logger }) => logger.warn('GPT-4o-mini failed for DM personas, trying Gemini', { search_id: search.id, error: error?.message })).catch(()=>{});
+      import('../lib/logger').then(({ default: logger }) => logger.warn('GPT-5-mini failed for DM personas, trying Gemini', { search_id: search.id, error: error?.message })).catch(()=>{});
     }
     if (!personas.length) {
       // 2) Gemini fallback
       try {
-        const text = await callGeminiText('gemini-2.0-flash-exp', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 20000, 1);
+        const text = await callGeminiText('gemini-2.0-flash', improvedPrompt + '\nReturn ONLY JSON: {"personas": [ ... ] }', 20000, 1);
 
         const accepted = acceptPersonas(tryParsePersonas(text));
         let { valid, rejected } = validatePersonas(accepted);

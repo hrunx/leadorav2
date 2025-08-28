@@ -230,7 +230,7 @@ export async function executeAdvancedMarketResearch(searchData: {
   user_id: string;
 }) {
   const model = gemini.getGenerativeModel({
-    model: 'gemini-2.0-flash-exp',
+    model: 'gemini-2.0-flash',
     tools: [{
       functionDeclarations: [
         webSearchTool,

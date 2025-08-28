@@ -141,6 +141,20 @@ export function resolveModel(tier: ModelTier = 'primary'): string {
 }
 
 // Helpers for unified chat calls
+function parseNumber(v: any, d = 0): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+
+function computeCostUsdFromUsage(model: string, usage: any): number {
+  const prompt = parseNumber(usage?.prompt_tokens ?? usage?.input_tokens, 0);
+  const completion = parseNumber(usage?.completion_tokens ?? usage?.output_tokens, 0);
+  const inPer1k = parseNumber(process.env.OPENAI_COST_INPUT_PER_1K ?? process.env.OPENAI_COST_PROMPT_PER_1K, 0);
+  const outPer1k = parseNumber(process.env.OPENAI_COST_OUTPUT_PER_1K ?? process.env.OPENAI_COST_COMPLETION_PER_1K, 0);
+  const cost = (prompt / 1000) * inPer1k + (completion / 1000) * outPer1k;
+  return Math.round(cost * 1e6) / 1e6;
+}
+
 export async function callOpenAIChatJSON(params: {
   model: string;
   system?: string;
@@ -148,15 +162,38 @@ export async function callOpenAIChatJSON(params: {
   temperature?: number;
   maxTokens?: number;
   requireJsonObject?: boolean;
+  // When provided, attempts structured outputs using JSON schema
+  jsonSchema?: Record<string, any>;
+  schemaName?: string;
   verbosity?: 'low' | 'medium' | 'high';
   timeoutMs?: number;
   retries?: number;
+  meta?: { user_id?: string; search_id?: string; endpoint?: string };
 }): Promise<string> {
   const isGpt5 = /^gpt-5/i.test(params.model);
   const doCall = async () => {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), params.timeoutMs || 0);
     try {
+      let tokensUsed: number | undefined;
+      let costUsd: number | undefined;
+      const maybeLog = async () => {
+        try {
+          if (params.meta && (params.meta.user_id || params.meta.search_id)) {
+            const { logApiUsage } = await import('../tools/db.write');
+            await logApiUsage({
+              user_id: String(params.meta.user_id || ''),
+              search_id: params.meta.search_id ? String(params.meta.search_id) : undefined,
+              provider: 'openai',
+              endpoint: params.meta.endpoint || 'llm_call',
+              status: 200,
+              tokens: typeof tokensUsed === 'number' ? tokensUsed : 0,
+              cost_usd: typeof costUsd === 'number' ? costUsd : 0,
+              request: { model: params.model, schema: Boolean(params.jsonSchema) }
+            });
+          }
+        } catch {}
+      };
       if (isGpt5) {
         // Use Responses API for GPT‑5
         const input = params.system ? `System:\n${params.system}\n\nUser:\n${params.user}` : params.user;
@@ -166,15 +203,28 @@ export async function callOpenAIChatJSON(params: {
           ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
           ...(typeof params.maxTokens === 'number' ? { max_output_tokens: params.maxTokens } : {})
         };
-        if (params.requireJsonObject) {
-          // New Responses API JSON control moved under text.format
+        // Prefer JSON Schema when provided. Else fall back to simple JSON object formatting.
+        if (params.jsonSchema) {
+          req.response_format = {
+            type: 'json_schema',
+            json_schema: {
+              name: params.schemaName || 'structured_output',
+              schema: params.jsonSchema,
+              strict: true
+            }
+          };
+        } else if (params.requireJsonObject) {
           req.modalities = ['text'];
           req.text = { format: 'json' };
         }
         const res: any = await withOpenAiLimiter(() => openai.responses.create(req as any, { signal: controller.signal as any }));
+        const usage = (res as any)?.usage;
+        tokensUsed = typeof usage?.total_tokens === 'number' ? usage.total_tokens : (typeof usage?.output_tokens === 'number' ? usage.output_tokens : undefined);
+        try { costUsd = computeCostUsdFromUsage(params.model, usage); } catch {}
         const text = (res as any)?.output_text
           || ((res as any)?.output?.[0]?.content?.map?.((c: any) => c?.text || c?.content || '').join('') || '')
           || '';
+        await maybeLog();
         return String(text || '').trim();
       } else {
         // Use Chat Completions API for non‑GPT‑5
@@ -187,8 +237,19 @@ export async function callOpenAIChatJSON(params: {
           ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
           ...(typeof params.maxTokens === 'number' ? { max_tokens: params.maxTokens } : {})
         };
+        // Some models support response_format json schema; if not available, use json_object.
+        if (params.jsonSchema) {
+          payload.response_format = { type: 'json_object' };
+        } else if (params.requireJsonObject) {
+          payload.response_format = { type: 'json_object' };
+        }
         const res = await withOpenAiLimiter(() => openai.chat.completions.create(payload as any, { signal: controller.signal as any }));
-        return (res.choices?.[0]?.message?.content || '').trim();
+        const usage = (res as any)?.usage;
+        tokensUsed = typeof usage?.total_tokens === 'number' ? usage.total_tokens : undefined;
+        try { costUsd = computeCostUsdFromUsage(params.model, usage); } catch {}
+        const out = (res.choices?.[0]?.message?.content || '').trim();
+        await maybeLog();
+        return out;
       }
     } finally {
       clearTimeout(t);
@@ -269,4 +330,13 @@ export async function callDeepseekChatJSON(params: {
       await new Promise(r => setTimeout(r, 500 * attempt));
     }
   }
+}
+
+// Embeddings helper (OpenAI)
+export async function embedText(texts: string[], model = (process.env.OPENAI_EMBEDDINGS_MODEL || 'text-embedding-3-small')): Promise<number[][]> {
+  const res = await withOpenAiLimiter(() => openai.embeddings.create({
+    model,
+    input: texts,
+  } as any));
+  return (res as any).data.map((d: any) => d.embedding);
 }

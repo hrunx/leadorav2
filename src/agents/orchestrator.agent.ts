@@ -1,4 +1,5 @@
 import { Agent, tool, run } from '@openai/agents';
+import { resolveModel } from './clients';
 import logger from '../lib/logger';
 
 const startBusinessDiscovery = tool({
@@ -207,7 +208,7 @@ const startMarketResearch = tool({
 export const OrchestratorAgent = new Agent({
   name: 'MainOrchestratorAgent',
   tools: [startBusinessPersonas, startDMPersonas, startBusinessDiscovery, startMarketResearch],
-  model: 'gpt-5-mini',
+  model: resolveModel('light'),
   handoffDescription: 'Coordinates sub-agents to complete a search run',
   handoffs: [],
   instructions: `You orchestrate the entire search pipeline. Steps:
@@ -222,5 +223,4 @@ export async function runOrchestratorAgent(params: { search_id: string; user_id:
   const msg = `search_id=${params.search_id} user_id=${params.user_id}`;
   await run(OrchestratorAgent, msg);
 }
-
 

@@ -1,4 +1,4 @@
-import { callOpenAIChatJSON, callGeminiText, callDeepseekChatJSON } from './clients';
+import { callOpenAIChatJSON, callGeminiText, resolveModel } from './clients';
 import logger from '../lib/logger';
 import { insertBusinessPersonas, insertDMPersonas, insertMarketInsights, updateSearchProgress } from '../tools/db.write';
 
@@ -76,7 +76,7 @@ export async function generateBusinessPersonasFast(searchData: {
     let response = '';
     try {
       response = await callOpenAIChatJSON({
-        model: 'gpt-5-mini',
+        model: resolveModel('light'),
         user: prompt,
         temperature: 0.4,
         maxTokens: 600,
@@ -163,7 +163,7 @@ export async function generateDMPersonasFast(searchData: {
     let response = '';
     try {
       response = await callOpenAIChatJSON({
-        model: 'gpt-5-mini',
+        model: resolveModel('light'),
         user: prompt,
         temperature: 0.7,
         maxTokens: 600,
@@ -239,7 +239,7 @@ export async function generateMarketResearchFast(searchData: {
     let response = '';
     try {
       response = await callOpenAIChatJSON({
-        model: 'gpt-5-mini',
+        model: resolveModel('light'),
         user: prompt,
         temperature: 0.5,
         maxTokens: 800,
