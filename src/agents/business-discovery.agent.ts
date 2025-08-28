@@ -13,6 +13,11 @@ import type { Business } from '../tools/instant-dm-discovery';
 // Generate semantic variations of search queries using synonyms and industry jargon
 // removed multi-query generator to enforce a single precise query flow per user request
 
+// Enforce a hard timeout on the agent run so the fallback path can execute
+const AGENT_TIMEOUT_MS = Number(process.env.BIZ_DISCOVERY_AGENT_TIMEOUT_MS || process.env.BUSINESS_DISCOVERY_AGENT_TIMEOUT_MS || 12000);
+const withTimeout = async <T>(p: Promise<T>, ms: number, label = 'agent'): Promise<T> =>
+  Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`timeout:${label}`)), ms)) as any]);
+
 const serperPlacesTool = tool({
   name: 'serperPlaces',
   description: 'Search Serper Places with a specified limit (max 15).',
@@ -335,10 +340,10 @@ export async function runBusinessDiscovery(search: {
 
       try {
         const agentMessage = `search_id=${search.id} user_id=${search.user_id} product_service="${search.product_service}" industries="${search.industries.join(', ')}" countries="${country}" search_type=${search.search_type} discovery_query="${discoveryQuery}" gl=${countryToGL(country)}`;
-        await run(BusinessDiscoveryAgent, agentMessage);
+        await withTimeout(run(BusinessDiscoveryAgent, agentMessage), AGENT_TIMEOUT_MS, 'business_discovery_agent');
         logger.info('Agent discovery completed for country', { country, search_type: search.search_type });
       } catch (agentError: any) {
-        logger.warn('Agent discovery failed, falling back to manual search', { country, error: agentError.message });
+        logger.warn('Agent discovery failed or timed out, proceeding to fallback if needed', { country, error: agentError?.message || String(agentError) });
       }
 
       // Agent-only: do not run non-agent fallback; rely on Agent+tool path
