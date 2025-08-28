@@ -1,5 +1,6 @@
 import { Handler } from '@netlify/functions';
 import logger from '../../src/lib/logger';
+import { orchestrate } from '../../src/orchestration/orchestrate';
 
 // small utilities here instead of deep import chains to avoid cold-start bloat
 import { createClient } from '@supabase/supabase-js';
@@ -102,26 +103,19 @@ export const handler: Handler = async (event) => {
     // PHASE 0
     await updateProgress(search_id, 'starting', 0);
 
-    // Use Agent-driven orchestrator for coordination
-    const [{ runOrchestratorAgent }] = await Promise.all([
-      import('../../src/agents/orchestrator.agent')
-    ]);
-
-    // Single call: let the MainOrchestratorAgent coordinate sub-agents
-    await runOrchestratorAgent({ search_id, user_id });
-    // best-effort: check cancelled flag
-    const isCancelled = await (async () => {
-      try {
-        const { data } = await supa.from('user_searches').select('status').eq('id', search_id).single();
-        return (data?.status === 'cancelled');
-      } catch { return false; }
-    })();
-    if (!isCancelled) {
-      await updateProgress(search_id, 'completed', 100);
-    } else {
-      logger.info('Search was cancelled; marking cancelled state retained');
-    }
-    logger.info('Orchestration completed', { search_id });
+    // Run orchestrator in a detached async task to avoid long-running timeouts
+    setTimeout(() => {
+      orchestrate(search_id, user_id, () => {})
+        .then(async () => {
+          try { await updateProgress(search_id, 'completed', 100); } catch {}
+          logger.info('Orchestration completed (async)', { search_id });
+        })
+        .catch(async (e) => {
+          logger.error('Orchestration failed (async)', { search_id, error: (e as any)?.message || e });
+          try { await updateProgress(search_id, 'failed', 100, e); } catch {}
+        });
+    }, 0);
+    // Return immediately; background work continues
     return { statusCode: 202, headers: cors, body: 'accepted' };
   } catch (e:any) {
     logger.error('Background orchestration failed', { error: e });

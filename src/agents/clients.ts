@@ -195,7 +195,7 @@ export async function callOpenAIChatJSON(params: {
         } catch {}
       };
       if (isGpt5) {
-        // Use Responses API for GPT‑5
+        // Use Responses API for GPT‑5 with fallback to Chat Completions on schema errors
         const input = params.system ? `System:\n${params.system}\n\nUser:\n${params.user}` : params.user;
         const req: any = {
           model: params.model,
@@ -203,19 +203,43 @@ export async function callOpenAIChatJSON(params: {
           ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
           ...(typeof params.maxTokens === 'number' ? { max_output_tokens: params.maxTokens } : {})
         };
-        // Responses API expects text.format; do not send response_format or modalities here.
-        if (params.jsonSchema || params.requireJsonObject) {
-          req.text = { format: 'json' };
+        try {
+          // Prefer text.format json
+          if (params.jsonSchema || params.requireJsonObject) {
+            req.text = { format: 'json' };
+          }
+          const res: any = await withOpenAiLimiter(() => openai.responses.create(req as any, { signal: controller.signal as any }));
+          const usage = (res as any)?.usage;
+          tokensUsed = typeof usage?.total_tokens === 'number' ? usage.total_tokens : (typeof usage?.output_tokens === 'number' ? usage.output_tokens : undefined);
+          try { costUsd = computeCostUsdFromUsage(params.model, usage); } catch {}
+          const text = (res as any)?.output_text
+            || ((res as any)?.output?.[0]?.content?.map?.((c: any) => c?.text || c?.content || '').join('') || '')
+            || '';
+          await maybeLog();
+          return String(text || '').trim();
+        } catch (err: any) {
+          const msg = String(err?.message || err || '').toLowerCase();
+          // Fallback to Chat Completions when Responses rejects json formatting parameters
+          const payload: any = {
+            model: params.model,
+            messages: [
+              params.system ? { role: 'system', content: params.system } : undefined,
+              { role: 'user', content: params.user }
+            ].filter(Boolean),
+            ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
+            ...(typeof params.maxTokens === 'number' ? { max_tokens: params.maxTokens } : {})
+          };
+          if (params.jsonSchema || params.requireJsonObject) {
+            payload.response_format = { type: 'json_object' };
+          }
+          const res = await withOpenAiLimiter(() => openai.chat.completions.create(payload as any, { signal: controller.signal as any }));
+          const usage = (res as any)?.usage;
+          tokensUsed = typeof usage?.total_tokens === 'number' ? usage.total_tokens : undefined;
+          try { costUsd = computeCostUsdFromUsage(params.model, usage); } catch {}
+          const out = (res.choices?.[0]?.message?.content || '').trim();
+          await maybeLog();
+          return out;
         }
-        const res: any = await withOpenAiLimiter(() => openai.responses.create(req as any, { signal: controller.signal as any }));
-        const usage = (res as any)?.usage;
-        tokensUsed = typeof usage?.total_tokens === 'number' ? usage.total_tokens : (typeof usage?.output_tokens === 'number' ? usage.output_tokens : undefined);
-        try { costUsd = computeCostUsdFromUsage(params.model, usage); } catch {}
-        const text = (res as any)?.output_text
-          || ((res as any)?.output?.[0]?.content?.map?.((c: any) => c?.text || c?.content || '').join('') || '')
-          || '';
-        await maybeLog();
-        return String(text || '').trim();
       } else {
         // Use Chat Completions API for non‑GPT‑5
         const payload: any = {

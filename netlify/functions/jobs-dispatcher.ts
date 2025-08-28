@@ -13,11 +13,18 @@ export const handler: Handler = async (_event) => {
   const headers = { 'Content-Type': 'application/json' };
   const client = supa();
   const workerId = `netlify-${Math.random().toString(36).slice(2,8)}`;
-  const maxToClaim = 5;
+  const maxToClaim = Number(process.env.JOBS_MAX_TO_CLAIM || (process.env.NETLIFY_DEV ? 2 : 5));
+  const startAt = Date.now();
+  const budgetMs = Number(process.env.JOBS_TICK_BUDGET_MS || (process.env.NETLIFY_DEV ? 15000 : 20000));
   let processed = 0;
   try {
     logger.info('jobs-dispatcher tick', { workerId });
     for (let i = 0; i < maxToClaim; i++) {
+      // Respect a soft time budget to avoid Netlify dev timeouts
+      if (Date.now() - startAt > budgetMs) {
+        logger.info('jobs-dispatcher time budget reached; returning early', { workerId, processed, budgetMs });
+        break;
+      }
       // Claim one job at a time via RPC
       const { data: job, error } = await client.rpc('claim_job', { worker_id: workerId, wanted_types: null });
       if (error) {

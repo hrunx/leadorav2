@@ -2,19 +2,16 @@ import { glToCountryName, fetchWithTimeoutRetry, countryToGL } from './util';
 import { createClient } from '@supabase/supabase-js';
 import logger from '../lib/logger';
 
+// Avoid using import.meta in server bundles; prefer process.env.
+// For browser contexts (not expected here), callers should provide values via API.
 function getEnvVar(key: string): string | undefined {
-  // Check if we're in a browser environment (client-side)
-  if (typeof window !== 'undefined') {
-    return import.meta.env[key];
-  }
-  // Server-side (Netlify functions) - use process.env
-  else if (typeof process !== 'undefined' && process.env) {
-    return process.env[key];
-  }
-  // Fallback to import.meta.env
-  else {
-    return import.meta.env?.[key];
-  }
+  try {
+    if (typeof process !== 'undefined' && process.env && typeof process.env[key] === 'string') {
+      const v = String(process.env[key] || '').trim();
+      if (v) return v;
+    }
+  } catch {}
+  return undefined;
 }
 
 // Lightweight in-process limiter for Serper calls
@@ -64,8 +61,8 @@ export async function retryWithBackoff<T>(
 }
 
 // Optional DB-backed cache (response_cache)
-const supabaseUrl = getEnvVar('VITE_SUPABASE_URL') || getEnvVar('SUPABASE_URL');
-const supabaseKey = getEnvVar('VITE_SUPABASE_SERVICE_ROLE_KEY') || getEnvVar('SUPABASE_SERVICE_ROLE_KEY');
+const supabaseUrl = getEnvVar('SUPABASE_URL') || getEnvVar('VITE_SUPABASE_URL');
+const supabaseKey = getEnvVar('SUPABASE_SERVICE_ROLE_KEY') || getEnvVar('VITE_SUPABASE_SERVICE_ROLE_KEY');
 const supa = (supabaseUrl && supabaseKey)
   ? createClient(supabaseUrl, supabaseKey, { auth: { persistSession:false, autoRefreshToken:false } })
   : null;

@@ -79,10 +79,50 @@ const storeDMPersonasTool = tool({
             title: { type: 'string' },
             rank: { type: 'integer' },
             match_score: { type: 'integer' },
-            demographics: { type: 'object', additionalProperties: true },
-            characteristics: { type: 'object', additionalProperties: true },
-            behaviors: { type: 'object', additionalProperties: true },
-            market_potential: { type: 'object', additionalProperties: true }
+            demographics: {
+              type: 'object',
+              properties: {
+                level: { type: 'string' },
+                department: { type: 'string' },
+                experience: { type: 'string' },
+                geography: { type: 'string' }
+              },
+              required: ['level','department','experience','geography'],
+              additionalProperties: false
+            },
+            characteristics: {
+              type: 'object',
+              properties: {
+                responsibilities: { type: 'array', items: { type: 'string' } },
+                painPoints: { type: 'array', items: { type: 'string' } },
+                motivations: { type: 'array', items: { type: 'string' } },
+                challenges: { type: 'array', items: { type: 'string' } },
+                decisionFactors: { type: 'array', items: { type: 'string' } }
+              },
+              required: ['responsibilities','painPoints','motivations','challenges','decisionFactors'],
+              additionalProperties: false
+            },
+            behaviors: {
+              type: 'object',
+              properties: {
+                decisionMaking: { type: 'string' },
+                communicationStyle: { type: 'string' },
+                buyingProcess: { type: 'string' },
+                preferredChannels: { type: 'array', items: { type: 'string' } }
+              },
+              required: ['decisionMaking','communicationStyle','buyingProcess','preferredChannels'],
+              additionalProperties: false
+            },
+            market_potential: {
+              type: 'object',
+              properties: {
+                totalDecisionMakers: { type: 'number' },
+                avgInfluence: { type: 'number' },
+                conversionRate: { type: 'number' }
+              },
+              required: ['totalDecisionMakers','avgInfluence','conversionRate'],
+              additionalProperties: false
+            }
           },
           required: ['title','rank','match_score'],
           additionalProperties: false

@@ -6,10 +6,6 @@ function readEnv(key: string): string | null {
       return process.env[key] as string;
     }
   } catch {}
-  try {
-    const vite = (import.meta as any)?.env;
-    if (vite && typeof vite[key] === 'string' && vite[key].trim() !== '') return vite[key];
-  } catch {}
   return null;
 }
 
@@ -17,11 +13,8 @@ function getPlacesKey(): string | null {
   // Prefer a dedicated server key if provided, then fall back to common names
   const keys = [
     'GOOGLE_PLACES_SERVER_KEY',
-    'VITE_GOOGLE_PLACES_SERVER_KEY',
     'GOOGLE_PLACES_KEY',
-    'VITE_GOOGLE_PLACES_KEY',
-    'GOOGLE_API_KEY',
-    'VITE_GOOGLE_API_KEY'
+    'GOOGLE_API_KEY'
   ];
   for (const k of keys) {
     const v = readEnv(k);

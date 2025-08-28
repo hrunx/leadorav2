@@ -71,34 +71,9 @@ const linkedinSearchTool = tool({
     const startTime = Date.now();
 
     try {
-      // Single precise search per company to limit API usage
-      const personas = await loadDMPersonas(search_id);
-      const topTitles: string[] = Array.isArray(personas)
-        ? personas.slice(0, 4).map((p: any) => String(p?.title || '').trim()).filter(Boolean)
-        : [];
-      const fallbackTitles = ['CEO', 'CTO', 'Director', 'VP', 'Manager'];
-      const titles = topTitles.length ? topTitles : fallbackTitles;
+      // Build a single precise query per company to minimize API calls
       const ctx = (product_service || '').trim();
-      
-      // Build targeted queries with product context and decision-making keywords
-      const queries = [
-        // Persona-specific with company name
-        ...titles.map(t => `"${company_name}" site:linkedin.com/in/ "${t}" ${ctx}`),
-        
-        // Product-specific decision makers if product context exists
-        ...(ctx ? [
-          `"${company_name}" site:linkedin.com/in/ "${ctx}" (director OR manager OR head)`,
-          `"${company_name}" site:linkedin.com/in/ "${ctx}" (VP OR "Vice President")`,
-          `"${company_name}" site:linkedin.com/in/ "${ctx}" decision`,
-          `"${company_name}" site:linkedin.com/in/ "${ctx}" procurement`
-        ] : []),
-        
-        // Executive fallbacks
-        `"${company_name}" site:linkedin.com/in/ (CEO OR founder)`,
-        `"${company_name}" site:linkedin.com/in/ (CTO OR "Chief Technology Officer")`,
-        `"${company_name}" site:linkedin.com/in/ director`,
-        `"${company_name}" site:linkedin.com/in/ VP`
-      ].filter(q => q.trim().length > 0);
+      const singleQuery = `"${company_name}" site:linkedin.com/in/${ctx ? ` ${ctx}` : ''}`.trim();
 
       let allEmployees: Employee[] = [];
 
@@ -115,70 +90,28 @@ const linkedinSearchTool = tool({
         }
       })();
 
-      // Search for employees in different roles
-      for (const query of queries) {
-        try {
-
-          // Skip if we've already executed this query recently
-          if (await hasSeen(company_name, query)) {
-            continue;
-          }
-
-          // Check persistent cache to avoid repeated external calls
+      // Execute exactly one web search per company
+      try {
+        if (!(await hasSeen(company_name, singleQuery))) {
           const { data: cached } = await sharedSupa
             .from('linkedin_query_cache')
             .select('search_id')
             .eq('search_id', search_id)
             .eq('company', company_name)
-            .eq('query', query)
+            .eq('query', singleQuery)
             .gte('created_at', cacheExpiryIso)
             .maybeSingle();
-
-          if (cached) {
-            continue;
-          }
-
-          const result = await serperSearch(query, company_country, 10);
-          if (result && result.success && Array.isArray(result.items)) {
-            const employees = result.items
-              .filter((item: SerperItem) =>
-                item.link?.includes('linkedin.com/in/') &&
-                // Accept profile hits even if company not in title; keep if title OR snippet contains company
-                (
-                  item.title?.toLowerCase().includes(company_name.toLowerCase()) ||
-                  item.snippet?.toLowerCase().includes(company_name.toLowerCase()) ||
-                  true // fallback: keep broad to avoid empty results; later filtering/mapping will help
+          if (!cached) {
+            const result = await serperSearch(singleQuery, company_country, 10);
+            if (result && result.success && Array.isArray(result.items)) {
+              const employees = result.items
+                .filter((item: SerperItem) =>
+                  item.link?.includes('linkedin.com/in/') &&
+                  (
+                    item.title?.toLowerCase().includes(company_name.toLowerCase()) ||
+                    item.snippet?.toLowerCase().includes(company_name.toLowerCase())
+                  )
                 )
-              )
-              .map((item: SerperItem): Employee => ({
-                name: extractNameFromLinkedInTitle(item.title || ''),
-                title: extractTitleFromLinkedInTitle(item.title || ''),
-                company: company_name,
-                linkedin: item.link || '',
-                email: null,
-                phone: null,
-                bio: item.snippet || '',
-                location: company_country || 'Unknown',
-                enrichment_status: 'pending'
-              }));
-
-            for (const emp of employees) {
-              if (!emp.bio || emp.bio.trim() === '') emp.bio = 'Bio unavailable';
-              if (!emp.location) emp.location = 'Unknown';
-            }
-
-            // Remove blocking enrichment: do not call fetchContactEnrichment here
-            // Store employees immediately with enrichment_status: 'pending'
-            // Cap to first 5 per query to avoid rate limits downstream
-            allEmployees.push(...employees.slice(0, 5));
-          }
-          // If search returned none, try a broader Google CSE pass with company filter
-          if (!result || !result.success || !Array.isArray(result.items) || result.items.length === 0) {
-            // Broader fallback without role to avoid undefined variables and still capture profiles
-            const alt = await serperSearch(`site:linkedin.com/in/ ${company_name} ${ctx}`, company_country, 10);
-            if (alt && alt.success && Array.isArray(alt.items) && alt.items.length) {
-              const employees = alt.items
-                .filter((item: SerperItem) => item.link?.includes('linkedin.com/in/'))
                 .map((item: SerperItem): Employee => ({
                   name: extractNameFromLinkedInTitle(item.title || ''),
                   title: extractTitleFromLinkedInTitle(item.title || ''),
@@ -190,33 +123,29 @@ const linkedinSearchTool = tool({
                   location: company_country || 'Unknown',
                   enrichment_status: 'pending'
                 }));
-              allEmployees.push(...employees.slice(0, 5));
+
+              for (const emp of employees) {
+                if (!emp.bio || emp.bio.trim() === '') emp.bio = 'Bio unavailable';
+                if (!emp.location) emp.location = 'Unknown';
+              }
+
+              // Store employees immediately with enrichment_status: 'pending'
+              allEmployees.push(...employees.slice(0, 10));
             }
+
+            // Mark this query as seen and cache
+            await markSeen(company_name, singleQuery);
+            try {
+              await sharedSupa.from('linkedin_query_cache').insert({
+                search_id,
+                company: company_name,
+                query: singleQuery
+              });
+            } catch {}
           }
-
-          // Mark this query as seen to prevent future duplicates
-          await markSeen(company_name, query);
-
-          // Cache the successful query to reduce future API usage
-          try {
-            await sharedSupa.from('linkedin_query_cache').insert({
-              search_id,
-              company: company_name,
-              query
-            });
-          } catch (cacheErr) {
-            logger.warn('Failed to cache LinkedIn query', { error: (cacheErr as any)?.message || cacheErr });
-          }
-
-
-          // Small delay between searches to avoid rate limiting
-          const jitter = 200 + Math.floor(Math.random() * 200);
-          await new Promise(resolve => setTimeout(resolve, jitter));
-
-          // No hard cap; accept as many as returned from the single search
-        } catch (searchError) {
-          logger.warn('LinkedIn search failed', { query, error: (searchError as any)?.message || searchError });
         }
+      } catch (searchError) {
+        logger.warn('LinkedIn search failed', { query: singleQuery, error: (searchError as any)?.message || searchError });
       }
       
       const endTime = Date.now();
@@ -232,7 +161,7 @@ const linkedinSearchTool = tool({
           endpoint: 'linkedin_search',
           status: 200,
           ms: endTime - startTime,
-          request: { company_name, company_country, queries: queries.length },
+          request: { company_name, company_country, queries: 1 },
           response: { employees_found: allEmployees.length }
         });
       } catch (logError) {
@@ -347,7 +276,7 @@ const storeDMsTool = tool({
     // Map and extend each employee to full DecisionMaker structure
     const rows = employeesWithLocation.map((emp) => {
       // 🎯 SMART PERSONA MAPPING: Match employee to most relevant persona
-    const mappedPersona = mapDMToPersona(emp as any, dmPersonas as any) as any;
+      const mappedPersona = mapDMToPersona(emp as any, dmPersonas as any) as any;
       // Defensive: ensure company is always set
       let company = emp.company;
       if (!company || typeof company !== 'string' || !company.trim()) {
@@ -443,7 +372,7 @@ const storeDMsTool = tool({
       throw new Error('One or more decision makers are missing required fields or contain placeholders.');
     }
 
-  logger.info('Storing decision makers with persona mapping', { count: validRows.length, business_id });
+    logger.info('Storing decision makers with persona mapping', { count: validRows.length, business_id });
     const inserted = await insertDecisionMakersBasic(validRows);
 
     // Deduplicate and harden enrichment trigger in storeDMsTool: Only trigger enrichment once, always catch errors, and never block DM storage on enrichment. Add comments for clarity.
@@ -494,13 +423,11 @@ MISSION: Find LinkedIn employees for a specific company immediately when the com
 
 PROCESS:
 1. Extract company details from the user message
-2. Search LinkedIn for employees using multiple role-based queries
+2. Search LinkedIn for employees using a single, precise web search query
 3. Store decision makers with SMART PERSONA MAPPING
 
 LINKEDIN SEARCH STRATEGY:
-- Search for: CEO, CTO, CMO, CFO, VP, Directors, Managers
-- Use site:linkedin.com/in/ to find profiles
-- Include company name in quotes for accuracy
+- Use site:linkedin.com/in/ with the company name (and product context if provided)
 - Extract names, titles, and LinkedIn URLs
 
 SMART PERSONA MAPPING:
@@ -508,11 +435,6 @@ SMART PERSONA MAPPING:
   - Job title keywords (CEO→C-Level, Manager→Middle Management)
   - Department alignment (CTO→Technical, CMO→Marketing)
   - Seniority level (VP→Senior, Director→Mid-Level)
-
-CONTACT GENERATION:
-- Generate professional email: firstname.lastname@company.com
-- Mark for enrichment to get real phone numbers
-- Capture LinkedIn bio for context
 
 Be fast and accurate - users see results immediately!
 `,

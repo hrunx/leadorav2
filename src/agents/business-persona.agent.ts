@@ -69,10 +69,49 @@ const storeBusinessPersonasTool = tool({
             title: { type: 'string' },
             rank: { type: 'integer' },
             match_score: { type: 'integer' },
-            demographics: { type: 'object', additionalProperties: true },
-            characteristics: { type: 'object', additionalProperties: true },
-            behaviors: { type: 'object', additionalProperties: true },
-            market_potential: { type: 'object', additionalProperties: true },
+            demographics: {
+              type: 'object',
+              properties: {
+                industry: { type: 'string' },
+                companySize: { type: 'string' },
+                geography: { type: 'string' },
+                revenue: { type: 'string' }
+              },
+              required: ['industry','companySize','geography','revenue'],
+              additionalProperties: false
+            },
+            characteristics: {
+              type: 'object',
+              properties: {
+                painPoints: { type: 'array', items: { type: 'string' } },
+                motivations: { type: 'array', items: { type: 'string' } },
+                challenges: { type: 'array', items: { type: 'string' } },
+                decisionFactors: { type: 'array', items: { type: 'string' } }
+              },
+              required: ['painPoints','motivations','challenges','decisionFactors'],
+              additionalProperties: false
+            },
+            behaviors: {
+              type: 'object',
+              properties: {
+                buyingProcess: { type: 'string' },
+                decisionTimeline: { type: 'string' },
+                budgetRange: { type: 'string' },
+                preferredChannels: { type: 'array', items: { type: 'string' } }
+              },
+              required: ['buyingProcess','decisionTimeline','budgetRange','preferredChannels'],
+              additionalProperties: false
+            },
+            market_potential: {
+              type: 'object',
+              properties: {
+                totalCompanies: { type: 'number' },
+                avgDealSize: { type: 'string' },
+                conversionRate: { type: 'number' }
+              },
+              required: ['totalCompanies','avgDealSize','conversionRate'],
+              additionalProperties: false
+            },
             locations: { type: 'array', items: { type: 'string' } }
           },
           required: ['title','rank','match_score'],

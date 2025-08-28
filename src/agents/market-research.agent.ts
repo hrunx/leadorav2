@@ -77,6 +77,10 @@ export async function runMarketResearch(search: {
 }) {
   try {
     logger.info('Starting market research', { search_id: search.id });
+    // Declare timing and provider variables outside of try blocks so they are accessible in catch handlers
+    const startTime = Date.now();
+    const modelMini = resolveModel('primary');
+    let providerUsed: 'openai' | 'gemini' | 'deepseek' = 'openai';
     
     // Prefetch strong external sources per country and industry to ground the analysis
     const countries = (search.countries || []).slice(0, 3);
@@ -174,10 +178,7 @@ OUTPUT JSON SCHEMA EXACTLY:
   "research_methodology": "How the analysis was constructed and any assumptions"
 }`;
 
-  const startTime = Date.now();
-  const modelMini = resolveModel('primary');
   
-    let providerUsed: 'openai' | 'gemini' | 'deepseek' = 'openai';
     try {
       // 1) Try OpenAI GPT‑5 (preferred)
       let text: string | null = null;

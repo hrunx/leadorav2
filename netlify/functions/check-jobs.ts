@@ -14,11 +14,19 @@ export const handler: Handler = async (event) => {
     const search_id = (event.queryStringParameters?.search_id || '').trim();
     const client = supa();
 
-    // Aggregated counts by status
-    const { data: counts } = await client
+    // Aggregated counts by status (compute client-side for compatibility)
+    const { data: statusRows } = await client
       .from('jobs')
-      .select('status, count:id', { head: false })
-      .group('status');
+      .select('status')
+      .order('created_at', { ascending: false })
+      .limit(500);
+    const counts = Array.isArray(statusRows)
+      ? Object.entries(statusRows.reduce((acc: Record<string, number>, r: any) => {
+          const s = String(r?.status || 'queued');
+          acc[s] = (acc[s] || 0) + 1;
+          return acc;
+        }, {})).map(([status, count]) => ({ status, count }))
+      : [];
 
     let jobs: any[] = [];
     if (search_id) {
