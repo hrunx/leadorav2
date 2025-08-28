@@ -21,13 +21,16 @@ export const handler: Handler = async (event) => {
   const origin = event.headers.origin || event.headers.Origin || '';
   const cors = {
     'Access-Control-Allow-Origin': origin || '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Vary': 'Origin'
   };
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   try {
-    const { search_id } = JSON.parse(event.body || '{}');
+    // Support both POST (body) and GET (query param)
+    const jsonBody = (() => { try { return JSON.parse(event.body || '{}'); } catch { return {}; } })() as any;
+    const querySearchId = event.queryStringParameters?.search_id || '';
+    const search_id = String(jsonBody?.search_id || querySearchId || '').trim();
     if (!search_id) {
       return { statusCode: 400, body: JSON.stringify({ error: 'search_id required' }) };
     }
