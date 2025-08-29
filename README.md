@@ -4,22 +4,21 @@ This system discovers and maps ideal customers/suppliers, enriches decision make
 
 ### Architecture v2 (high‑level)
 - Frontend: Vite + React + TypeScript + Tailwind
-- Backend: Netlify Functions (TypeScript), scheduled worker for jobs
-- Agents/LLMs: OpenAI GPT‑5 family (primary), Gemini 2.0 Flash (fallback), DeepSeek (fallback)
-- Data: Supabase (DB + Realtime)
-- Discovery: Serper (Search/Places), fallbacks to Google CSE and Google Places
-- Validation: Zod schemas + OpenAI Structured Outputs (JSON Schema)
+- Backend: Netlify Functions (TypeScript)
+  - Sequential background pipeline: `orchestrator-run-background`
+  - Scheduled workers: `jobs-dispatcher` (queue), `jobs-sweeper` (maintenance)
+- LLMs: OpenAI GPT‑5 family (primary via Responses), Gemini 2.0 Flash (fallback), DeepSeek (fallback)
+- Data: Supabase (DB + Realtime + pgvector)
+- Discovery: Serper (Places/Search) with Google Places/CSE fallbacks and DB cache
+- Validation: Zod schemas + OpenAI Responses JSON Schema (strict)
 
-### Execution model
-1) Start: `/.netlify/functions/orchestrator-start` triggers `orchestrator-run-background`.
-2) Orchestration: `src/orchestration/orchestrate.ts` launches 4 agents (parallel):
-   - Business Personas (3)
-   - DM Personas (3)
-   - Business Discovery (Places→insert)
-   - Market Research (TAM/SAM/SOM + citations)
-3) Fast inserts only: Agents/tools insert minimal rows and enqueue heavy work (no long tool calls).
-4) Jobs drain: Scheduled worker `jobs-dispatcher` claims and processes work (every minute).
-5) Live progress: `/.netlify/functions/check-progress` + Supabase Realtime update the UI.
+### Execution model (sequential + durable)
+1) Trigger: POST `/.netlify/functions/orchestrator-run-background` with `{ search_id, user_id }`
+2) Background pipeline runs phases in order (each durable via `job_tasks`):
+   - personas → discovery → dm_enrichment → market_research
+3) Each phase writes results + progress; pipeline can resume after crash.
+4) Jobs queue continues to handle embeddings/mapping and other async tasks.
+5) Progress polling: GET `/.netlify/functions/check-progress?search_id=...` (weighted % + per‑phase status)
 
 ### Jobs (durable background tasks)
 Table: `public.jobs` with `claim_job/complete_job/fail_job/heartbeat_job` RPCs
@@ -31,6 +30,7 @@ Table: `public.jobs` with `claim_job/complete_job/fail_job/heartbeat_job` RPCs
 - `compute_dm_embeddings` — embeds `decision_makers` rows
 
 Worker: `/.netlify/functions/jobs-dispatcher` (see netlify.toml ‘scheduled.functions’)
+Sweeper: `/.netlify/functions/jobs-sweeper` (purges cache, requeues stuck tasks)
 Debug: `/.netlify/functions/check-jobs?search_id=…`
 
 ### Embedding‑first persona mapping
@@ -53,16 +53,14 @@ Debug: `/.netlify/functions/check-jobs?search_id=…`
 - Response cache tracks source as `serper`, `google_places`, or `google_cse`.
 
 ### Key files
-- Orchestrator (Agent): `src/agents/orchestrator.agent.ts`
-- Orchestration logic: `src/orchestration/orchestrate.ts`
-- Business personas: `src/agents/business-persona.agent.ts`
-- DM personas: `src/agents/dm-persona.agent.ts`
-- Business discovery: `src/agents/business-discovery.agent.ts`
-- DM discovery (per business): `src/agents/dm-discovery-individual.agent.ts`
-- Market research: `src/agents/market-research.agent.ts`
-- Persona mapping: `src/tools/persona-mapper.ts`
-- Serper client: `src/tools/serper.ts`
+- Pipeline entry: `netlify/functions/orchestrator-run-background.ts`
+- Stages: `src/stages/01-personas.ts`, `02-discovery.ts`, `03-dm-enrichment.ts`, `04-market.ts`
+- Responses client: `src/lib/responsesClient.ts`
+- Schemas: `src/schemas/personas.ts`, `src/schemas/market.ts`
+- Limits/Retry/Idempotency: `src/lib/limiters.ts`, `src/lib/retry.ts`, `src/lib/idempotency.ts`
+- Embeddings: `src/lib/embeddings.ts`
 - Jobs worker: `netlify/functions/jobs-dispatcher.ts`, handlers `src/jobs/handlers.ts`
+- Progress endpoints: `netlify/functions/check-progress.ts`, `check-jobs.ts`
 
 ### Environment variables (server + browser)
 - Supabase
@@ -84,15 +82,24 @@ Debug: `/.netlify/functions/check-jobs?search_id=…`
 > Provide both `VITE_*` and non‑prefixed variants where used on both client and server.
 
 ### Local dev
-1) `npm ci`
-2) `npm run dev` (Vite + Netlify Functions)
-3) Typecheck + lint: `npm run typecheck` + `npm run lint -- --fix`
+1) Install deps: `npm ci`
+2) Apply SQL in Supabase:
+   - `schema.jobs-and-embeddings.sql`
+   - `schema.sequential-pipeline.sql` (adds idempotency index, vector indexes, dedupe, RPCs)
+3) Set environment variables (Netlify → Site → Env, and `.env` for local)
+4) Start dev: `npm run dev`
+5) Trigger background run:
+   - `curl -XPOST http://localhost:8888/.netlify/functions/orchestrator-run-background -H 'Content-Type: application/json' -d '{"search_id":"<uuid>","user_id":"<uuid>"}'`
+6) Poll progress:
+   - `curl 'http://localhost:8888/.netlify/functions/check-progress?search_id=<uuid>'`
+7) Build: `npm run build` (checks bundling)
 
 ### Operations
 - Inspect jobs: `/.netlify/functions/check-jobs`
+- Check pipeline progress: `/.netlify/functions/check-progress?search_id=…`
 - Monitor API usage: rows in `api_usage_logs` (tokens always, cost optional)
 - Tune rate limits: `OPENAI_MAX_CONCURRENT`, `OPENAI_MIN_DELAY_MS`
-- Migrations: run `schema.jobs-and-embeddings.sql` on Supabase once
+- Migrations: run `schema.jobs-and-embeddings.sql` on Supabase; apply indexes from `schema.md` as needed
 
 ### Security & privacy
 - No secrets in client bundles; writes only from Netlify functions

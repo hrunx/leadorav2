@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { runMarketResearch } from '../../src/agents/market-research.agent';
+import { runMarket } from '../../src/stages/04-market';
 
 export const handler: Handler = async (event) => {
   const cors = {
@@ -27,18 +27,18 @@ export const handler: Handler = async (event) => {
     if (error || !search) {
       return { statusCode: 404, headers: cors, body: JSON.stringify({ error: 'search_not_found' }) };
     }
-    await runMarketResearch({
-      id: search.id,
+    const segment = ((search.search_type as string) === 'supplier') ? 'suppliers' : 'customers';
+    await runMarket({
+      search_id: search.id,
       user_id: search.user_id,
-      product_service: search.product_service,
-      industries: search.industries || [],
-      countries: search.countries || [],
-      search_type: (search.search_type as 'customer' | 'supplier') || 'customer'
+      segment,
+      industries: (search.industries || []) as string[],
+      countries: (search.countries || []) as string[],
+      query: String(search.product_service || '')
     });
     return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true }) };
   } catch (e: any) {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: e?.message || 'retry_failed' }) };
   }
 };
-
 

@@ -1,72 +1,65 @@
 ---
 alwaysApply: true
 ---
-    }));
-    return { success:true as const, items };
-  }catch(e:any){ return { success:false as const, error:e.message }; }
-}
 
-export async function serperSearch(q:string, gl:string, num=10){
-  try{
-    const r = await fetch('https://google.serper.dev/search', {
-      method:'POST',
-      headers:{ 'X-API-KEY':process.env.SERPER_KEY!, 'Content-Type':'application/json' },
-      body: JSON.stringify({ q, gl, num })
-    });
-    if(!r.ok) return { success:false as const, error:`${r.status}` };
-    const j = await r.json();
-    const items = (j.organic || []).slice(0,num).map((x:any)=>({
-      title:x.title, link:x.link, snippet:x.snippet
-    }));
-    return { success:true as const, items };
-  }catch(e:any){ return { success:false as const, error:e.message }; }
-}
+Leadora v2 – Sequential, Durable, Schema‑Strict Pipeline
 
-11.3 Orchestrator (SSE skeleton)
+Entrypoint
+- Background: `/.netlify/functions/orchestrator-run-background`
+  - POST body: `{ "search_id": "<uuid>", "user_id": "<uuid>" }`
+  - Runs phases in order, updating `jobs` and `job_tasks` for durability.
 
-// api/agents/orchestrate.ts
-import type { Handler } from '@netlify/functions';
-import { orchestrate } from '../../src/agents';
+Phases
+1) Personas: `src/stages/01-personas.ts`
+   - OpenAI Responses + JSON Schema (Zod)
+   - Insert 3 business personas and compute embeddings
+2) Discovery: `src/stages/02-discovery.ts`
+   - Serper Places (fallback to Google Places)
+   - Insert businesses, compute embeddings, map to best persona via pgvector
+3) DM Enrichment: `src/stages/03-dm-enrichment.ts`
+   - Uses existing instant DM discovery for each business
+4) Market Research: `src/stages/04-market.ts`
+   - OpenAI Responses + strict Zod schema; upsert to `market_insights.payload`
 
-export const handler: Handler = async (event) => {
-  if (event.httpMethod !== 'POST') return { statusCode:405, body:'Method Not Allowed' };
-  const { search_id, user_id } = JSON.parse(event.body||'{}');
-  const headers = {
-    'Content-Type':'text/event-stream', 'Cache-Control':'no-cache', Connection:'keep-alive'
-  };
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (type:string, data:any) =>
-        controller.enqueue(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
-      try {
-        await orchestrate(search_id, user_id, send);
-        send('DONE', { ok:true });
-      } catch (e:any) {
-        send('ERROR', { stage:'orchestrate', message:e.message });
-      } finally {
-        controller.close();
-      }
-    }
-  });
-  // @ts-ignore
-  return new Response(stream, { status:200, headers });
-};
+Progress
+- GET `/.netlify/functions/check-progress?search_id=...`
+  - Returns weighted overall percent and per‑phase status
+- Weights: personas:25, discovery:35, dm_enrichment:20, market_research:20
 
+Jobs & Maintenance
+- Queue worker: `/.netlify/functions/jobs-dispatcher` (scheduled every minute)
+- Sweeper: `/.netlify/functions/jobs-sweeper` (every 15m)
+  - Purges `idempotency_cache` expired rows
+  - Requeues `job_tasks` stuck in `running` > 20 minutes
 
-⸻
+Strict Outputs
+- Responses wrapper: `src/lib/responsesClient.ts`
+- Schemas: `src/schemas/personas.ts`, `src/schemas/market.ts`
+- Embeddings: `src/lib/embeddings.ts` (text‑embedding‑3‑small by default)
 
-12) What Cursor Must Ask Before Coding
-	•	Confirm country list → gl mapping additions needed?
-	•	Confirm size/revenue placeholders for businesses (we’ll derive simple heuristics if Serper lacks).
-	•	Confirm UI step triggers (advance to next page on event type or when count met?).
+Limits & Reliability
+- Global rate limiters via Bottleneck: `src/lib/limiters.ts`
+- Retries via `p-retry`: `src/lib/retry.ts`
+- Idempotent compute/cache: `src/lib/idempotency.ts` → table `idempotency_cache`
 
-⸻
+Environment
+- OPENAI_API_KEY, OPENAI_PRIMARY_MODEL, OPENAI_LIGHT_MODEL, OPENAI_EMBEDDINGS_MODEL
+- SERPER_KEY, (optional) GOOGLE_PLACES_SERVER_KEY / GOOGLE_PLACES_KEY / GOOGLE_API_KEY
+- SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
-Start point for Cursor:
-	1.	Create files per the layout.
-	2.	Implement tools/clients.ts, tools/serper.ts, tools/country.ts.
-	3.	Implement agents/business-persona.agent.ts & agents/dm-persona.agent.ts (DeepSeek).
-	4.	Implement agents/business-discovery.agent.ts (Serper Places + bucketing).
-	5.	Implement agents/dm-discovery.agent.ts (Serper web + mapping).
-	6.	Implement agents/market-research.agent.ts (Gemini).
-	7.	Wire api/agents/orchestrate.ts SSE and hooks/useSearchRun.ts.
+Database
+- pgvector enabled; `embedding vector(1536)` columns on personas, businesses, decision_makers
+- RPCs: `set_*_embedding`, `match_business_best_persona(business_id)`
+- Dedupe: unique indices on businesses per (search_id, lower(name), lower(country)); on DMs per (search_id, linkedin)
+
+Local Flow
+1) `npm ci`
+2) Apply SQL (jobs + pgvector + RPCs)
+3) Start dev: `npm run dev`
+4) Trigger: POST `/.netlify/functions/orchestrator-run-background`
+5) Poll: GET `/.netlify/functions/check-progress?search_id=...`
+6) Inspect: `/.netlify/functions/check-jobs?search_id=...`
+
+Notes
+- Prefer server‑controlled sequential flow to avoid race/timeout issues.
+- Keep UI polling against DB‑anchored progress (no in‑memory states).

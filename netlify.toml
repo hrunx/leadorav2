@@ -12,3 +12,7 @@ external_node_modules = []
 name = "jobs-dispatcher"
 # Run every minute to drain the queue quickly without hammering
 schedule = "* * * * *"
+
+[[scheduled.functions]]
+name = "jobs-sweeper"
+schedule = "*/15 * * * *"

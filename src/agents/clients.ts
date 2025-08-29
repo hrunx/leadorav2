@@ -217,8 +217,8 @@ export async function callOpenAIChatJSON(params: {
             || '';
           await maybeLog();
           return String(text || '').trim();
-        } catch (err: any) {
-          const msg = String(err?.message || err || '').toLowerCase();
+        } catch (_err: any) {
+          void _err;
           // Fallback to Chat Completions when Responses rejects json formatting parameters
           const payload: any = {
             model: params.model,

@@ -12,6 +12,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "bottleneck": "^2.19.5",
+    "object-hash": "^3.0.0",
+    "p-retry": "^6.2.0",
     "@google/generative-ai": "0.18.0",
     "@openai/agents": "0.0.14",
     "@openai/agents-core": "0.0.14",
@@ -21,6 +24,7 @@
     "cheerio": "^1.0.0-rc.12",
     "lucide-react": "^0.344.0",
     "openai": "^4.53.0",
+    "ulid": "^2.3.0",
     "zod-to-json-schema": "^3.23.5",
     "p-limit": "^5.0.0",
     "react": "^18.3.1",

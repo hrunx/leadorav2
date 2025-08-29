@@ -1,85 +1,61 @@
 import { Handler } from '@netlify/functions';
 import logger from '../../src/lib/logger';
-import { orchestrate } from '../../src/orchestration/orchestrate';
+import { supaServer } from '../../src/lib/supaServer';
+import { runPersonas } from '../../src/stages/01-personas';
+import { runDiscovery } from '../../src/stages/02-discovery';
+import { runDMEnrichment } from '../../src/stages/03-dm-enrichment';
+import { runMarket } from '../../src/stages/04-market';
 
-// small utilities here instead of deep import chains to avoid cold-start bloat
-import { createClient } from '@supabase/supabase-js';
-// Removed unused OpenAI import
+const supa = supaServer();
+const supaAny = supa as any;
 
-const SUPABASE_URL_BG = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY_BG = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY!;
-const supa = createClient(SUPABASE_URL_BG, SUPABASE_SERVICE_ROLE_KEY_BG, { auth: { persistSession: false } });
-// Remove unused client instance to avoid warnings
-
-const sleep = (ms:number)=>new Promise(r=>setTimeout(r,ms));
-const withTimeout = <T>(p:Promise<T>, ms:number, label='op') =>
-  Promise.race([p, new Promise<T>((_,rej)=>setTimeout(()=>rej(new Error(`timeout:${label}`)),ms))]);
-
-// Simple rate limiter without external deps
-const createLimiter = (maxConcurrent: number) => {
-  let running = 0;
-  const queue: Array<() => void> = [];
-  
-  return async <T>(fn: () => Promise<T>): Promise<T> => {
-    return new Promise((resolve, reject) => {
-      const execute = async () => {
-        running++;
-        try {
-          const result = await fn();
-          resolve(result);
-        } catch (error) {
-          reject(error);
-        } finally {
-          running--;
-          if (queue.length > 0) {
-            const next = queue.shift()!;
-            next();
-          }
-        }
-      };
-
-      if (running < maxConcurrent) {
-        execute();
-      } else {
-        queue.push(execute);
-      }
-    });
-  };
-};
-
-const limiter = createLimiter(5); // cap parallelism
-
-async function logUsage(input: {
-  user_id: string; search_id: string;
-  provider: 'serper'|'deepseek'|'gemini'|'openai';
-  endpoint: string; status: number; ms: number;
-  request?: any; response?: any; error?: string;
-}) {
-  try {
-    await supa.from('api_usage_logs').insert({
-      user_id: input.user_id, search_id: input.search_id, provider: input.provider,
-      endpoint: input.endpoint, status: input.status, ms: input.ms,
-      request: input.request ?? {}, response: input.response ?? {}, created_at: new Date().toISOString(),
-      cost_usd: 0, tokens: 0
-    });
-  } catch {}
+async function ensureTask(job_id: string, name: string) {
+  await supaAny.from('job_tasks').upsert({ job_id, name, idempotency_key: `${job_id}:${name}` }, { onConflict: 'job_id,name' });
 }
-
-async function updateProgress(search_id:string, phase:string, pct:number, error?:any) {
-  const status = phase === 'completed' ? 'completed' : phase === 'failed' ? 'failed' : phase === 'cancelled' ? 'cancelled' : 'in_progress';
-  await supa.from('user_searches').update({
-    phase, status, progress_pct: pct, updated_at: new Date().toISOString(),
-    ...(error ? { error: { message: String(error?.message||error) } } : {})
-  }).eq('id', search_id);
+async function startTask(name: string, job_id: string) {
+  // attempt increment via RPC or raw SQL is not available; do simple update
+  const { data } = await supaAny.from('job_tasks').select('attempt').eq('job_id', job_id).eq('name', name).maybeSingle();
+  const attempt = (data && typeof (data as any).attempt === 'number') ? (data as any).attempt + 1 : 1;
+  await supaAny.from('job_tasks').update({ status: 'running', progress: 0, started_at: new Date().toISOString(), attempt }).eq('job_id', job_id).eq('name', name);
 }
-
-async function retry<T>(fn:()=>Promise<T>, tries=3) {
-  try { return await fn(); } catch (e:any) {
-    if (tries<=1 || String(e?.status) !== '429') throw e;
-    // Use deterministic delay to avoid random timing issues
-  await sleep(500); // Fixed 500ms delay for consistency
-    return retry(fn, tries-1);
+async function completeTask(name: string, job_id: string) {
+  await supaAny.from('job_tasks').update({ status: 'succeeded', progress: 100, finished_at: new Date().toISOString() }).eq('job_id', job_id).eq('name', name);
+}
+async function markFailed(job_id: string, error: string) {
+  await supaAny.from('job_tasks').update({ status: 'failed', error }).eq('job_id', job_id).neq('status', 'succeeded');
+  await supaAny.from('jobs').update({ status: 'failed' }).eq('id', job_id);
+}
+async function upsertJob(search_id: string, user_id: string) {
+  const { data: existing } = await supaAny
+    .from('jobs')
+    .select('id,status')
+    .eq('payload->>search_id', search_id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing && (existing as any).id) {
+    await supaAny.from('jobs').update({ status: 'running' }).eq('id', (existing as any).id);
+    return (existing as any).id as string;
   }
+  const { data: created } = await supaAny
+    .from('jobs')
+    .insert({ type: 'sequential_pipeline', payload: { search_id, user_id }, status: 'running' })
+    .select('id')
+    .single();
+  return (created as any).id as string;
+}
+async function loadInputs(search_id: string) {
+  const { data } = await supaAny
+    .from('user_searches')
+    .select('id,user_id,search_type,industries,countries,product_service')
+    .eq('id', search_id)
+    .single();
+  if (!data) throw new Error('search_not_found');
+  const seg = ((data as any).search_type === 'supplier') ? 'suppliers' : 'customers';
+  const industries = Array.isArray((data as any).industries) ? (data as any).industries as string[] : [];
+  const countries = Array.isArray((data as any).countries) ? (data as any).countries as string[] : [];
+  const query = String((data as any).product_service || '');
+  return { segment: seg as 'customers'|'suppliers', industries, countries, query, user_id: String((data as any).user_id) };
 }
 
 export const handler: Handler = async (event) => {
@@ -92,45 +68,58 @@ export const handler: Handler = async (event) => {
     'Vary': 'Origin'
   };
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
-  // background functions return 202 immediately, Netlify runs the handler async
-  let cancelled = false;
   try {
     const { search_id, user_id } = JSON.parse(event.body || '{}');
     if (!search_id || !user_id) return { statusCode: 400, headers: cors, body: 'search_id and user_id required' };
+    logger.info('Starting sequential pipeline', { search_id, user_id });
 
-    logger.info('Starting background orchestration', { search_id, user_id });
+    // create or resume job and tasks
+    const job_id = await upsertJob(search_id, user_id);
+    await ensureTask(job_id, 'personas');
+    await ensureTask(job_id, 'discovery');
+    await ensureTask(job_id, 'dm_enrichment');
+    await ensureTask(job_id, 'market_research');
 
-    // PHASE 0
-    await updateProgress(search_id, 'starting', 0);
+    const inputs = await loadInputs(search_id);
+    logger.info('Loaded inputs', { search_id, segment: inputs.segment, industries: inputs.industries, countries: inputs.countries, query: inputs.query });
 
-    // Await orchestrator to ensure background functions continue execution reliably in production
-    await orchestrate(search_id, user_id, () => {});
-    // best-effort: check cancelled flag
-    const isCancelled = await (async () => {
-      try {
-        const { data } = await supa.from('user_searches').select('status').eq('id', search_id).single();
-        return (data?.status === 'cancelled');
-      } catch { return false; }
-    })();
-    if (!isCancelled) {
-      await updateProgress(search_id, 'completed', 100);
-    } else {
-      logger.info('Search was cancelled; marking cancelled state retained');
-    }
-    logger.info('Orchestration completed', { search_id });
-    return { statusCode: 202, headers: cors, body: 'accepted' };
-  } catch (e:any) {
-    logger.error('Background orchestration failed', { error: e });
-    // best-effort: try to log search_id if present
     try {
-      const { search_id, user_id } = JSON.parse(event.body || '{}');
-      await updateProgress(search_id, 'failed', 100, e);
-      await logUsage({
-        user_id, search_id, provider: 'openai', endpoint: 'orchestration',
-        status: 500, ms: 0, error: e.message
-      });
-    } catch {}
-    return { statusCode: 202, headers: cors, body: 'accepted' }; // background function always returns 202
+      await startTask('personas', job_id);
+      logger.info('Running personas stage', { search_id });
+      await runPersonas({ ...inputs, search_id });
+      await completeTask('personas', job_id);
+      logger.info('Personas stage completed', { search_id });
+
+      await startTask('discovery', job_id);
+      logger.info('Running discovery stage', { search_id });
+      await runDiscovery({ search_id, user_id: inputs.user_id, industries: inputs.industries, countries: inputs.countries, query: inputs.query });
+      await completeTask('discovery', job_id);
+      logger.info('Discovery stage completed', { search_id });
+
+      await startTask('dm_enrichment', job_id);
+      logger.info('Running dm_enrichment stage', { search_id });
+      await runDMEnrichment({ search_id, user_id: inputs.user_id });
+      await completeTask('dm_enrichment', job_id);
+      logger.info('DM enrichment stage completed', { search_id });
+
+      await startTask('market_research', job_id);
+      logger.info('Running market_research stage', { search_id });
+      await runMarket({ search_id, user_id: inputs.user_id, segment: inputs.segment, industries: inputs.industries, countries: inputs.countries, query: inputs.query });
+      await completeTask('market_research', job_id);
+      logger.info('Market research stage completed', { search_id });
+
+      await supaAny.from('jobs').update({ status: 'done' }).eq('id', job_id);
+      await supaAny.from('user_searches').update({ phase: 'completed', status: 'completed', progress_pct: 100, updated_at: new Date().toISOString() }).eq('id', search_id);
+      logger.info('Sequential pipeline completed', { search_id });
+      return { statusCode: 202, headers: cors, body: 'accepted' };
+    } catch (e: any) {
+      await markFailed(job_id, String(e?.message || e));
+      await supaAny.from('user_searches').update({ phase: 'failed', status: 'failed', progress_pct: 0, error: { message: String(e?.message || e) }, updated_at: new Date().toISOString() }).eq('id', search_id);
+      throw e;
+    }
+  } catch (e:any) {
+    logger.error('Sequential pipeline failed', { error: e?.message || e });
+    return { statusCode: 202, headers: cors, body: 'accepted' };
   } finally {
     // no-op
   }

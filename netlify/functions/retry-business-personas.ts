@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { runBusinessPersonas } from '../../src/agents/business-persona.agent';
+import { runPersonas } from '../../src/stages/01-personas';
 
 export const handler: Handler = async (event) => {
   const cors = {
@@ -39,14 +39,15 @@ export const handler: Handler = async (event) => {
       .delete()
       .eq('search_id', search_id);
       
-    // Regenerate personas
-    await runBusinessPersonas({
-      id: String(search.id),
+    // Regenerate personas using sequential stage
+    const segment = ((search.search_type as string) === 'supplier') ? 'suppliers' : 'customers';
+    await runPersonas({
+      search_id: String(search.id),
       user_id: String(search.user_id),
-      product_service: String(search.product_service || ''),
-      industries: Array.isArray(search.industries) ? search.industries : [],
-      countries: Array.isArray(search.countries) ? search.countries : [],
-      search_type: (search.search_type as 'customer' | 'supplier') || 'customer'
+      segment: segment as 'customers'|'suppliers',
+      industries: Array.isArray(search.industries) ? (search.industries as string[]) : [],
+      countries: Array.isArray(search.countries) ? (search.countries as string[]) : [],
+      query: String(search.product_service || '')
     });
     
     // Trigger business-persona remapping after regeneration
@@ -62,5 +63,4 @@ export const handler: Handler = async (event) => {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: e?.message || 'retry_failed' }) };
   }
 };
-
 

@@ -1,187 +1,111 @@
 import type { Handler } from '@netlify/functions';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
-function getSupa(): SupabaseClient | null {
-  const url = process.env.VITE_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !serviceKey) return null;
-  return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+function supa() {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
-const supa = getSupa();
 
-// UUID validation regex
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const WEIGHTS: Record<string, number> = {
+  personas: 25,
+  discovery: 35,
+  dm_enrichment: 20,
+  market_research: 20
+};
 
-// Simple in-memory throttle/cache to reduce DB load and noisy logs during polling
-// Cache responses for a very short TTL (e.g., 1500ms) per search_id
-const cache = new Map<string, { ts: number; body: string }>();
-const TTL_MS = 1500;
+function derivePhaseFromTasks(phases: Array<{ name: string; status: string }>): string {
+  const order = ['personas','discovery','dm_enrichment','market_research'];
+  for (let i = 0; i < order.length; i++) {
+    const name = order[i];
+    const t = phases.find(p => p.name === name);
+    if (!t || t.status === 'queued' || t.status === 'running' || t.status === 'failed') {
+      switch (name) {
+        case 'personas': return 'business_personas';
+        case 'discovery': return 'business_discovery';
+        case 'dm_enrichment': return 'decision_makers';
+        case 'market_research': return 'market_research';
+      }
+    }
+  }
+  return 'completed';
+}
 
 export const handler: Handler = async (event) => {
-  const origin = event.headers.origin || event.headers.Origin || '';
-  const cors = {
-    'Access-Control-Allow-Origin': origin || '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, apikey, X-Requested-With',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Vary': 'Origin'
-  };
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
+  const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': event.headers.origin || '*' };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
+
+  // Accept both GET ?search_id=... and POST { search_id }
+  let search_id = (event.queryStringParameters?.search_id || '').trim();
+  if (!search_id && event.httpMethod === 'POST') {
+    try { search_id = String((JSON.parse(event.body || '{}') || {}).search_id || '').trim(); } catch {}
+  }
+  if (!search_id) return { statusCode: 400, headers, body: JSON.stringify({ error: 'search_id required' }) };
+
+  const client = supa();
   try {
-    // Support both POST (body) and GET (query param)
-    const jsonBody = (() => { try { return JSON.parse(event.body || '{}'); } catch { return {}; } })() as any;
-    const querySearchId = event.queryStringParameters?.search_id || '';
-    const search_id = String(jsonBody?.search_id || querySearchId || '').trim();
-    if (!search_id) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'search_id required' }) };
-    }
+    // Most recent job for this search
+    const { data: job } = await client
+      .from('jobs')
+      .select('id, status, created_at')
+      .or(`payload->>search_id.eq.${search_id}`)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    // Throttle: return cached response if within TTL
-    const now = Date.now();
-    const cached = cache.get(search_id);
-    if (cached && now - cached.ts < TTL_MS) {
-      return { statusCode: 200, headers: cors, body: cached.body };
-    }
+    // Counts for convenience/back-compat with UI
+    const count = async (table: string) => {
+      const { count } = await client.from(table).select('id', { count: 'exact', head: true }).eq('search_id', search_id);
+      return count || 0;
+    };
+    const [bp, dmp, biz, dm, mi] = await Promise.all([
+      count('business_personas'),
+      count('decision_maker_personas'),
+      count('businesses'),
+      count('decision_makers'),
+      count('market_insights')
+    ]);
 
-    // Handle fallback/non-UUID search IDs (offline mode)
-    if (!UUID_REGEX.test(search_id)) {
+    if (!job) {
       return {
-        statusCode: 200,
-        headers: cors,
-        body: JSON.stringify({
-          search_id,
-          progress: { phase: 'offline', progress_pct: 0, status: 'offline' },
+        statusCode: 200, headers, body: JSON.stringify({
+          overall: 0,
+          phases: [],
+          status: 'queued',
+          job_id: null,
+          // Back-compat payload
+          progress: { phase: 'starting', progress_pct: 0, status: 'queued', updated_at: new Date().toISOString() },
           data_counts: {
-            business_personas: 0,
-            businesses: 0,
-            dm_personas: 0,
-            decision_makers: 0,
-            market_insights: 0
-          },
-          recent_api_calls: []
+            businesses: biz, business_personas: bp, dm_personas: dmp, decision_makers: dm, market_insights: mi
+          }
         })
       };
     }
+    const job_id = (job as any).id as string;
+    const { data: tasks } = await client
+      .from('job_tasks')
+      .select('name,status,progress,attempt,started_at,finished_at,error')
+      .eq('job_id', job_id);
+    const phases = (tasks || []).map(t => ({
+      name: (t as any).name,
+      status: (t as any).status,
+      progress: Number((t as any).progress || 0),
+      attempt: Number((t as any).attempt || 0),
+      started_at: (t as any).started_at,
+      finished_at: (t as any).finished_at,
+      error: (t as any).error || null
+    }));
+    const overall = phases.reduce((acc, p) => acc + ((WEIGHTS[p.name] || 0) * (p.progress || 0)) / 100, 0);
+    const status = (job as any).status || 'queued';
 
-    // Get search progress (via Supabase if available, else via proxy)
-    let search: any = null;
-    let searchError: any = null;
-    if (supa) {
-      const { data, error } = await supa
-        .from('user_searches')
-        .select('phase, progress_pct, status, error, updated_at')
-        .eq('id', search_id)
-        .single();
-      search = data; searchError = error;
-    } else {
-      try {
-        const resp = await fetch(`${process.env.URL || 'http://localhost:8888'}/.netlify/functions/user-data-proxy?table=user_searches&search_id=${search_id}`, { headers: { Accept: 'application/json' } });
-        if (resp.ok) {
-          const arr = await resp.json();
-          search = Array.isArray(arr) && arr.length ? arr[0] : null;
-        }
-      } catch {}
-    }
+    // Back-compat progress shape
+    const derivedPhase = derivePhaseFromTasks(phases);
+    const progress_pct = Math.round(overall);
+    const progress = { phase: derivedPhase, progress_pct, status, updated_at: new Date().toISOString() };
+    const data_counts = { businesses: biz, business_personas: bp, dm_personas: dmp, decision_makers: dm, market_insights: mi };
 
-    // Handle case where search doesn't exist (fallback/offline search)
-    if (searchError) {
-      if (searchError.code === 'PGRST116') {
-        // Search not found - return fallback response for offline/fallback searches
-        return {
-          statusCode: 200,
-          headers: cors,
-          body: JSON.stringify({
-            search_id,
-            progress: { phase: 'offline', progress_pct: 0, status: 'offline' },
-            data_counts: {
-              business_personas: 0,
-              businesses: 0,
-              dm_personas: 0,
-              decision_makers: 0,
-              market_insights: 0
-            },
-            recent_api_calls: []
-          })
-        };
-      }
-      throw searchError;
-    }
-
-    // Get recent API logs (with error handling)
-    let logs: any[] = [];
-    if (supa) {
-      const { data } = await supa
-        .from('api_usage_logs')
-        .select('provider, endpoint, status, ms, created_at')
-        .eq('search_id', search_id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      logs = data || [];
-    }
-
-    // Get data counts (with error handling)
-    async function countViaProxy(table: string, extra: string = ''): Promise<number> {
-      try {
-        const u = `${process.env.URL || 'http://localhost:8888'}/.netlify/functions/user-data-proxy?table=${table}&search_id=${search_id}${extra}`;
-        const r = await fetch(u, { headers: { Accept: 'application/json' } });
-        if (r.ok) {
-          const arr = await r.json();
-          return Array.isArray(arr) ? arr.length : 0;
-        }
-      } catch {}
-      return 0;
-    }
-
-    const [businessPersonasCount, businessesCount, dmPersonasCount, dmsCount, dmsPendingCount, dmsDoneCount, marketInsightsCount] = supa
-      ? await Promise.all([
-          supa.from('business_personas').select('id').eq('search_id', search_id),
-          supa.from('businesses').select('id').eq('search_id', search_id),
-          supa.from('decision_maker_personas').select('id').eq('search_id', search_id),
-          supa.from('decision_makers').select('id').eq('search_id', search_id),
-          // Consider both 'pending' and 'attempted' as not yet completed enrichment
-          supa.from('decision_makers').select('id').eq('search_id', search_id).in('enrichment_status', ['pending','attempted']),
-          // Consider 'done' and 'enriched' as completed enrichment
-          supa.from('decision_makers').select('id').eq('search_id', search_id).in('enrichment_status', ['done','enriched']),
-          supa.from('market_insights').select('id').eq('search_id', search_id)
-        ]).then(([bp, biz, dmp, dm, dmpend, dmdone, mi]) => [
-          bp.data?.length || 0,
-          biz.data?.length || 0,
-          dmp.data?.length || 0,
-          dm.data?.length || 0,
-          dmpend.data?.length || 0,
-          dmdone.data?.length || 0,
-          mi.data?.length || 0,
-        ])
-      : await Promise.all([
-          countViaProxy('business_personas'),
-          countViaProxy('businesses'),
-          countViaProxy('decision_maker_personas'),
-          countViaProxy('decision_makers'),
-          countViaProxy('decision_makers', '&enrichment_status=eq.pending'),
-          countViaProxy('decision_makers', '&enrichment_status=eq.done'),
-          countViaProxy('market_insights'),
-        ]);
-
-    const body = JSON.stringify({
-        search_id,
-        progress: search,
-        data_counts: {
-          business_personas: businessPersonasCount,
-          businesses: businessesCount,
-          dm_personas: dmPersonasCount,
-          decision_makers: dmsCount,
-          decision_makers_pending: dmsPendingCount,
-          decision_makers_done: dmsDoneCount,
-          market_insights: marketInsightsCount
-        },
-        recent_api_calls: logs
-      });
-    cache.set(search_id, { ts: Date.now(), body });
-    return { statusCode: 200, headers: cors, body };
-  } catch (error: any) {
-    return {
-      statusCode: 500,
-      headers: cors,
-      body: JSON.stringify({ error: error.message })
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ overall, phases, status, job_id, progress, data_counts }) };
+  } catch (e: any) {
+    return { statusCode: 500, headers, body: JSON.stringify({ error: e?.message || 'failed' }) };
   }
 };

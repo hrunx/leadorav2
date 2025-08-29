@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { MarketInsightsInsertSchema } from '../lib/marketInsightsSchema';
 
 // Create a memoized client for Netlify functions/server usage only
-let _supaWrite: ReturnType<typeof createClient> | null = null;
+let _supaWrite: any = null;
 const getSupabaseClient = () => {
   if (typeof window !== 'undefined') {
     throw new Error('db.write.ts must not be imported/used in the browser');
@@ -14,7 +14,7 @@ const getSupabaseClient = () => {
   const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL) throw new Error('supabaseUrl is required. Set SUPABASE_URL or VITE_SUPABASE_URL');
   if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('supabaseKey is required. Set SUPABASE_SERVICE_ROLE_KEY or VITE_SUPABASE_SERVICE_ROLE_KEY');
-  _supaWrite = createClient(
+  _supaWrite = createClient<any>(
     SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY,
     {
@@ -142,15 +142,15 @@ export const insertBusinesses = async (rows: BusinessInsertRow[]) => {
     } catch (e: any) { logger.warn('enqueue jobs failed (businesses)', { error: e?.message || e }); }
   }
   // Ensure returned objects include mandatory fields promised by callers
-  const ensured = (data || []).map((ret, idx) => {
-    const src = rows[idx] || rows[0];
+  const ensured = (data || []).map((ret: any, idx: number) => {
+    const src = (rows[idx] || rows[0]) as BusinessInsertRow;
     return {
-      ...ret,
-      country: ret.country ?? src.country,
-      industry: ret.industry ?? src.industry,
-    };
+      ...(ret as Record<string, unknown>),
+      country: (ret as any).country ?? src.country,
+      industry: (ret as any).industry ?? src.industry,
+    } as any;
   });
-  return ensured as typeof data;
+  return ensured as any;
 };
 
 export const insertDMPersonas = async (rows: any[]) => {

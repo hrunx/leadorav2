@@ -19,9 +19,9 @@ export const supabase = createClient(
   supabaseAnonKey,
   {
     auth: {
-      // Reduce multiple GoTrueClient warnings by not persisting session across tabs if already present
-      persistSession: typeof window !== 'undefined' && import.meta.env.MODE !== 'development',
-      autoRefreshToken: typeof window !== 'undefined' && import.meta.env.MODE !== 'development',
+      // Persist session across reloads in all modes to avoid dev logouts
+      persistSession: typeof window !== 'undefined',
+      autoRefreshToken: typeof window !== 'undefined',
       storage: typeof window !== 'undefined' ? window.localStorage : undefined
     },
     global: {
