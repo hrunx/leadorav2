@@ -10,21 +10,22 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 export async function respondJSON<T extends z.ZodTypeAny>(opts: {
   model?: string; system: string; user: string; schema: T; temperature?: number;
 }): Promise<z.infer<T>> {
-  const jsonSchema = zodToJsonSchema(opts.schema, 'Out');
+  const jsonSchema = zodToJsonSchema(opts.schema, 'Out') as any;
+  const objectSchema = (jsonSchema?.definitions?.Out) || (jsonSchema?.$defs?.Out) || jsonSchema;
   const model = opts.model ?? process.env.OPENAI_PRIMARY_MODEL ?? 'gpt-5';
   const callResponses = async () => {
     logger.info('[OPENAI] responses.create start', { model, temperature: opts.temperature ?? 0.2 });
     const r = await openai.responses.create({
       model,
       input: [
-        { role: 'system', content: `${opts.system}\nReturn ONLY JSON. No explanations.` },
-        { role: 'user', content: opts.user }
+        { role: 'system', content: `${opts.system}\nReturn only json (lowercase). No explanations.` },
+        { role: 'user', content: `${opts.user}\n\nReply with json.` }
       ],
       text: {
         format: {
           type: 'json_schema',
           name: 'Out',
-          schema: jsonSchema as any,
+          schema: objectSchema,
           strict: true
         }
       },
@@ -39,8 +40,8 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
     const r = await openai.chat.completions.create({
       model,
       messages: [
-        { role: 'system', content: `${opts.system}\nALWAYS return a single JSON object. No explanations.` },
-        { role: 'user', content: `Schema (JSON Schema named Out): ${JSON.stringify(jsonSchema)}\n\nUser Input:\n${opts.user}\n\nReturn ONLY JSON.` }
+        { role: 'system', content: `${opts.system}\nAlways return a single json object. No explanations.` },
+        { role: 'user', content: `json schema (name: Out): ${JSON.stringify(objectSchema)}\n\nuser input:\n${opts.user}\n\nReturn only json (lowercase).` }
       ],
       response_format: { type: 'json_object' }
     } as any);

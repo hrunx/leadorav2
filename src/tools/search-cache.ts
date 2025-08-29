@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import logger from '../lib/logger';
+import { buildProxyUrl } from '../utils/baseUrl';
 import type { Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
 
 export interface CachedSearchData {
@@ -54,7 +55,25 @@ class SearchCacheManager {
     }
 
     try {
-      // Check database cache
+      // Proxy-first to avoid CORS/RLS issues from the browser
+      const proxyUrl = buildProxyUrl('search_cache', { search_id: searchId });
+      const resp = await fetch(proxyUrl, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
+      if (resp.ok) {
+        const arr = await resp.json();
+        const cacheEntry = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
+        if (cacheEntry) {
+          const cachedData = this.parseCacheEntry(cacheEntry);
+          if (!forceRefresh && this.isCacheValid(cachedData, ttlHours)) {
+            if (cachedData.isComplete || includeIncomplete) {
+              this.updateMemoryCache(searchId, cachedData);
+              logger.debug('Serving search from proxy cache', { searchId });
+              return cachedData;
+            }
+          }
+        }
+      }
+
+      // Fallback to direct Supabase in case proxy is unavailable
       const { data: cacheEntry, error } = await supabase
         .from('search_cache')
         .select('*')
@@ -64,7 +83,7 @@ class SearchCacheManager {
         .single();
 
       if (error) {
-        if (error.code !== 'PGRST116') { // Not found error
+        if (error.code !== 'PGRST116') {
           logger.warn('Error fetching search cache', { searchId, error: error.message });
         }
         return null;
@@ -72,11 +91,8 @@ class SearchCacheManager {
 
       if (cacheEntry) {
         const cachedData = this.parseCacheEntry(cacheEntry);
-        
-        // Check if cache is still valid
         if (!forceRefresh && this.isCacheValid(cachedData, ttlHours)) {
           if (cachedData.isComplete || includeIncomplete) {
-            // Update memory cache
             this.updateMemoryCache(searchId, cachedData);
             logger.debug('Serving search from database cache', { searchId });
             return cachedData;

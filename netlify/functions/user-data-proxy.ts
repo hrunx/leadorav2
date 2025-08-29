@@ -99,6 +99,7 @@ export const handler: Handler = async (event) => {
     market_insights: 'market_insights',
     campaign_recipients: 'campaign_recipients',
     subscriptions: 'subscriptions',
+    search_cache: 'search_cache',
     app_users: 'app_users'
   };
 
