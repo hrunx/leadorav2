@@ -18,9 +18,11 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
         { role: 'system', content: opts.system },
         { role: 'user', content: opts.user }
       ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: { name: 'Out', schema: jsonSchema, strict: true }
+      text: {
+        format: {
+          type: 'json_schema',
+          json_schema: { name: 'Out', schema: jsonSchema, strict: true }
+        }
       },
       temperature: opts.temperature ?? 0.2
     } as any);
@@ -34,8 +36,7 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
         { role: 'system', content: opts.system },
         { role: 'user', content: opts.user }
       ],
-      response_format: { type: 'json_object' },
-      temperature: opts.temperature ?? 0.2
+      response_format: { type: 'json_object' }
     } as any);
     const text = (r as any).choices?.[0]?.message?.content || '{}';
     return JSON.parse(String(text || '{}'));
