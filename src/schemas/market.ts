@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-const Source = z.object({ title: z.string(), url: z.string().url(), date: z.string() });
+// Avoid z.string().url() because it converts to JSON Schema format "uri",
+// which the OpenAI Responses API rejects. Use a permissive http(s) pattern instead.
+const HttpUrl = z.string().regex(/^https?:\/\/[^\s]+$/i, 'Invalid URL');
+
+const Source = z.object({ title: z.string(), url: HttpUrl, date: z.string() });
 
 export const Market = z.object({
   tam: z.object({ value: z.string(), method: z.string(), sources: z.array(Source).min(2) }),

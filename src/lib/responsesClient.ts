@@ -18,8 +18,8 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
     const r = await openai.responses.create({
       model,
       input: [
-        { role: 'system', content: `${opts.system}\nReturn only json (lowercase). No explanations.` },
-        { role: 'user', content: `${opts.user}\n\nReply with json.` }
+        { role: 'system', content: `${opts.system}\nReturn ONLY valid JSON. No explanations.` },
+        { role: 'user', content: `${opts.user}\n\nReply with a single JSON object.` }
       ],
       text: {
         format: {
@@ -29,7 +29,7 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
           strict: true
         }
       },
-      temperature: opts.temperature ?? 0.2
+      // Omit temperature for GPT‑5 to avoid 400 'Only default (1) supported'
     } as any);
     const text = (r as any).output_text ?? ((r as any).output && JSON.stringify((r as any).output)) ?? '{}';
     logger.info('[OPENAI] responses.create ok', { bytes: String(text || '').length });
@@ -40,8 +40,8 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
     const r = await openai.chat.completions.create({
       model,
       messages: [
-        { role: 'system', content: `${opts.system}\nAlways return a single json object. No explanations.` },
-        { role: 'user', content: `json schema (name: Out): ${JSON.stringify(objectSchema)}\n\nuser input:\n${opts.user}\n\nReturn only json (lowercase).` }
+        { role: 'system', content: `${opts.system}\nReturn ONLY valid JSON object. No explanations.` },
+        { role: 'user', content: `json schema (name: Out): ${JSON.stringify(objectSchema)}\n\nuser input:\n${opts.user}\n\nReply with a single JSON object.` }
       ],
       response_format: { type: 'json_object' }
     } as any);
@@ -51,8 +51,14 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
   };
   try {
     const json = await withLimit(limits.openai, () => withRetry('openai.responses.json', callResponses));
+    // If schema parsing fails, do NOT fallback; surface the validation error immediately
     return opts.schema.parse(json);
   } catch (e: any) {
+    // Only fallback to chat if the error is not a Zod validation error
+    if (e && (e.name === 'ZodError' || (e.issues && Array.isArray(e.issues)))) {
+      logger.error('[OPENAI] responses.parse failed (no fallback)', { error: e?.message || e, issues: e?.issues });
+      throw e;
+    }
     logger.warn('[OPENAI] responses.create failed, using chat fallback', { error: e?.message || e });
     try {
       const json = await withLimit(limits.openai, () => withRetry('openai.chat.json', callCompletions));

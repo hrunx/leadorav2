@@ -68,16 +68,15 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
       const res = await openai.chat.completions.create({
         model: 'gpt-5-mini',
         messages: [
-          { role: 'system', content: 'You output ONLY valid JSON object.' },
-          { role: 'user', content: prompt }
+          { role: 'system', content: 'Return ONLY a valid JSON object. No explanations.' },
+          { role: 'user', content: `${prompt}\nReply with a single JSON object.` }
         ],
-        // Keep response_format for Chat Completions; safe for non-GPT-5 models
+        // json_object formatting; omit temperature for GPT‑5 models to avoid 400
         response_format: { type: 'json_object' },
-        temperature: 0.3,
         max_tokens: 800
-      });
-      responseText = res.choices?.[0]?.message?.content || '';
-      logger.info('Profile enriched with GPT-4o-mini', { dm_id: dm.id });
+      } as any);
+      responseText = (res as any).choices?.[0]?.message?.content || '';
+      logger.info('Profile enriched with GPT-5-mini', { dm_id: dm.id });
     } catch (error: any) {
       logger.warn('GPT-4o-mini failed, trying Gemini', { dm_id: dm.id, error: error?.message });
       try {

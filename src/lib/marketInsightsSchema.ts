@@ -50,9 +50,13 @@ export const OpportunitiesSchema = z.union([
   z.array(OpportunityItemSchema),
 ]);
 
+// Avoid z.string().url() because it maps to JSON Schema format "uri" which
+// is rejected by OpenAI Responses API. Use permissive http(s) regex instead.
+const HttpUrl = z.string().regex(/^https?:\/\/[^\s]+$/i, 'Invalid URL');
+
 export const SourceSchema = z.object({
   title: z.string(),
-  url: z.string().url(),
+  url: HttpUrl,
   date: z.string().optional(),
   used_for: z.array(z.string()).optional(),
 }).strict().catchall(z.any());

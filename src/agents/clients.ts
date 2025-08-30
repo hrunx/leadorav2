@@ -200,7 +200,7 @@ export async function callOpenAIChatJSON(params: {
         const req: any = {
           model: params.model,
           input,
-          ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
+          // GPT‑5 Responses API often rejects non-default temperature; omit to avoid 400s
           ...(typeof params.maxTokens === 'number' ? { max_output_tokens: params.maxTokens } : {})
         };
         try {
@@ -223,10 +223,9 @@ export async function callOpenAIChatJSON(params: {
           const payload: any = {
             model: params.model,
             messages: [
-              params.system ? { role: 'system', content: params.system } : undefined,
-              { role: 'user', content: params.user }
+              params.system ? { role: 'system', content: `${params.system}\nReturn ONLY valid JSON. No explanations.` } : { role: 'system', content: 'Return ONLY valid JSON. No explanations.' },
+              { role: 'user', content: `${params.user}\nReply with a single JSON object.` }
             ].filter(Boolean),
-            ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
             ...(typeof params.maxTokens === 'number' ? { max_tokens: params.maxTokens } : {})
           };
           if (params.jsonSchema || params.requireJsonObject) {
@@ -245,10 +244,9 @@ export async function callOpenAIChatJSON(params: {
         const payload: any = {
           model: params.model,
           messages: [
-            params.system ? { role: 'system', content: params.system } : undefined,
-            { role: 'user', content: params.user }
+            params.system ? { role: 'system', content: `${params.system}\nReturn ONLY valid JSON. No explanations.` } : { role: 'system', content: 'Return ONLY valid JSON. No explanations.' },
+            { role: 'user', content: `${params.user}\nReply with a single JSON object.` }
           ].filter(Boolean),
-          ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
           ...(typeof params.maxTokens === 'number' ? { max_tokens: params.maxTokens } : {})
         };
         // Some models support response_format json schema; if not available, use json_object.

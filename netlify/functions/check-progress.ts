@@ -44,11 +44,12 @@ export const handler: Handler = async (event) => {
 
   const client = supa();
   try {
-    // Most recent job for this search
+    // Most recent orchestrator job for this search (exclude sub-jobs like embeddings/mapping)
     const { data: job } = await client
       .from('jobs')
       .select('id, status, created_at')
-      .or(`payload->>search_id.eq.${search_id}`)
+      .eq('type', 'sequential_pipeline')
+      .eq('payload->>search_id', search_id)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
