@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import logger from '../lib/logger';
-import { buildProxyUrl } from '../utils/baseUrl';
+// import { buildProxyUrl } from '../utils/baseUrl';
 import type { Business, DecisionMakerPersona, DecisionMaker, MarketInsight } from '../lib/supabase';
 
 export interface CachedSearchData {
@@ -55,37 +55,17 @@ class SearchCacheManager {
     }
 
     try {
-      // Proxy-first to avoid CORS/RLS issues from the browser
-      const proxyUrl = buildProxyUrl('search_cache', { search_id: searchId });
-      const resp = await fetch(proxyUrl, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
-      if (resp.ok) {
-        const arr = await resp.json();
-        const cacheEntry = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
-        if (cacheEntry) {
-          const cachedData = this.parseCacheEntry(cacheEntry);
-          if (!forceRefresh && this.isCacheValid(cachedData, ttlHours)) {
-            if (cachedData.isComplete || includeIncomplete) {
-              this.updateMemoryCache(searchId, cachedData);
-              logger.debug('Serving search from proxy cache', { searchId });
-              return cachedData;
-            }
-          }
-        }
-      }
-
-      // Fallback to direct Supabase in case proxy is unavailable
+      // Direct Supabase only; skip proxy to avoid 406 noise in dev
       const { data: cacheEntry, error } = await supabase
         .from('search_cache')
         .select('*')
         .eq('search_id', searchId)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (error) {
-        if (error.code !== 'PGRST116') {
-          logger.warn('Error fetching search cache', { searchId, error: error.message });
-        }
+        logger.warn('Error fetching search cache', { searchId, error: error.message });
         return null;
       }
 

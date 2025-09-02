@@ -1,6 +1,5 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { runMarket } from '../../src/stages/04-market';
 
 export const handler: Handler = async (event) => {
   const cors = {
@@ -12,7 +11,7 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: cors, body: '' };
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers: cors, body: 'Method Not Allowed' };
   try {
-    const { search_id } = JSON.parse(event.body || '{}');
+    const { search_id, user_id } = JSON.parse(event.body || '{}');
     if (!search_id || typeof search_id !== 'string') {
       return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'search_id required' }) };
     }
@@ -27,16 +26,16 @@ export const handler: Handler = async (event) => {
     if (error || !search) {
       return { statusCode: 404, headers: cors, body: JSON.stringify({ error: 'search_not_found' }) };
     }
-    const segment = ((search.search_type as string) === 'supplier') ? 'suppliers' : 'customers';
-    await runMarket({
-      search_id: search.id,
-      user_id: search.user_id,
-      segment,
-      industries: (search.industries || []) as string[],
-      countries: (search.countries || []) as string[],
-      query: String(search.product_service || '')
+    // Trigger background pipeline which includes market stage; return immediately
+    const bgResp = await fetch(`${process.env.VITE_SITE_URL || 'http://localhost:8888'}/.netlify/functions/orchestrator-run-background`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ search_id: search.id, user_id: user_id || search.user_id })
     });
-    return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true }) };
+    if (!bgResp.ok) {
+      return { statusCode: 502, headers: cors, body: JSON.stringify({ error: 'background_trigger_failed' }) };
+    }
+    return { statusCode: 202, headers: cors, body: JSON.stringify({ accepted: true }) };
   } catch (e: any) {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: e?.message || 'retry_failed' }) };
   }

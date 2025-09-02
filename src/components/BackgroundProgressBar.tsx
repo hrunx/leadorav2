@@ -54,7 +54,8 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({ searchId,
           }
         }
       } catch (error) {
-        console.error('Error checking progress:', error);
+        import('../lib/logger').then(({ default: logger }) => logger.warn('Error checking progress', { error: (error as any)?.message || error }))
+          .catch(() => {});
       }
     };
 
@@ -89,7 +90,7 @@ const BackgroundProgressBar: React.FC<BackgroundProgressBarProps> = ({ searchId,
   };
 
   return (
-    <div className="fixed top-4 right-4 z-50 max-w-sm">
+    <div className="fixed right-4 z-50 max-w-sm top-16 md:top-20">
       <div className={`bg-white rounded-lg shadow-lg border transition-all duration-300 ${
         isExpanded ? 'p-4' : 'p-3'
       }`}>

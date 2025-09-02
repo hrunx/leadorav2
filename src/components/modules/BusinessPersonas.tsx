@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import logger from '../../lib/logger';
 import { Target, Users, Building, ArrowRight, Star, TrendingUp, DollarSign, ChevronDown, ChevronUp, Eye } from 'lucide-react';
+import { getNetlifyFunctionsBaseUrl } from '../../utils/baseUrl';
 import { useAppContext } from '../../context/AppContext';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
@@ -152,7 +153,8 @@ export default function BusinessPersonas() {
   async function handleRetryBusinessPersonas() {
     try {
       if (!currentSearch?.id) return;
-      await fetch('/.netlify/functions/retry-business-personas', {
+      const base = getNetlifyFunctionsBaseUrl();
+      await fetch(`${base}/.netlify/functions/retry-business-personas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_id: currentSearch.id })
@@ -689,13 +691,26 @@ export default function BusinessPersonas() {
             <div className="mt-2 text-sm text-blue-600">More businesses loading...</div>
           )}
         </div>
-        <button
-          onClick={handleProceedToBusinessResults}
-          className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <span>Next: View Businesses</span>
-          <ArrowRight className="w-5 h-5" />
-        </button>
+        {(() => {
+          const canProceed = isDemo || (realTimeData.businesses.length > 0);
+          return (
+            <div className="flex flex-col items-end">
+              <button
+                onClick={handleProceedToBusinessResults}
+                disabled={!canProceed}
+                className={`flex items-center space-x-2 px-6 py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  canProceed ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-500'
+                }`}
+              >
+                <span>Next: View Businesses</span>
+                <ArrowRight className="w-5 h-5" />
+              </button>
+              {!canProceed && (
+                <span className="mt-1 text-xs text-gray-500">Generating places… will enable automatically</span>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">

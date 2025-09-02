@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { getNetlifyFunctionsBaseUrl } from '../utils/baseUrl';
 import logger from '../lib/logger';
 import { Search, Users, Building, UserCheck, TrendingUp, CheckCircle, Loader, AlertCircle } from 'lucide-react';
 
@@ -55,7 +56,8 @@ const AgentProgressOverlay: React.FC<AgentProgressOverlayProps> = ({
 
   const pollProgress = useCallback(async () => {
     try {
-      const response = await fetch('/.netlify/functions/check-progress', {
+      const base = getNetlifyFunctionsBaseUrl();
+      const response = await fetch(`${base}/.netlify/functions/check-progress`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_id: searchId })

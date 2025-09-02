@@ -84,12 +84,34 @@ export const handler: Handler = async (event) => {
     logger.info('Loaded inputs', { search_id, segment: inputs.segment, industries: inputs.industries, countries: inputs.countries, query: inputs.query });
 
     try {
+      // Kick off market research immediately in parallel so insights are ready early
+      await startTask('market_research', job_id);
+      logger.info('Running market_research stage (parallel)', { search_id });
+      const marketPromise = runMarket({
+        search_id,
+        user_id: inputs.user_id,
+        segment: inputs.segment,
+        industries: inputs.industries,
+        countries: inputs.countries,
+        query: inputs.query
+      })
+        .then(async () => {
+          await completeTask('market_research', job_id);
+          logger.info('Market research stage completed', { search_id });
+        })
+        .catch(async (e) => {
+          logger.error('Market research failed', { error: (e as any)?.message || e });
+          await supaAny.from('job_tasks').update({ status: 'failed', error: String((e as any)?.message || e) }).eq('job_id', job_id).eq('name', 'market_research');
+        });
+
+      // Personas first to seed roles and mapping logic
       await startTask('personas', job_id);
       logger.info('Running personas stage', { search_id });
       await runPersonas({ ...inputs, search_id });
       await completeTask('personas', job_id);
       logger.info('Personas stage completed', { search_id });
 
+      // Discovery followed by DM discovery/enrichment
       await startTask('discovery', job_id);
       logger.info('Running discovery stage', { search_id });
       await runDiscovery({ search_id, user_id: inputs.user_id, industries: inputs.industries, countries: inputs.countries, query: inputs.query });
@@ -102,11 +124,8 @@ export const handler: Handler = async (event) => {
       await completeTask('dm_enrichment', job_id);
       logger.info('DM enrichment stage completed', { search_id });
 
-      await startTask('market_research', job_id);
-      logger.info('Running market_research stage', { search_id });
-      await runMarket({ search_id, user_id: inputs.user_id, segment: inputs.segment, industries: inputs.industries, countries: inputs.countries, query: inputs.query });
-      await completeTask('market_research', job_id);
-      logger.info('Market research stage completed', { search_id });
+      // Wait for market research if still running
+      await marketPromise;
 
       await supaAny.from('jobs').update({ status: 'done' }).eq('id', job_id);
       await supaAny.from('user_searches').update({ phase: 'completed', status: 'completed', progress_pct: 100, updated_at: new Date().toISOString() }).eq('id', search_id);

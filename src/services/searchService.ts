@@ -232,7 +232,7 @@ export class SearchService {
         searches = Array.isArray(data) ? data as UserSearch[] : [];
       }
 
-      // Normalize progress and totals
+      // Normalize progress and totals (summary-only)
       const normalized = searches.map((s: UserSearch & any) => ({
         ...s,
         progress: { phase: s.phase, progress_pct: s.progress_pct, status: s.status },
@@ -242,9 +242,10 @@ export class SearchService {
 
       // Ensure descending order by timestamp
       normalized.sort((a:any,b:any)=>new Date(b.timestamp||b.created_at).getTime()-new Date(a.timestamp||a.created_at).getTime());
-
-      // Fire-and-forget: backfill totals for any search missing counts
-      void this.backfillMissingTotals(normalized);
+      
+      // NOTE: We intentionally do not backfill per-search details here to avoid
+      // issuing N requests on dashboard load for users with many searches.
+      // Totals remain as stored on each row. Detailed fetch happens on demand.
 
       this.searchesCacheByUser.set(targetUserId, { ts: Date.now(), data: normalized });
       // Evict oldest if cache grows too large
@@ -279,53 +280,7 @@ export class SearchService {
     }
   }
 
-  // Backfill totals for searches that have zero/empty totals, without blocking UI
-  private static async backfillMissingTotals(searches: any[]): Promise<void> {
-    const candidates = searches.filter(s => {
-      const t = s.totals || {};
-      const missing = (t.business_personas ?? 0) + (t.dm_personas ?? 0) + (t.businesses ?? 0) + (t.decision_makers ?? 0) + (t.market_insights ?? 0);
-      return !this.backfillInFlight.has(s.id) && missing === 0;
-    });
-    if (candidates.length === 0) return;
-
-    const limit = 3; // limit concurrency
-    const queue = [...candidates];
-    const runOne = async () => {
-      const s = queue.shift();
-      if (!s) return;
-      this.backfillInFlight.add(s.id);
-      try {
-        // Use proxy-aware getters to avoid CORS/RLS issues in browsers
-        const [bp, dmp, b, dm, mi] = await Promise.all([
-          this.getBusinessPersonas(s.id),
-          this.getDecisionMakerPersonas(s.id),
-          this.getBusinesses(s.id),
-          this.getDecisionMakers(s.id),
-          this.getMarketInsights(s.id)
-        ]);
-        const totals = {
-          business_personas: Array.isArray(bp) ? bp.length : 0,
-          dm_personas: Array.isArray(dmp) ? dmp.length : 0,
-          businesses: Array.isArray(b) ? b.length : 0,
-          decision_makers: Array.isArray(dm) ? dm.length : 0,
-          market_insights: mi ? 1 : 0,
-        } as any;
-        // Update DB, but do not block
-        void supabase.from('user_searches').update({ totals, updated_at: new Date().toISOString() }).eq('id', s.id);
-        // Also update in-memory cache entries if present (per-user caches)
-        for (const entry of this.searchesCacheByUser.values()) {
-          entry.data = entry.data.map(x => x.id === s.id ? { ...x, totals } : x);
-        }
-      } catch {
-        // ignore errors; this is best-effort
-      } finally {
-        this.backfillInFlight.delete(s.id);
-        await runOne();
-      }
-    };
-
-    await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, () => runOne()));
-  }
+  // Deprecated: totals backfill removed to prevent excessive requests on dashboard load
 
   // Count qualified leads for a user: decision makers with at least one contact handle
   static async countQualifiedLeads(userId: string): Promise<number> {
@@ -674,15 +629,27 @@ export class SearchService {
 
   // Get market insights for a search
   static async getMarketInsights(searchId: string): Promise<MarketInsight | null> {
-    // Proxy-first
+    // Proxy-first, then direct Supabase fallback if empty
     try {
       const response = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=market_insights&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
         const arr = await response.json();
-        return (Array.isArray(arr) && arr.length > 0) ? (arr[0] as any) : null;
+        if (Array.isArray(arr) && arr.length > 0) return arr[0] as any;
       }
     } catch {}
-    return null;
+    try {
+      const { data, error } = await supabase
+        .from('market_insights')
+        .select('*')
+        .eq('search_id', searchId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) return null;
+      return (data as any) || null;
+    } catch {
+      return null;
+    }
   }
 
   // Mock data generation methods (these would be replaced with actual AI generation)

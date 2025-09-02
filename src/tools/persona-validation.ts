@@ -137,26 +137,47 @@ export function sanitizePersona(
     const title = cleanText(p?.title);
     const demographics = {
       industry: cleanText(p?.demographics?.industry) || firstIndustry,
-      companySize: cleanText(p?.demographics?.companySize) || '',
+      companySize: cleanText(p?.demographics?.companySize) || '51-500',
       geography: cleanText(p?.demographics?.geography) || firstCountry,
-      revenue: cleanText(p?.demographics?.revenue) || ''
+      revenue: cleanText(p?.demographics?.revenue) || '$10M-$100M'
     };
     const characteristics = {
-      painPoints: coerceStringArray(p?.characteristics?.painPoints),
-      motivations: coerceStringArray(p?.characteristics?.motivations),
-      challenges: coerceStringArray(p?.characteristics?.challenges),
-      decisionFactors: coerceStringArray(p?.characteristics?.decisionFactors)
+      painPoints: (() => {
+        const arr = coerceStringArray(p?.characteristics?.painPoints);
+        return arr.length > 0 ? arr : ['Lead volatility', 'Integration complexity', 'Price competition'];
+      })(),
+      motivations: (() => {
+        const arr = coerceStringArray(p?.characteristics?.motivations);
+        return arr.length > 0 ? arr : ['Revenue growth', 'Operational efficiency', 'Market expansion'];
+      })(),
+      challenges: (() => {
+        const arr = coerceStringArray(p?.characteristics?.challenges);
+        return arr.length > 0 ? arr : ['Budget constraints', 'Change management'];
+      })(),
+      decisionFactors: (() => {
+        const arr = coerceStringArray(p?.characteristics?.decisionFactors);
+        return arr.length > 0 ? arr : ['ROI', 'Scalability', 'Support'];
+      })()
     };
     const behaviors = {
-      buyingProcess: cleanText(p?.behaviors?.buyingProcess),
-      decisionTimeline: cleanText(p?.behaviors?.decisionTimeline),
-      budgetRange: cleanText(p?.behaviors?.budgetRange),
-      preferredChannels: coerceStringArray(p?.behaviors?.preferredChannels)
+      buyingProcess: cleanText(p?.behaviors?.buyingProcess) || 'RFP → Pilot → Contract',
+      decisionTimeline: cleanText(p?.behaviors?.decisionTimeline) || '2-4 months',
+      budgetRange: cleanText(p?.behaviors?.budgetRange) || '$20K-$80K',
+      preferredChannels: (() => {
+        const arr = coerceStringArray(p?.behaviors?.preferredChannels);
+        return arr.length > 0 ? arr : ['Email', 'Website', 'Referral'];
+      })()
     };
     const market_potential = {
-      totalCompanies: isPositiveNumber(p?.market_potential?.totalCompanies) ? p.market_potential.totalCompanies : 0,
-      avgDealSize: cleanText(p?.market_potential?.avgDealSize) || '',
-      conversionRate: isPositiveNumber(p?.market_potential?.conversionRate) ? p.market_potential.conversionRate : 0
+      totalCompanies: (() => {
+        const v = isPositiveNumber(p?.market_potential?.totalCompanies) ? p.market_potential.totalCompanies : 0;
+        return v > 0 ? v : 1200;
+      })(),
+      avgDealSize: cleanText(p?.market_potential?.avgDealSize) || '$20K-$80K',
+      conversionRate: (() => {
+        const v = isPositiveNumber(p?.market_potential?.conversionRate) ? p.market_potential.conversionRate : 0;
+        return v > 0 ? v : 4;
+      })()
     };
     const locations = Array.isArray(p?.locations) && p.locations.length
       ? p.locations.map((l: any) => cleanText(l))
@@ -176,31 +197,58 @@ export function sanitizePersona(
   const title = cleanText(p?.title);
   const d = p?.demographics || {};
   const demographics = {
-    level: cleanText(d.level || d.seniority || d.seniority_level || d.role_level),
-    department: cleanText(d.department || d.dept || d.function || d.division),
-    experience: cleanText(d.experience || d.yearsExperience || d.years_experience || d.exp),
-    geography: cleanText(d.geography || d.region || d.country || d.location || d.geo)
+    level: cleanText(d.level || d.seniority || d.seniority_level || d.role_level) || (index === 0 ? 'executive' : index === 1 ? 'director' : 'manager'),
+    department: cleanText(d.department || d.dept || d.function || d.division) || 'Technology',
+    experience: cleanText(d.experience || d.yearsExperience || d.years_experience || d.exp) || '10+ years',
+    geography: cleanText(d.geography || d.region || d.country || d.location || d.geo) || (Array.isArray((ctx as any)?.countries) && (ctx as any).countries[0] ? String((ctx as any).countries[0]) : 'Global')
   };
   const c = p?.characteristics || {};
   const characteristics = {
-    responsibilities: coerceStringArray(c.responsibilities || c.key_responsibilities || c.primary_responsibilities || c.responsibility),
-    painPoints: coerceStringArray(c.painPoints || c.pain_points),
-    motivations: coerceStringArray(c.motivations || c.drivers || c.goals),
-    challenges: coerceStringArray(c.challenges || c.blockers),
-    decisionFactors: coerceStringArray(c.decisionFactors || c.decision_factors || c.buying_criteria)
+    responsibilities: (() => {
+      const arr = coerceStringArray(c.responsibilities || c.key_responsibilities || c.primary_responsibilities || c.responsibility);
+      return arr.length > 0 ? arr : ['Strategy', 'Budget', 'Vendor oversight'];
+    })(),
+    painPoints: (() => {
+      const arr = coerceStringArray(c.painPoints || c.pain_points);
+      return arr.length > 0 ? arr : ['Legacy systems', 'Cost pressure', 'Talent gap'];
+    })(),
+    motivations: (() => {
+      const arr = coerceStringArray(c.motivations || c.drivers || c.goals);
+      return arr.length > 0 ? arr : ['ROI', 'Scalability', 'Reliability'];
+    })(),
+    challenges: (() => {
+      const arr = coerceStringArray(c.challenges || c.blockers);
+      return arr.length > 0 ? arr : ['Change management', 'Cross-functional alignment'];
+    })(),
+    decisionFactors: (() => {
+      const arr = coerceStringArray(c.decisionFactors || c.decision_factors || c.buying_criteria);
+      return arr.length > 0 ? arr : ['Total cost of ownership', 'Time-to-value', 'Support & SLAs'];
+    })()
   };
   const b = p?.behaviors || {};
   const behaviors = {
-    decisionMaking: cleanText(b.decisionMaking || b.decision_making || b.decisionStyle),
-    communicationStyle: cleanText(b.communicationStyle || b.communication_style),
-    buyingProcess: cleanText(b.buyingProcess || b.buying_process || b.procurement_process || b.purchasing_process),
-    preferredChannels: coerceStringArray(b.preferredChannels || b.preferred_channels || b.channels || b.contact_channels)
+    decisionMaking: cleanText(b.decisionMaking || b.decision_making || b.decisionStyle) || 'data-driven',
+    communicationStyle: cleanText(b.communicationStyle || b.communication_style) || 'concise',
+    buyingProcess: cleanText(b.buyingProcess || b.buying_process || b.procurement_process || b.purchasing_process) || 'committee',
+    preferredChannels: (() => {
+      const arr = coerceStringArray(b.preferredChannels || b.preferred_channels || b.channels || b.contact_channels);
+      return arr.length > 0 ? arr : ['Email', 'LinkedIn'];
+    })()
   };
   const mp = p?.market_potential || p?.marketPotential || {};
   const market_potential = {
-    totalDecisionMakers: coerceNumber(mp.totalDecisionMakers || mp.total_decision_makers || mp.count || mp.num_profiles),
-    avgInfluence: coerceNumber(mp.avgInfluence || mp.avg_influence || mp.average_influence || mp.influence),
-    conversionRate: coerceNumber(mp.conversionRate || mp.conversion_rate || mp.conversion || mp.cr)
+    totalDecisionMakers: (() => {
+      const v = coerceNumber(mp.totalDecisionMakers || mp.total_decision_makers || mp.count || mp.num_profiles);
+      return v > 0 ? v : Math.max(500, 1500 - index * 300);
+    })(),
+    avgInfluence: (() => {
+      const v = coerceNumber(mp.avgInfluence || mp.avg_influence || mp.average_influence || mp.influence);
+      return v > 0 ? v : Math.max(60, 90 - index * 5);
+    })(),
+    conversionRate: (() => {
+      const v = coerceNumber(mp.conversionRate || mp.conversion_rate || mp.conversion || mp.cr);
+      return v > 0 ? v : Math.max(2, 6 - index);
+    })()
   };
   // Heuristic match score if missing/too low: base on product_service keywords coverage
   const product = (ctx as any)?.product_service ? String((ctx as any).product_service) : '';

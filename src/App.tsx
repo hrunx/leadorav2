@@ -104,15 +104,16 @@ function AppContent() {
       });
       
       if (cachedData) {
-        console.log('Using cached search data for view', { 
-          searchId, 
+        import('./lib/logger').then(({ default: logger }) => logger.info('Using cached search data for view', {
+          searchId,
           isComplete: cachedData.isComplete,
           businessCount: cachedData.businesses.length,
-          dmCount: cachedData.decisionMakers.length 
-        });
+          dmCount: cachedData.decisionMakers.length
+        })).catch(() => {});
       }
     } catch (error) {
-      console.warn('Failed to load cached data, will use real-time data', error);
+      import('./lib/logger').then(({ default: logger }) => logger.warn('Failed to load cached data, will use real-time data', { error: (error as any)?.message || error }))
+        .catch(() => {});
     }
 
     // Show personas screen; data hooks will load existing rows for this search

@@ -6,6 +6,7 @@ import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
 import { retryWithBackoff } from '../../tools/util';
+import { getNetlifyFunctionsBaseUrl } from '../../utils/baseUrl';
 
 import { isDemoUser } from '../../constants/demo';
 
@@ -206,12 +207,8 @@ export default function DecisionMakerProfiles() {
     let attempts = 0;
     try {
       setEnriching(true);
-      let enrichUrl = '/.netlify/functions/enrich-decision-makers';
-      if (typeof process !== 'undefined' && process.env && (process.env.URL || process.env.DEPLOY_URL)) {
-        enrichUrl = `${process.env.URL || process.env.DEPLOY_URL}/.netlify/functions/enrich-decision-makers`;
-      } else if (typeof window !== 'undefined' && window.location) {
-        enrichUrl = `${window.location.origin}/.netlify/functions/enrich-decision-makers`;
-      }
+      const base = getNetlifyFunctionsBaseUrl();
+      const enrichUrl = `${base}/.netlify/functions/enrich-decision-makers`;
       await retryWithBackoff(async () => {
         attempts++;
         return fetch(enrichUrl, {
@@ -342,13 +339,14 @@ export default function DecisionMakerProfiles() {
                     </div>
                     <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
                       <Linkedin className="w-5 h-5 text-gray-600" />
-                      <a 
-                        href={`https://${selectedEmployee.linkedin}`} 
-                        target="_blank" 
+                      <a
+                        href={`${selectedEmployee.linkedin?.startsWith('http') ? '' : 'https://'}${selectedEmployee.linkedin || ''}`}
+                        target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800"
+                        className="inline-flex items-center space-x-2 px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700"
                       >
-                        LinkedIn Profile
+                        <span>Connect on LinkedIn</span>
+                        <ArrowRight className="w-4 h-4" />
                       </a>
                     </div>
                   </div>

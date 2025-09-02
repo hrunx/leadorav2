@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { getNetlifyFunctionsBaseUrl } from '../utils/baseUrl';
 
 export function useOtpSignin() {
   const [loading, setLoading] = useState(false);
@@ -13,7 +14,8 @@ export function useOtpSignin() {
     
     try {
       // Request OTP for this user without signing in first (unified flow)
-      const res = await fetch('/.netlify/functions/auth-request-otp', {
+      const base = getNetlifyFunctionsBaseUrl();
+      const res = await fetch(`${base}/.netlify/functions/auth-request-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: input.email, purpose: 'signin' })
@@ -38,7 +40,8 @@ export function useOtpSignin() {
     setError(null);
     
     try {
-      const res = await fetch('/.netlify/functions/auth-verify-otp', {
+      const base = getNetlifyFunctionsBaseUrl();
+      const res = await fetch(`${base}/.netlify/functions/auth-verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, purpose: 'signin', code })

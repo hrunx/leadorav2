@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { z } from 'zod';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 describe('respondJSON', () => {
   const schema = z.object({ a: z.string(), n: z.number() });

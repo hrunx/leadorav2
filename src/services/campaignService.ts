@@ -3,6 +3,7 @@ import logger from '../lib/logger';
 import { DEMO_USER_ID } from '../constants/demo';
 import type { EmailCampaign, CampaignRecipient } from '../lib/supabase';
 import { emailDeliveryService, type EmailRequest } from './emailDeliveryService';
+import { getNetlifyFunctionsBaseUrl } from '../utils/baseUrl';
 
 export class CampaignService {
   // Create a new email campaign
@@ -237,7 +238,8 @@ export class CampaignService {
   // Enrich company contacts for a search via Netlify function
   static async enrichBusinessContacts(searchId: string): Promise<{ enriched: number }> {
     try {
-      const response = await fetch('/.netlify/functions/enrich-business-contacts', {
+      const base = getNetlifyFunctionsBaseUrl();
+      const response = await fetch(`${base}/.netlify/functions/enrich-business-contacts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ search_id: searchId })

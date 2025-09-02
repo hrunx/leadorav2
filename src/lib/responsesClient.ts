@@ -10,8 +10,13 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 export async function respondJSON<T extends z.ZodTypeAny>(opts: {
   model?: string; system: string; user: string; schema: T; temperature?: number;
 }): Promise<z.infer<T>> {
-  const jsonSchema = zodToJsonSchema(opts.schema, 'Out') as any;
-  const objectSchema = (jsonSchema?.definitions?.Out) || (jsonSchema?.$defs?.Out) || jsonSchema;
+  // Build JSON Schema with inlined refs to avoid Responses API $ref component resolution
+  const jsonSchemaDoc = zodToJsonSchema(opts.schema, { name: 'Out', $refStrategy: 'none' } as any) as any;
+  // Prefer inlined shape if available; otherwise extract Out
+  const extracted = (jsonSchemaDoc?.definitions?.Out) || (jsonSchemaDoc?.$defs?.Out) || jsonSchemaDoc;
+  const responsesSchema = (extracted?.type === 'object')
+    ? extracted
+    : { type: 'object', properties: extracted?.properties || {}, required: extracted?.required || [] } as any;
   const model = opts.model ?? process.env.OPENAI_PRIMARY_MODEL ?? 'gpt-5';
   const callResponses = async () => {
     logger.info('[OPENAI] responses.create start', { model, temperature: opts.temperature ?? 0.2 });
@@ -25,11 +30,10 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
         format: {
           type: 'json_schema',
           name: 'Out',
-          schema: objectSchema,
+          schema: responsesSchema,
           strict: true
         }
       },
-      // Omit temperature for GPT‑5 to avoid 400 'Only default (1) supported'
     } as any);
     const text = (r as any).output_text ?? ((r as any).output && JSON.stringify((r as any).output)) ?? '{}';
     logger.info('[OPENAI] responses.create ok', { bytes: String(text || '').length });
@@ -41,7 +45,7 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
       model,
       messages: [
         { role: 'system', content: `${opts.system}\nReturn ONLY valid JSON object. No explanations.` },
-        { role: 'user', content: `json schema (name: Out): ${JSON.stringify(objectSchema)}\n\nuser input:\n${opts.user}\n\nReply with a single JSON object.` }
+        { role: 'user', content: `json schema (name: Out): ${JSON.stringify(responsesSchema)}\n\nuser input:\n${opts.user}\n\nReply with a single JSON object.` }
       ],
       response_format: { type: 'json_object' }
     } as any);
@@ -49,23 +53,17 @@ export async function respondJSON<T extends z.ZodTypeAny>(opts: {
     logger.info('[OPENAI] chat.completions.create ok', { bytes: String(text || '').length });
     return JSON.parse(String(text || '{}'));
   };
+  let json: unknown;
   try {
-    const json = await withLimit(limits.openai, () => withRetry('openai.responses.json', callResponses));
-    // If schema parsing fails, do NOT fallback; surface the validation error immediately
-    return opts.schema.parse(json);
+    json = await withLimit(limits.openai, () => withRetry('openai.responses.json', callResponses));
   } catch (e: any) {
-    // Only fallback to chat if the error is not a Zod validation error
-    if (e && (e.name === 'ZodError' || (e.issues && Array.isArray(e.issues)))) {
-      logger.error('[OPENAI] responses.parse failed (no fallback)', { error: e?.message || e, issues: e?.issues });
-      throw e;
-    }
     logger.warn('[OPENAI] responses.create failed, using chat fallback', { error: e?.message || e });
     try {
-      const json = await withLimit(limits.openai, () => withRetry('openai.chat.json', callCompletions));
-      return opts.schema.parse(json);
+      json = await withLimit(limits.openai, () => withRetry('openai.chat.json', callCompletions));
     } catch (e2: any) {
       logger.error('[OPENAI] chat.completions fallback failed', { error: e2?.message || e2 });
       throw e2;
     }
   }
+  return opts.schema.parse(json);
 }

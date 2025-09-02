@@ -43,15 +43,8 @@ async function handleDMDiscoveryBatch(payload: { search_id: string; user_id: str
     .in('id', payload.business_ids);
   const businesses = (data || []) as any[];
   await Promise.allSettled(businesses.map(b => limit(() => processBusinessForDM(payload.search_id, payload.user_id, b, payload.product_service))));
-  // Trigger enrichment for pending DMs in this search (best-effort)
-  try {
-    const base = process.env.URL || process.env.DEPLOY_URL || process.env.LOCAL_BASE_URL || 'http://localhost:8888';
-    await fetch(`${base}/.netlify/functions/enrich-decision-makers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ search_id: payload.search_id })
-    });
-  } catch {}
+  // Manual-only enrichment: do not auto-trigger here
+  try { /* intentionally no-op */ } catch {}
 }
 
 async function computeBPEmbeddings(personaIds: string[]) {

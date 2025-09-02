@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import ReactECharts from 'echarts-for-react';
+import type { EChartsOption } from 'echarts';
 import { ZoomIn, ZoomOut, Download, Share2, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface ChartDataPoint {
@@ -12,8 +14,6 @@ interface InteractiveLineChartProps {
   title: string;
   data: ChartDataPoint[];
   height?: number;
-  showGrid?: boolean;
-  showTooltips?: boolean;
   enableZoom?: boolean;
   onPointClick?: (point: ChartDataPoint, index: number) => void;
 }
@@ -22,220 +22,67 @@ export const InteractiveLineChart: React.FC<InteractiveLineChartProps> = ({
   title,
   data,
   height = 300,
-  showGrid = true,
-  showTooltips = true,
   enableZoom = true,
   onPointClick
 }) => {
   const [zoomLevel, setZoomLevel] = useState(1);
-  const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
-  // Selected range reserved for future zoom interactions; omit state to avoid unused warnings
-
-  const chartData = useMemo(() => {
-    if (!data.length) return [];
-    
-    const maxValue = Math.max(...data.map(d => d.value));
-    const minValue = Math.min(...data.map(d => d.value));
-    const range = maxValue - minValue || 1;
-    
-    return data.map((point, index) => ({
-      ...point,
-      x: (index / (data.length - 1)) * 100,
-      y: ((maxValue - point.value) / range) * 80 + 10 // 10% padding
-    }));
-  }, [data]);
-
-  const pathData = useMemo(() => {
-    if (chartData.length < 2) return '';
-    
-    const commands = chartData.map((point, index) => 
-      `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
-    );
-    
-    return commands.join(' ');
-  }, [chartData]);
-
-  const areaPathData = useMemo(() => {
-    if (chartData.length < 2) return '';
-    
-    const linePath = pathData;
-    const firstPoint = chartData[0];
-    const lastPoint = chartData[chartData.length - 1];
-    
-    return `${linePath} L ${lastPoint.x} 90 L ${firstPoint.x} 90 Z`;
-  }, [pathData, chartData]);
 
   const handleZoom = (direction: 'in' | 'out') => {
     if (!enableZoom) return;
-    
-    if (direction === 'in' && zoomLevel < 3) {
-      setZoomLevel(prev => prev * 1.2);
-    } else if (direction === 'out' && zoomLevel > 0.5) {
-      setZoomLevel(prev => prev / 1.2);
-    }
+    if (direction === 'in' && zoomLevel < 3) setZoomLevel(prev => prev * 1.2);
+    else if (direction === 'out' && zoomLevel > 0.5) setZoomLevel(prev => prev / 1.2);
   };
 
-  const handlePointClick = (point: ChartDataPoint, index: number) => {
-    if (onPointClick) {
-      onPointClick(point, index);
-    }
-  };
-
-  const formatValue = (value: number): string => {
-    if (value >= 1000000000) {
-      return `$${(value / 1000000000).toFixed(1)}B`;
-    } else if (value >= 1000000) {
-      return `$${(value / 1000000).toFixed(1)}M`;
-    } else if (value >= 1000) {
-      return `$${(value / 1000).toFixed(1)}K`;
-    }
-    return `$${value.toFixed(0)}`;
-  };
+  const option: EChartsOption = useMemo(() => ({
+    tooltip: { trigger: 'axis', backgroundColor: '#111827', textStyle: { color: '#fff' } },
+    grid: { left: 40, right: 20, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: data.map(d => d.label), boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B' } },
+    yAxis: { type: 'value', axisLine: { lineStyle: { color: '#CBD5E1' } }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLabel: { color: '#64748B' } },
+    series: [
+      {
+        type: 'line',
+        smooth: true,
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [ { offset: 0, color: 'rgba(59,130,246,0.35)' }, { offset: 1, color: 'rgba(59,130,246,0.05)' } ]
+          }
+        },
+        lineStyle: { color: '#3b82f6', width: 2 },
+        itemStyle: { color: '#3b82f6' },
+        data: data.map(d => d.value)
+      }
+    ]
+  }), [data]);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
         <div className="flex items-center space-x-2">
           {enableZoom && (
             <>
-              <button
-                onClick={() => handleZoom('out')}
-                className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
-                disabled={zoomLevel <= 0.5}
-              >
-                <ZoomOut className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => handleZoom('in')}
-                className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
-                disabled={zoomLevel >= 3}
-              >
-                <ZoomIn className="w-4 h-4" />
-              </button>
+              <button onClick={() => handleZoom('out')} className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded" disabled={zoomLevel <= 0.5}><ZoomOut className="w-4 h-4" /></button>
+              <button onClick={() => handleZoom('in')} className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded" disabled={zoomLevel >= 3}><ZoomIn className="w-4 h-4" /></button>
             </>
           )}
-          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
-            <Download className="w-4 h-4" />
-          </button>
-          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
-            <Share2 className="w-4 h-4" />
-          </button>
+          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"><Download className="w-4 h-4" /></button>
+          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"><Share2 className="w-4 h-4" /></button>
         </div>
       </div>
-
-      {/* Chart */}
-      <div className="relative" style={{ height }}>
-        <svg
-          width="100%"
-          height="100%"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          className="overflow-visible"
-          style={{ transform: `scale(${zoomLevel})` }}
-        >
-          {/* Grid lines */}
-          {showGrid && (
-            <g className="opacity-20">
-              {[0, 25, 50, 75, 100].map(y => (
-                <line
-                  key={y}
-                  x1="0"
-                  y1={y}
-                  x2="100"
-                  y2={y}
-                  stroke="#e5e7eb"
-                  strokeWidth="0.5"
-                />
-              ))}
-              {chartData.map((_, index) => {
-                const x = (index / (chartData.length - 1)) * 100;
-                return (
-                  <line
-                    key={index}
-                    x1={x}
-                    y1="0"
-                    x2={x}
-                    y2="100"
-                    stroke="#e5e7eb"
-                    strokeWidth="0.3"
-                  />
-                );
-              })}
-            </g>
-          )}
-
-          {/* Area fill */}
-          <defs>
-            <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.3" />
-              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.05" />
-            </linearGradient>
-          </defs>
-          
-          {areaPathData && (
-            <path
-              d={areaPathData}
-              fill="url(#areaGradient)"
-              className="transition-all duration-300"
-            />
-          )}
-
-          {/* Line */}
-          {pathData && (
-            <path
-              d={pathData}
-              fill="none"
-              stroke="#3b82f6"
-              strokeWidth="2"
-              className="transition-all duration-300"
-            />
-          )}
-
-          {/* Data points */}
-          {chartData.map((point, index) => (
-            <g key={index}>
-              <circle
-                cx={point.x}
-                cy={point.y}
-                r={hoveredPoint === index ? "3" : "2"}
-                fill="#3b82f6"
-                stroke="white"
-                strokeWidth="2"
-                className="cursor-pointer transition-all duration-200"
-                onMouseEnter={() => setHoveredPoint(index)}
-                onMouseLeave={() => setHoveredPoint(null)}
-                onClick={() => handlePointClick(point, index)}
-              />
-              
-              {/* Tooltip */}
-              {showTooltips && hoveredPoint === index && (
-                <g>
-                  <foreignObject
-                    x={point.x - 30}
-                    y={point.y - 40}
-                    width="60"
-                    height="30"
-                    className="pointer-events-none"
-                  >
-                    <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 text-center">
-                      <div className="font-medium">{formatValue(point.value)}</div>
-                      <div className="text-gray-300">{point.label}</div>
-                    </div>
-                  </foreignObject>
-                </g>
-              )}
-            </g>
-          ))}
-        </svg>
-      </div>
-
-      {/* Legend */}
-      <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-        <span>{chartData[0]?.label}</span>
-        <span>{chartData[chartData.length - 1]?.label}</span>
-      </div>
+      <ReactECharts
+        option={option}
+        style={{ height }}
+        notMerge
+        lazyUpdate
+        onEvents={{ click: (e: any) => {
+          const idx = typeof e?.dataIndex === 'number' ? e.dataIndex : (typeof e?.seriesIndex === 'number' ? e.seriesIndex : undefined);
+          if (typeof idx === 'number' && onPointClick) {
+            const point = data[idx];
+            if (point) onPointClick(point, idx);
+          }
+        } }}
+      />
     </div>
   );
 };
@@ -244,100 +91,65 @@ interface InteractiveBarChartProps {
   title: string;
   data: ChartDataPoint[];
   height?: number;
-  horizontal?: boolean;
   showValues?: boolean;
   onBarClick?: (point: ChartDataPoint, index: number) => void;
+  valueFormatter?: (n: number) => string;
 }
 
 export const InteractiveBarChart: React.FC<InteractiveBarChartProps> = ({
   title,
   data,
   height = 300,
-  horizontal: _horizontal = false,
   showValues = true,
-  onBarClick
+  onBarClick,
+  valueFormatter
 }) => {
-  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
-
-  const chartData = useMemo(() => {
-    if (!data.length) return [];
-    
-    const maxValue = Math.max(...data.map(d => d.value));
-    
-    return data.map((point, index) => ({
-      ...point,
-      percentage: (point.value / maxValue) * 100,
-      color: point.color || `hsl(${210 + index * 15}, 70%, 50%)`
-    }));
-  }, [data]);
-
-  const formatValue = (value: number): string => {
-    if (value >= 1000000) {
-      return `${(value / 1000000).toFixed(1)}M`;
-    } else if (value >= 1000) {
-      return `${(value / 1000).toFixed(1)}K`;
-    }
-    return value.toString();
+  const formatShort = (n: number) => {
+    if (!Number.isFinite(n)) return '0';
+    if (n >= 1_000_000_000) return `${(n/1_000_000_000).toFixed(1)}B`;
+    if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n/1_000).toFixed(1)}K`;
+    return `${n.toFixed(0)}`;
   };
+  const option: EChartsOption = useMemo(() => ({
+    tooltip: { trigger: 'item' },
+    grid: { left: 100, right: 20, top: 10, bottom: 10, containLabel: true },
+    xAxis: { type: 'value', axisLine: { lineStyle: { color: '#CBD5E1' } }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLabel: { color: '#64748B', formatter: (val: any) => (valueFormatter ? valueFormatter(Number(val)) : formatShort(Number(val))) } },
+    yAxis: { type: 'category', data: data.map(d => d.label), axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B' } },
+    series: [
+      {
+        type: 'bar',
+        data: data.map((d, i) => ({ value: d.value, itemStyle: { color: d.color || `hsl(${210 + i * 15}, 70%, 50%)` } })),
+        label: { show: showValues, position: 'right', color: '#374151', formatter: (obj: any) => (valueFormatter ? valueFormatter(Number(obj?.value)) : formatShort(Number(obj?.value))) },
+        emphasis: { focus: 'series' },
+        barWidth: 14,
+        itemStyle: { borderRadius: [4, 6, 6, 4] }
+      }
+    ]
+  }), [data, showValues, valueFormatter]);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
         <div className="flex items-center space-x-2">
-          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
-            <Download className="w-4 h-4" />
-          </button>
-          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
-            <Share2 className="w-4 h-4" />
-          </button>
+          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"><Download className="w-4 h-4" /></button>
+          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"><Share2 className="w-4 h-4" /></button>
         </div>
       </div>
-
-      {/* Chart */}
-      <div className="space-y-4" style={{ height }}>
-        {chartData.map((point, index) => (
-          <div
-            key={index}
-            className="relative cursor-pointer group"
-            onMouseEnter={() => setHoveredBar(index)}
-            onMouseLeave={() => setHoveredBar(null)}
-            onClick={() => onBarClick?.(point, index)}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-gray-700">{point.label}</span>
-              {showValues && (
-                <span className="text-sm text-gray-500">{formatValue(point.value)}</span>
-              )}
-            </div>
-            
-            <div className="relative h-6 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-500 ease-out"
-                style={{
-                  width: `${point.percentage}%`,
-                  backgroundColor: point.color,
-                  opacity: hoveredBar === index ? 0.8 : 1,
-                  transform: hoveredBar === index ? 'scaleY(1.1)' : 'scaleY(1)'
-                }}
-              />
-              
-              {/* Hover effect */}
-              {hoveredBar === index && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-xs font-medium text-white">
-                    {point.percentage.toFixed(1)}%
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+      <ReactECharts
+        option={option}
+        style={{ height }}
+        notMerge
+        lazyUpdate
+        onEvents={{ click: (e: any) => {
+          const idx = e?.dataIndex;
+          if (typeof idx === 'number' && onBarClick) onBarClick({ label: data[idx].label, value: data[idx].value }, idx);
+        } }}
+      />
     </div>
   );
-};
+}
 
 interface InteractivePieChartProps {
   title: string;
@@ -354,129 +166,45 @@ export const InteractivePieChart: React.FC<InteractivePieChartProps> = ({
   showLegend = true,
   onSliceClick
 }) => {
-  const [hoveredSlice, setHoveredSlice] = useState<number | null>(null);
-
-  const chartData = useMemo(() => {
-    if (!data.length) return [];
-    
-    const total = data.reduce((sum, point) => sum + point.value, 0);
-    let cumulativeAngle = 0;
-    
-    return data.map((point, index) => {
-      const percentage = (point.value / total) * 100;
-      const angle = (point.value / total) * 360;
-      const startAngle = cumulativeAngle;
-      const endAngle = cumulativeAngle + angle;
-      
-      cumulativeAngle += angle;
-      
-      return {
-        ...point,
-        percentage,
-        startAngle,
-        endAngle,
-        color: point.color || `hsl(${index * 45}, 70%, 50%)`
-      };
-    });
-  }, [data]);
-
-  const createArcPath = (centerX: number, centerY: number, radius: number, startAngle: number, endAngle: number) => {
-    const start = polarToCartesian(centerX, centerY, radius, endAngle);
-    const end = polarToCartesian(centerX, centerY, radius, startAngle);
-    const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-    
-    return [
-      "M", centerX, centerY,
-      "L", start.x, start.y,
-      "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y,
-      "Z"
-    ].join(" ");
-  };
-
-  const polarToCartesian = (centerX: number, centerY: number, radius: number, angleInDegrees: number) => {
-    const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
-    return {
-      x: centerX + (radius * Math.cos(angleInRadians)),
-      y: centerY + (radius * Math.sin(angleInRadians))
-    };
-  };
-
-  const centerX = size / 2;
-  const centerY = size / 2;
-  const radius = size / 2 - 20;
+  const option: EChartsOption = useMemo(() => ({
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    legend: showLegend ? { orient: 'vertical', right: 0, top: 'middle' } : undefined,
+    series: [
+      {
+        type: 'pie',
+        radius: ['55%', '80%'],
+        center: ['40%', '50%'],
+        label: { show: false },
+        emphasis: { scale: true },
+        data: data.map((d, i) => ({ name: d.label, value: d.value, itemStyle: { color: d.color || `hsl(${i * 45},70%,50%)` } }))
+      }
+    ],
+    graphic: [
+      {
+        type: 'text', left: '40%', top: '50%', style: { text: (() => {
+          const total = data.reduce((s, p) => s + (Number(p.value) || 0), 0);
+          if (total >= 1_000_000_000) return `$${(total/1_000_000_000).toFixed(1)}B`;
+          if (total >= 1_000_000) return `$${(total/1_000_000).toFixed(1)}M`;
+          if (total >= 1_000) return `$${(total/1_000).toFixed(1)}K`;
+          return `$${total.toFixed(0)}`;
+        })(), fill: '#0f172a', fontWeight: 700, fontSize: 16, textAlign: 'center' }
+      },
+      { type: 'text', left: '40%', top: '58%', style: { text: 'Total', fill: '#64748B', fontSize: 10, textAlign: 'center' } }
+    ]
+  }), [data, showLegend]);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
         <div className="flex items-center space-x-2">
-          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
-            <Download className="w-4 h-4" />
-          </button>
-          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
-            <Share2 className="w-4 h-4" />
-          </button>
+          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"><Download className="w-4 h-4" /></button>
+          <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"><Share2 className="w-4 h-4" /></button>
         </div>
       </div>
-
-      <div className="flex items-center justify-center space-x-8">
-        {/* Chart */}
-        <div className="relative">
-          <svg width={size} height={size} className="transform -rotate-90">
-            {chartData.map((point, index) => (
-              <path
-                key={index}
-                d={createArcPath(centerX, centerY, radius, point.startAngle, point.endAngle)}
-                fill={point.color}
-                stroke="white"
-                strokeWidth="2"
-                className="cursor-pointer transition-all duration-200"
-                style={{
-                  filter: hoveredSlice === index ? 'brightness(1.1)' : 'none',
-                  transform: hoveredSlice === index ? 'scale(1.05)' : 'scale(1)',
-                  transformOrigin: `${centerX}px ${centerY}px`
-                }}
-                onMouseEnter={() => setHoveredSlice(index)}
-                onMouseLeave={() => setHoveredSlice(null)}
-                onClick={() => onSliceClick?.(point, index)}
-              />
-            ))}
-          </svg>
-          
-          {/* Center text */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900">
-                {data.reduce((sum, point) => sum + point.value, 0)}
-              </div>
-              <div className="text-sm text-gray-500">Total</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Legend */}
-        {showLegend && (
-          <div className="space-y-2">
-            {chartData.map((point, index) => (
-              <div
-                key={index}
-                className="flex items-center space-x-2 cursor-pointer"
-                onMouseEnter={() => setHoveredSlice(index)}
-                onMouseLeave={() => setHoveredSlice(null)}
-                onClick={() => onSliceClick?.(point, index)}
-              >
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: point.color }}
-                />
-                <span className="text-sm text-gray-700">{point.label}</span>
-                <span className="text-sm text-gray-500">({point.percentage.toFixed(1)}%)</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <ReactECharts option={option} style={{ height: size + 40 }} notMerge lazyUpdate onEvents={{ click: (e: any) => {
+        const idx = e?.dataIndex; if (typeof idx === 'number' && onSliceClick) onSliceClick({ label: data[idx].label, value: data[idx].value }, idx);
+      } }} />
     </div>
   );
 };
@@ -488,31 +216,119 @@ interface DrilldownPanelProps {
   children: React.ReactNode;
 }
 
-export const DrilldownPanel: React.FC<DrilldownPanelProps> = ({
-  title,
-  isOpen,
-  onToggle,
-  children
-}) => {
+export const DrilldownPanel: React.FC<DrilldownPanelProps> = ({ title, isOpen, onToggle, children }) => {
   return (
     <div className="bg-white rounded-xl border border-gray-200">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 rounded-t-xl"
-      >
+      <button onClick={onToggle} className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 rounded-t-xl">
         <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-        {isOpen ? (
-          <ChevronUp className="w-5 h-5 text-gray-500" />
-        ) : (
-          <ChevronDown className="w-5 h-5 text-gray-500" />
-        )}
+        {isOpen ? (<ChevronUp className="w-5 h-5 text-gray-500" />) : (<ChevronDown className="w-5 h-5 text-gray-500" />)}
       </button>
-      
-      {isOpen && (
-        <div className="p-4 pt-0 border-t border-gray-100">
-          {children}
-        </div>
-      )}
+      {isOpen && (<div className="p-4 pt-0 border-t border-gray-100">{children}</div>)}
+    </div>
+  );
+};
+
+// --- Additional premium charts ---
+
+export const RadarChart: React.FC<{ title: string; indicators: { name: string; max?: number }[]; values: number[]; height?: number }>
+  = ({ title, indicators, values, height = 300 }) => {
+  const option: EChartsOption = useMemo(() => ({
+    tooltip: {},
+    radar: {
+      indicator: indicators,
+      splitLine: { lineStyle: { color: ['#e5e7eb'] } },
+      splitArea: { areaStyle: { color: ['#f9fafb', '#f3f4f6'] } },
+      axisLine: { lineStyle: { color: '#cbd5e1' } }
+    },
+    series: [{ type: 'radar', areaStyle: { opacity: 0.2 }, lineStyle: { width: 2 }, data: [{ value: values, name: 'Market' }] }]
+  }), [indicators, values]);
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-6"><h3 className="text-lg font-semibold text-gray-900">{title}</h3></div>
+      <ReactECharts option={option} style={{ height }} notMerge lazyUpdate />
+    </div>
+  );
+};
+
+export const FunnelChart: React.FC<{ title: string; data: ChartDataPoint[]; height?: number }>
+  = ({ title, data, height = 300 }) => {
+  const option: EChartsOption = useMemo(() => ({
+    tooltip: { trigger: 'item', formatter: '{b}: {c}' },
+    series: [{
+      type: 'funnel',
+      left: '10%',
+      top: 10,
+      bottom: 10,
+      width: '80%',
+      minSize: '10%',
+      maxSize: '80%',
+      sort: 'descending',
+      label: { show: true, formatter: '{b}: {c}' },
+      data: data.map((d, i) => ({ name: d.label, value: d.value, itemStyle: { color: d.color || `hsl(${200 + i * 25},65%,55%)` } }))
+    }]
+  }), [data]);
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-6"><h3 className="text-lg font-semibold text-gray-900">{title}</h3></div>
+      <ReactECharts option={option} style={{ height }} notMerge lazyUpdate />
+    </div>
+  );
+};
+
+export const ScatterChart: React.FC<{ title: string; points: { name: string; x: number; y: number; size?: number; color?: string }[]; xLabel: string; yLabel: string; height?: number }>
+  = ({ title, points, xLabel, yLabel, height = 320 }) => {
+  const option: EChartsOption = useMemo(() => ({
+    tooltip: { trigger: 'item', formatter: (p: any) => `${p.name}<br/>${xLabel}: ${p.value[0]}%<br/>${yLabel}: ${p.value[1]}%` },
+    grid: { left: 40, right: 20, top: 20, bottom: 40 },
+    xAxis: { type: 'value', name: xLabel, nameLocation: 'middle', nameGap: 25, min: 0, max: 100, splitLine: { lineStyle: { color: '#e5e7eb' } } },
+    yAxis: { type: 'value', name: yLabel, nameLocation: 'end', min: -20, max: 50, splitLine: { lineStyle: { color: '#e5e7eb' } } },
+    series: [
+      {
+        type: 'scatter',
+        symbolSize: (val: any) => Math.max(8, Math.min(24, (val[2] || 10))),
+        data: points.map(p => ({ name: p.name, value: [p.x, p.y, p.size || 10], itemStyle: { color: p.color } })),
+        emphasis: { focus: 'series' }
+      }
+    ]
+  }), [points, xLabel, yLabel]);
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-6"><h3 className="text-lg font-semibold text-gray-900">{title}</h3></div>
+      <ReactECharts option={option} style={{ height }} notMerge lazyUpdate />
+    </div>
+  );
+};
+
+export const PolarBarChart: React.FC<{ title: string; data: ChartDataPoint[]; height?: number }>
+  = ({ title, data, height = 320 }) => {
+  const option: EChartsOption = useMemo(() => ({
+    angleAxis: { type: 'category', data: data.map(d => d.label) },
+    radiusAxis: {},
+    polar: {},
+    tooltip: { trigger: 'item' },
+    series: [{ type: 'bar', coordinateSystem: 'polar', data: data.map((d, i) => ({ value: d.value, itemStyle: { color: d.color || `hsl(${i * 50},70%,50%)` } })) }]
+  }), [data]);
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-6"><h3 className="text-lg font-semibold text-gray-900">{title}</h3></div>
+      <ReactECharts option={option} style={{ height }} notMerge lazyUpdate />
+    </div>
+  );
+};
+
+export const CandlestickChart: React.FC<{ title: string; data: { label: string; open: number; close: number; low: number; high: number }[]; height?: number }>
+  = ({ title, data, height = 320 }) => {
+  const option: EChartsOption = useMemo(() => ({
+    tooltip: { trigger: 'axis' },
+    grid: { left: 50, right: 20, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: data.map(d => d.label), boundaryGap: true },
+    yAxis: { scale: true, splitLine: { lineStyle: { color: '#e5e7eb' } } },
+    series: [{ type: 'candlestick', data: data.map(d => [d.open, d.close, d.low, d.high]) }]
+  }), [data]);
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-6"><h3 className="text-lg font-semibold text-gray-900">{title}</h3></div>
+      <ReactECharts option={option} style={{ height }} notMerge lazyUpdate />
     </div>
   );
 };

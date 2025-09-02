@@ -4,7 +4,7 @@ const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL ||
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
 
-function buildCorsHeaders(origin?: string, requestHeaders?: string, requestMethod?: string) {
+function buildCorsHeaders(_origin?: string, requestHeaders?: string, requestMethod?: string) {
   const allowHeaders = (requestHeaders && requestHeaders.length > 0)
     ? requestHeaders
     : 'Authorization, Content-Type, Accept, apikey, X-Requested-With';
@@ -209,4 +209,3 @@ export const handler: Handler = async (event) => {
     return { statusCode: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json', ...warnHeaders }, body: JSON.stringify([]) };
   }
 };
-

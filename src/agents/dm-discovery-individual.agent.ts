@@ -393,24 +393,8 @@ const storeDMsTool = tool({
       }, 10000);
     }
 
-    try {
-      // Trigger backend enrichment via Netlify function without blocking
-      let attempts = 0;
-      void retryWithBackoff(async () => {
-        attempts++;
-        return fetch(enrichUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ search_id })
-        });
-      }, 2)
-        .then(() => logger.debug('Triggered enrichment', { attempts }))
-        .catch(err => {
-          logger.warn('Failed to trigger enrichment', { attempts, error: (err as any)?.message || err });
-        });
-    } catch (err) {
-      logger.warn('Failed to trigger enrichment', { error: (err as any)?.message || err });
-    }
+    // Make enrichment manual-only: do not auto-trigger here. UI provides a button.
+    logger.debug('Skipping auto enrichment trigger (manual-only mode)', { search_id });
 
     return inserted;
   }

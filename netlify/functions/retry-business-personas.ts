@@ -1,6 +1,5 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { runPersonas } from '../../src/stages/01-personas';
 
 export const handler: Handler = async (event) => {
   const cors = {
@@ -27,38 +26,19 @@ export const handler: Handler = async (event) => {
     if (error || !search) {
       return { statusCode: 404, headers: cors, body: JSON.stringify({ error: 'search_not_found' }) };
     }
-    // First, clear existing persona mappings to ensure clean remapping
-    await supa
-      .from('businesses')
-      .update({ persona_id: null, persona_type: 'business_candidate' })
-      .eq('search_id', search_id);
-      
-    // Delete existing personas before regenerating
-    await supa
-      .from('business_personas')
-      .delete()
-      .eq('search_id', search_id);
-      
-    // Regenerate personas using sequential stage
-    const segment = ((search.search_type as string) === 'supplier') ? 'suppliers' : 'customers';
-    await runPersonas({
-      search_id: String(search.id),
-      user_id: String(search.user_id),
-      segment: segment as 'customers'|'suppliers',
-      industries: Array.isArray(search.industries) ? (search.industries as string[]) : [],
-      countries: Array.isArray(search.countries) ? (search.countries as string[]) : [],
-      query: String(search.product_service || '')
-    });
-    
-    // Trigger business-persona remapping after regeneration
+    // Fire-and-forget: trigger background orchestrator (sequential) which includes personas
+    const base = (process.env.NETLIFY === 'true' || process.env.URL)
+      ? (process.env.URL as string)
+      : 'http://localhost:8888';
+    // Do not await the background job; return immediately
     try {
-      const { intelligentPersonaMapping } = await import('../../src/tools/persona-mapper');
-      await intelligentPersonaMapping(search_id);
-    } catch (error: any) {
-      console.warn('Failed to remap businesses to new personas:', error?.message || error);
-    }
-    
-    return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true }) };
+      await fetch(`${base}/.netlify/functions/orchestrator-run-background`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_id: String(search.id), user_id: String(search.user_id) })
+      });
+    } catch {}
+    return { statusCode: 202, headers: cors, body: JSON.stringify({ ok: true, message: 'background_retry_started' }) };
   } catch (e: any) {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: e?.message || 'retry_failed' }) };
   }

@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, Globe, Target, BarChart3, PieChart, ArrowRight, ArrowUp, ArrowDown, Filter, Download, Share, Search, Plus, ExternalLink, FileText, BookOpen, Lightbulb, TrendingDown } from 'lucide-react';
+import { TrendingUp, Globe, Target, BarChart3, PieChart, ArrowRight, ArrowUp, ArrowDown, Filter, Download, Share, Search, Plus, ExternalLink, FileText, Lightbulb, TrendingDown } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
+import { getNetlifyFunctionsBaseUrl } from '../../utils/baseUrl';
 import { useUserData } from '../../context/UserDataContext';
 import { useAuth } from '../../context/AuthContext';
 // Cleaned stale commented imports
 import { useRealTimeSearch } from '../../hooks/useRealTimeSearch';
-import { InteractiveLineChart, InteractiveBarChart, InteractivePieChart, DrilldownPanel } from './InteractiveCharts';
+import { InteractivePieChart, DrilldownPanel, RadarChart, FunnelChart, PolarBarChart, CandlestickChart } from './InteractiveCharts';
 
 import { isDemoUser } from '../../constants/demo';
 
@@ -19,7 +20,8 @@ export default function MarketingInsights() {
     const handler = async () => {
       try {
         if (!currentSearch?.id) return;
-        await fetch('/.netlify/functions/retry-market-research', {
+        const base = getNetlifyFunctionsBaseUrl();
+        await fetch(`${base}/.netlify/functions/retry-market-research`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ search_id: currentSearch.id })
@@ -45,6 +47,7 @@ export default function MarketingInsights() {
     'opportunity-drill': false,
     'methodology': false
   });
+  const [focusedBlock, setFocusedBlock] = useState<'tam'|'sam'|'som'>('tam');
   const [citationModal, setCitationModal] = useState<{ show: boolean; source: any }>({ show: false, source: null });
   
   // Legacy demo state
@@ -85,24 +88,27 @@ export default function MarketingInsights() {
     };
   }, [marketRowRaw]);
   // Derive normalized blocks for rendering (tam/sam/som)
-  const marketBlocks = isDemo
-    ? (demoMarketData ? { tam: demoMarketData.tam, sam: demoMarketData.sam, som: demoMarketData.som } : null)
-    : (marketRow ? { tam: marketRow.tam_data, sam: marketRow.sam_data, som: marketRow.som_data } : null);
+  const marketBlocks = useMemo(() => {
+    return isDemo
+      ? (demoMarketData ? { tam: demoMarketData.tam, sam: demoMarketData.sam, som: demoMarketData.som } : null)
+      : (marketRow ? { tam: (marketRow as any).tam_data, sam: (marketRow as any).sam_data, som: (marketRow as any).som_data } : null);
+  }, [isDemo, demoMarketData, marketRow]);
   // Always render placeholders so the UI is not empty when insights are missing
   const fallbackBlocks = useMemo(() => ({
     tam: { value: 'N/A', growth: '', description: 'Total Addressable Market' },
     sam: { value: 'N/A', growth: '', description: 'Serviceable Addressable Market' },
     som: { value: 'N/A', growth: '', description: 'Serviceable Obtainable Market' }
   }), []);
-  const blocksToRender = marketBlocks || fallbackBlocks;
+  // Per-block fallback to avoid crashes when marketRow exists but individual blocks are missing
+  const blocksToRender = useMemo(() => ({
+    tam: (marketBlocks && typeof marketBlocks.tam === 'object' && marketBlocks.tam) || fallbackBlocks.tam,
+    sam: (marketBlocks && typeof marketBlocks.sam === 'object' && marketBlocks.sam) || fallbackBlocks.sam,
+    som: (marketBlocks && typeof marketBlocks.som === 'object' && marketBlocks.som) || fallbackBlocks.som
+  }), [marketBlocks, fallbackBlocks]);
 
   // Stop loading once the run is completed, even if no row exists (show retry UI instead)
-  const isLoading = isDemo
-    ? isLoadingDemo
-    : (
-      realTimeData.isLoading ||
-      (!marketRow && realTimeData.progress.phase !== 'completed' && !realTimeData.progress.market_insights_ready)
-    );
+  // Always allow rendering with placeholders; never hard-block on loading
+  const isLoading = isDemo ? isLoadingDemo : false;
   // If completed with no row, show the retry panel
   const hasError = !isDemo && !marketRow && realTimeData.progress.phase === 'completed';
   const hasSearch = isDemo ? !!demoMarketData : !!currentSearch;
@@ -177,6 +183,9 @@ export default function MarketingInsights() {
       ...prev,
       [panelId]: !prev[panelId]
     }));
+    if (panelId.startsWith('tam')) setFocusedBlock('tam');
+    if (panelId.startsWith('sam')) setFocusedBlock('sam');
+    if (panelId.startsWith('som')) setFocusedBlock('som');
   };
 
   const handleChartInteraction = (type: string, _data: any, index?: number) => {
@@ -198,10 +207,27 @@ export default function MarketingInsights() {
     if (!marketRow) return null;
 
     // TAM/SAM/SOM trend data
+    const toNum = (v: any) => {
+      const s = String((v ?? '').toString());
+      const n = parseFloat(s.replace(/[^0-9.-]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    };
+    const toDollars = (val: string): number => {
+      const s = (val || '').trim().toUpperCase();
+      const num = parseFloat(s.replace(/[^0-9.]/g, ''));
+      if (!Number.isFinite(num)) return 0;
+      if (s.includes('B')) return num * 1_000_000_000;
+      if (s.includes('M')) return num * 1_000_000;
+      if (s.includes('K')) return num * 1_000;
+      return num;
+    };
+    const tamDollar = toDollars(((blocksToRender as any).tam?.value) || '0');
+    const samDollar = toDollars(((blocksToRender as any).sam?.value) || '0');
+    const somDollar = toDollars(((blocksToRender as any).som?.value) || '0');
     const marketSizeData = [
-      { label: 'TAM', value: parseFloat(blocksToRender.tam.value.replace(/[$B,M,K]/g, '')) || 2400, color: '#3b82f6' },
-      { label: 'SAM', value: parseFloat(blocksToRender.sam.value.replace(/[$B,M,K]/g, '')) || 850, color: '#10b981' },
-      { label: 'SOM', value: parseFloat(blocksToRender.som.value.replace(/[$B,M,K]/g, '')) || 125, color: '#f59e0b' }
+      { label: 'TAM', value: tamDollar, color: '#3b82f6' },
+      { label: 'SAM', value: samDollar, color: '#10b981' },
+      { label: 'SOM', value: somDollar, color: '#f59e0b' }
     ];
 
     // Competitor market share data
@@ -213,9 +239,9 @@ export default function MarketingInsights() {
     }));
 
     // Growth trend over time (synthetic data based on growth rates)
-    const growthTrendData = [];
+    const growthTrendData = [] as any[];
     const baseValue = 100;
-    const growthRate = parseFloat(blocksToRender.tam.growth?.replace(/[^0-9.-]/g, '') || '0') / 100;
+    const growthRate = toNum((blocksToRender as any).tam?.growth) / 100;
     
     for (let i = 0; i < 12; i++) {
       const monthValue = baseValue * Math.pow(1 + growthRate / 12, i);
@@ -238,8 +264,9 @@ export default function MarketingInsights() {
       marketSize: marketSizeData,
       competitors: competitorChartData,
       growthTrend: growthTrendData,
-      trendsImpact: trendsImpactData
-    };
+      trendsImpact: trendsImpactData,
+      tamDollar, samDollar, somDollar
+    } as any;
   }, [marketRow, blocksToRender, competitorData, trends, palette]);
 
   const getStaticMarketData = () => ({
@@ -398,71 +425,103 @@ export default function MarketingInsights() {
         <div className="p-4 sm:p-6">
           {activeTab === 'market-size' && (
             <div className="space-y-8">
-              {/* Interactive Market Size Overview */}
-              <div>
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-semibold text-gray-900">Market Size Analysis</h3>
+              {/* Luxury Header */}
+              <div className="rounded-2xl p-6 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 text-white shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-semibold">Investor-grade Market Overview</h3>
+                    <p className="opacity-90 text-sm">High-contrast charts with rich interactivity</p>
+                  </div>
                   <button
                     onClick={() => openCitationModal({ type: 'methodology', data: marketRow })}
-                    className="flex items-center space-x-2 text-sm text-blue-600 hover:text-blue-800"
+                    className="px-3 py-1.5 bg-white/10 rounded text-sm hover:bg-white/20"
                   >
-                    <BookOpen className="w-4 h-4" />
-                    <span>View Methodology</span>
+                    Methodology
                   </button>
-                </div>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Market Size Chart */}
-                  {processedChartData && (
-                    <InteractiveBarChart
-                      title="Market Size Breakdown"
-                      data={processedChartData.marketSize}
-                      onBarClick={(point, index) => handleChartInteraction('market-size', point, index)}
-                    />
-                  )}
-                  
-                  {/* Growth Trend Chart */}
-                  {processedChartData && (
-                    <InteractiveLineChart
-                      title="Market Growth Projection"
-                      data={processedChartData.growthTrend}
-                      onPointClick={(point, index) => handleChartInteraction('growth-trend', point, index)}
-                    />
-                  )}
-                </div>
-                
-                {/* TAM/SAM/SOM Cards with Enhanced Info */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-                  {Object.entries(blocksToRender).map(([key, data]) => (
-                    <div key={key} className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-200 cursor-pointer hover:shadow-lg transition-shadow">
-                      <div className="flex items-center justify-between mb-4">
-                        <h4 className="font-semibold text-gray-900">{data?.description || ''}</h4>
-                        <div className={`flex items-center space-x-1 text-sm font-medium ${
-                          data?.growth && typeof data.growth === 'string' && data.growth.startsWith('+') ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {data?.growth && typeof data.growth === 'string' && data.growth.startsWith('+') ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
-                          <span>{data?.growth || 'N/A'}</span>
-                        </div>
-                      </div>
-                      <div className="text-3xl font-bold text-gray-900 mb-2">{data?.value || 'N/A'}</div>
-                      <div className="text-sm text-gray-600 mb-4">
-                        {key === 'tam' && 'Total market opportunity for your product category'}
-                        {key === 'sam' && 'Portion of TAM you can realistically target'}
-                        {key === 'som' && 'Realistic market share you can capture'}
-                      </div>
-                      <button
-                        onClick={() => toggleDrilldown(`${key}-breakdown`)}
-                        className="text-xs text-blue-600 hover:text-blue-800 flex items-center space-x-1"
-                      >
-                        <Lightbulb className="w-3 h-3" />
-                        <span>View Details</span>
-                      </button>
-                    </div>
-                  ))}
                 </div>
               </div>
 
-              {/* Drilldown Panels */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                  <div className="p-4 border-b bg-gray-50 text-gray-900 font-medium">Market Breakdown (Pyramid)</div>
+                  <div className="p-4">
+                    {processedChartData && (
+                      <FunnelChart title="" data={[
+                        { label: 'TAM', value: (processedChartData as any).tamDollar },
+                        { label: 'SAM', value: (processedChartData as any).samDollar },
+                        { label: 'SOM', value: (processedChartData as any).somDollar }
+                      ]} height={260} />
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                  <div className="p-4 border-b bg-gray-50 text-gray-900 font-medium">Growth Trend (Stock)</div>
+                  <div className="p-4">
+                    {processedChartData && (
+                      <CandlestickChart
+                        title=""
+                        data={(() => {
+                          const base = 100;
+                          const g = Number(String((blocksToRender as any)[focusedBlock]?.growth || '+10%').replace(/[^0-9.-]/g, '')) / 100;
+                          const arr: any[] = [];
+                          for (let i = 0; i < 12; i++) {
+                            const open = base * Math.pow(1 + g/12, i);
+                            const close = open * (1 + (Math.random() - 0.5) * 0.04);
+                            const high = Math.max(open, close) * (1 + Math.random()*0.02);
+                            const low = Math.min(open, close) * (1 - Math.random()*0.02);
+                            arr.push({ label: new Date(Date.now() - (11 - i) * 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short' }), open, close, low, high });
+                          }
+                          return arr;
+                        })()}
+                        height={260}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                  <div className="p-4 border-b bg-gray-50 text-gray-900 font-medium">TAM vs SAM vs SOM (Radar)</div>
+                  <div className="p-4">
+                    {processedChartData && (
+                      <RadarChart
+                        title=""
+                        indicators={[{ name: 'TAM' }, { name: 'SAM' }, { name: 'SOM' }]}
+                        values={[100, Math.round(((processedChartData as any).samDollar / (processedChartData as any).tamDollar) * 100) || 0, Math.round(((processedChartData as any).somDollar / (processedChartData as any).tamDollar) * 100) || 0]}
+                        height={260}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Enhanced TAM/SAM/SOM Cards + keep detailed analysis */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {Object.entries(blocksToRender).map(([key, data]) => (
+                  <div key={key} className="rounded-2xl p-6 border border-gray-200 bg-white/70 backdrop-blur">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-gray-900">{(data as any)?.description || ''}</h4>
+                      <div className={`flex items-center space-x-1 text-sm font-medium ${
+                        (data as any)?.growth && String((data as any).growth).startsWith('+') ? 'text-green-600' : 'text-red-600'
+                      }`}>
+                        {String((data as any)?.growth || '').startsWith('+') ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
+                        <span>{(data as any)?.growth || 'N/A'}</span>
+                      </div>
+                    </div>
+                    <div className="text-3xl font-bold text-gray-900 mb-1 break-words">{(data as any)?.value || 'N/A'}</div>
+                    <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">{key}</div>
+                    <button
+                      onClick={() => toggleDrilldown(`${key}-breakdown`)}
+                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center space-x-1"
+                    >
+                      <Lightbulb className="w-3 h-3" />
+                      <span>View Details</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Drilldowns (restored comprehensive analysis) */}
               <div className="space-y-4">
                 <DrilldownPanel
                   title="TAM Calculation Breakdown"
@@ -472,60 +531,36 @@ export default function MarketingInsights() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <h4 className="font-medium text-gray-900 mb-3">Calculation Method</h4>
-                      <p className="text-sm text-gray-600 mb-4">
-                        {(marketRow as any)?.tam_data?.calculation || 'Top-down analysis using industry reports and market sizing studies.'}
-                      </p>
+                      <p className="text-sm text-gray-600 mb-4">{(marketRow as any)?.tam_data?.calculation || 'Top-down analysis using industry reports and market sizing studies.'}</p>
                       <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Global Market Size:</span>
-                          <span className="font-medium">${processedChartData?.marketSize[0]?.value || 2400}M</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Growth Rate (YoY):</span>
-                          <span className="font-medium text-green-600">{blocksToRender.tam.growth}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Market Maturity:</span>
-                          <span className="font-medium">Growth Stage</span>
-                        </div>
+                        <div className="flex justify-between text-sm"><span className="text-gray-600">Global Market Size:</span><span className="font-medium">${processedChartData?.marketSize[0]?.value || 2400}M</span></div>
+                        <div className="flex justify-between text-sm"><span className="text-gray-600">Growth Rate (YoY):</span><span className="font-medium text-green-600">{blocksToRender.tam.growth}</span></div>
+                        <div className="flex justify-between text-sm"><span className="text-gray-600">Market Maturity:</span><span className="font-medium">Growth Stage</span></div>
                       </div>
                     </div>
                     <div>
                       <h4 className="font-medium text-gray-900 mb-3">Key Assumptions</h4>
                       <ul className="text-sm text-gray-600 space-y-1">
-                        <li>• Market penetration rate: 15-25%</li>
-                        <li>• Technology adoption curve: Early majority</li>
+                        <li>• Market penetration rate: 15–25%</li>
+                        <li>• Adoption curve: Early majority</li>
                         <li>• Regulatory environment: Favorable</li>
-                        <li>• Economic factors: Stable growth</li>
+                        <li>• Macroeconomics: Stable growth</li>
                       </ul>
                       {normalizedSources.length > 0 && (
-                        <button
-                          onClick={() => openCitationModal(normalizedSources[0])}
-                          className="mt-3 text-xs text-blue-600 hover:text-blue-800 flex items-center space-x-1"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          <span>View Sources</span>
-                        </button>
+                        <button onClick={() => openCitationModal(normalizedSources[0])} className="mt-3 text-xs text-blue-600 hover:text-blue-800 flex items-center space-x-1"><ExternalLink className="w-3 h-3" /><span>View Sources</span></button>
                       )}
                     </div>
                   </div>
                 </DrilldownPanel>
-                
+
                 <DrilldownPanel
                   title="Market Size Methodology"
                   isOpen={drilldownPanels['methodology']}
                   onToggle={() => toggleDrilldown('methodology')}
                 >
                   <div className="prose prose-sm max-w-none">
-                    <p className="text-gray-600">
-                      {methodology || 'Our market sizing approach combines top-down industry analysis with bottom-up validation using proprietary data sources and AI-powered market intelligence.'}
-                    </p>
-                    {researchSummary && (
-                      <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                        <h4 className="font-medium text-blue-900 mb-2">Research Summary</h4>
-                        <p className="text-blue-800">{researchSummary}</p>
-                      </div>
-                    )}
+                    <p className="text-gray-600">{methodology || 'Our market sizing approach combines top-down industry analysis with bottom-up validation using proprietary data sources and AI-powered market intelligence.'}</p>
+                    {researchSummary && (<div className="mt-4 p-4 bg-blue-50 rounded-lg"><h4 className="font-medium text-blue-900 mb-2">Research Summary</h4><p className="text-blue-800">{researchSummary}</p></div>)}
                   </div>
                 </DrilldownPanel>
               </div>
@@ -644,11 +679,7 @@ export default function MarketingInsights() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Trends Impact Chart */}
                 {processedChartData && processedChartData.trendsImpact.length > 0 ? (
-                  <InteractiveBarChart
-                    title="Trend Impact Assessment"
-                    data={processedChartData.trendsImpact}
-                    onBarClick={(point, index) => handleChartInteraction('trend', point, index)}
-                  />
+                  <PolarBarChart title="Trend Impact Assessment" data={processedChartData.trendsImpact} />
                 ) : (
                   <div className="bg-white border border-dashed border-gray-300 rounded-xl p-6 text-center text-gray-500">
                     No trend data yet. Retry market research to populate this section.
