@@ -76,8 +76,6 @@ async function withLimiter<T>(fn: () => Promise<T>): Promise<T> {
 
 // ---- Throttling and de-duplication for mapping routines ----
 const mappingLocks = new Set<string>();
-const mappingTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const mappingAttempts = new Map<string, number>();
 const lockTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
 async function scoreBusinessToPersonasLLM(business: BusinessRow, personas: BusinessPersonaRow[]): Promise<{ personaId: string; score: number } | null> {
@@ -295,7 +293,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     // Ensure business personas exist before mapping
     // Abort quickly if the search is not active (completed/failed/cancelled)
-    let searchStatus: string | undefined = undefined;
+    let searchStatus: string | undefined;
     try {
       const { data: s } = await supa.from('user_searches').select('status,phase').eq('id', searchId).single();
       searchStatus = s?.status;
@@ -311,29 +309,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
       .eq('search_id', searchId)
       .limit(1);
     if (!personaCheck || personaCheck.length === 0) {
-      if (searchStatus && searchStatus !== 'in_progress') {
-        logger.info('Not scheduling persona mapping deferral because search is not active', { searchId, status: searchStatus });
-        return;
-      }
-      const attempts = (mappingAttempts.get(searchId) || 0) + 1;
-      mappingAttempts.set(searchId, attempts);
-      if (attempts > 12) { // ~1 minute max
-        logger.warn('Stopping persona mapping deferrals after max attempts with no personas', { searchId, attempts });
-        mappingTimers.delete(searchId);
-        mappingLocks.delete(searchId);
-        const tmo = lockTimeouts.get(searchId);
-        if (tmo) { clearTimeout(tmo); lockTimeouts.delete(searchId); }
-        // preserve attempts for diagnostics; do not delete here
-        return;
-      }
-      if (!mappingTimers.has(searchId)) {
-        logger.debug('Business personas not ready yet. Deferring mapping by 5s.', { searchId, attempts });
-        const t = setTimeout(() => {
-          mappingTimers.delete(searchId);
-          mapBusinessesToPersonas(searchId, businessId).catch(()=>{});
-        }, 5000);
-        mappingTimers.set(searchId, t);
-      }
+      logger.debug('Business personas not ready; skipping mapping run', { searchId });
       return;
     }
 
@@ -350,7 +326,6 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     if (businessError) throw businessError;
     if (!businesses || businesses.length === 0) {
       logger.debug('No businesses found requiring persona mapping', { searchId });
-      mappingAttempts.delete(searchId);
       return;
     }
 
@@ -363,18 +338,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     if (personaError) throw personaError;
     if (!personas || personas.length === 0) {
-      const attempts = (mappingAttempts.get(searchId) || 0) + 1;
-      mappingAttempts.set(searchId, attempts);
-      if (attempts > 12) {
-        logger.warn('Stopping persona mapping retries after max attempts (no personas)', { searchId, attempts });
-        mappingTimers.delete(searchId);
-        return;
-      }
-      logger.debug('No personas available yet for mapping, retrying in background', { searchId, attempts });
-      // retry later without throwing to avoid blocking inserts
-      setTimeout(() => {
-        mapBusinessesToPersonas(searchId, businessId).catch(() => {});
-      }, 5000);
+      logger.debug('No business personas available; skipping mapping run', { searchId });
       return;
     }
 
@@ -414,7 +378,7 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
     const failed = results.filter(r => r.status === 'rejected').length;
 
     logger.info('Persona mapping completed', { successful, failed, total: businesses.length, searchId });
-    mappingAttempts.delete(searchId);
+    // no-op
 
     return { successful, failed, total: businesses.length };
   } catch (error: any) {
@@ -469,6 +433,16 @@ export function startPersonaMappingListener(searchId: string) {
  */
 export async function simpleBusinessPersonaMapping(searchId: string) {
   try {
+    // Abort if the search is not active
+    try {
+      const { data: s } = await supa.from('user_searches').select('status').eq('id', searchId).single();
+      const status = s?.status as string | undefined;
+      if (status && status !== 'in_progress') {
+        logger.info('Skipping simple persona mapping due to non-active status', { searchId, status });
+        return { successful: 0, failed: 0, total: 0 };
+      }
+    } catch {}
+
     logger.info('Starting simple business persona mapping', { searchId });
 
     // Get businesses and personas
@@ -521,6 +495,16 @@ export async function simpleBusinessPersonaMapping(searchId: string) {
  */
 export async function intelligentPersonaMapping(searchId: string) {
     try {
+    // Abort if the search is not active
+    try {
+      const { data: s } = await supa.from('user_searches').select('status').eq('id', searchId).single();
+      const status = s?.status as string | undefined;
+      if (status && status !== 'in_progress') {
+        logger.info('Skipping intelligent persona mapping due to non-active status', { searchId, status });
+        return { successful: 0, failed: 0, total: 0 } as any;
+      }
+    } catch {}
+
     // Get businesses and personas
     const [businessResult, personaResult] = await Promise.all([
       supa.from('businesses').select('*').eq('search_id', searchId),
@@ -584,6 +568,16 @@ export async function intelligentPersonaMapping(searchId: string) {
  */
 export async function mapDecisionMakersToPersonas(searchId: string) {
   try {
+    // Abort if the search is not active
+    try {
+      const { data: s } = await supa.from('user_searches').select('status').eq('id', searchId).single();
+      const status = s?.status as string | undefined;
+      if (status && status !== 'in_progress') {
+        logger.info('Skipping DM persona mapping due to non-active status', { searchId, status });
+        return;
+      }
+    } catch {}
+
     logger.info('Starting DM persona mapping', { searchId });
 
     // Ensure DM personas exist before mapping
@@ -593,8 +587,7 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
       .eq('search_id', searchId)
       .limit(1);
     if (!personaCheck || personaCheck.length === 0) {
-      logger.debug('DM personas not ready yet. Deferring mapping by 5s.', { searchId });
-      setTimeout(() => { mapDecisionMakersToPersonas(searchId).catch(()=>{}); }, 5000);
+      logger.debug('DM personas not ready; skipping mapping run', { searchId });
       return;
     }
 

@@ -55,7 +55,7 @@ export async function markSeenQuery(company: string, query: string): Promise<voi
     if ((e && (e.code === '42P01')) || /does not exist/i.test(msg)) {
       // Ignore if table doesn't exist
     } else {
-      logger.warn('query-cache markSeenQuery failed', { error: msg });
+      logger.warn('query-cache markSeenQuery failed', { error: msg, code: e?.code, details: e?.details, hint: e?.hint });
     }
   }
   try {

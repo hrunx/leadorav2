@@ -1,4 +1,5 @@
 import logger from '../lib/logger';
+import { fetchWithTimeoutRetry } from './util';
 
 function readEnv(key: string): string | null {
   try {
@@ -40,11 +41,13 @@ export async function googlePlacesTextSearch(q: string, gl: string, limit = 10, 
   // Attempt Places API (New) v1 first
   try {
     const v1Url = 'https://places.googleapis.com/v1/places:searchText';
+    // Enforce country in the text query to scope results, and also set regionCode
+    const countrySuffix = fallbackCountry && !q.toLowerCase().includes(fallbackCountry.toLowerCase()) ? ` ${fallbackCountry}` : '';
     const v1Body = {
-      textQuery: q,
+      textQuery: `${q}${countrySuffix}`,
       regionCode: (gl || '').toUpperCase(),
     } as any;
-    const v1Resp = await fetch(v1Url, {
+    const v1Resp = await fetchWithTimeoutRetry(v1Url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -52,7 +55,7 @@ export async function googlePlacesTextSearch(q: string, gl: string, limit = 10, 
         'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.websiteUri,places.internationalPhoneNumber,places.rating'
       },
       body: JSON.stringify(v1Body)
-    });
+    }, 9000, 1, 800);
     if (v1Resp.ok) {
       const data: any = await v1Resp.json();
       const places = Array.isArray(data?.places) ? data.places.slice(0, Math.max(10, limit)) : [];
@@ -79,10 +82,12 @@ export async function googlePlacesTextSearch(q: string, gl: string, limit = 10, 
   // Fallback to legacy Text Search + Details API
   try {
     const url = new URL('https://maps.googleapis.com/maps/api/place/textsearch/json');
-    url.searchParams.set('query', q);
+    // Include country name in the query to ensure scoping at source
+    const legacyCountrySuffix = fallbackCountry && !q.toLowerCase().includes(fallbackCountry.toLowerCase()) ? ` ${fallbackCountry}` : '';
+    url.searchParams.set('query', `${q}${legacyCountrySuffix}`);
     if (gl) url.searchParams.set('region', gl);
     url.searchParams.set('key', key);
-    const resp = await fetch(url.toString(), { method: 'GET' });
+    const resp = await fetchWithTimeoutRetry(url.toString(), { method: 'GET' }, 9000, 1, 800);
     if (!resp.ok) {
       const text = await resp.text();
       logger.warn('Google Places text search error', { status: resp.status, text });
@@ -94,40 +99,16 @@ export async function googlePlacesTextSearch(q: string, gl: string, limit = 10, 
       return [];
     }
     const results: any[] = data.results.slice(0, Math.max(10, limit));
-    const top = results.slice(0, limit);
-    const detailed = await Promise.all(
-      top.map(async (r) => {
-        let phone = '';
-        let website = '';
-        try {
-          if (r.place_id) {
-            const detUrl = new URL('https://maps.googleapis.com/maps/api/place/details/json');
-            detUrl.searchParams.set('place_id', r.place_id);
-            detUrl.searchParams.set('fields', 'website,formatted_phone_number');
-            detUrl.searchParams.set('key', key);
-            const detResp = await fetch(detUrl.toString(), { method: 'GET' });
-            if (detResp.ok) {
-              const det = await detResp.json();
-              phone = det?.result?.formatted_phone_number || '';
-              website = det?.result?.website || '';
-            } else {
-              const t = await detResp.text();
-              logger.warn('Google Places details error', { status: detResp.status, text: t });
-            }
-          }
-        } catch {}
-        return {
-          name: r.name || 'Unknown Business',
-          address: r.formatted_address || '',
-          phone,
-          website,
-          rating: typeof r.rating === 'number' ? r.rating : null,
-          city: extractCity(r.formatted_address) || fallbackCountry
-        };
-      })
-    );
-    logger.debug('Google Places legacy text search results', { q, gl, count: detailed.length });
-    return detailed;
+    const mapped = results.slice(0, limit).map((r:any) => ({
+      name: r.name || 'Unknown Business',
+      address: r.formatted_address || '',
+      phone: '', // Skip details fetch to reduce latency
+      website: '', // Skip details fetch to reduce latency
+      rating: typeof r.rating === 'number' ? r.rating : null,
+      city: extractCity(r.formatted_address) || fallbackCountry
+    }));
+    logger.debug('Google Places legacy text search results (no-details)', { q, gl, count: mapped.length });
+    return mapped;
   } catch (e: any) {
     logger.warn('Google Places fallback failed', { error: e?.message || String(e) });
     return [];

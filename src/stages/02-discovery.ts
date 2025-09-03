@@ -3,6 +3,7 @@ import { embed } from '../lib/embeddings';
 import logger from '../lib/logger';
 // gl mapping happens inside serper client
 import { serperPlaces } from '../tools/serper';
+import { quickEnrichBusiness } from '../tools/business-enrichment';
 
 export async function runDiscovery({ search_id, user_id, industries, countries, query }:{ search_id:string; user_id:string; industries:string[]; countries:string[]; query:string; }) {
   const supa: any = supaServer();
@@ -45,8 +46,22 @@ export async function runDiscovery({ search_id, user_id, industries, countries, 
         // persona mapping via RPC
         try {
           const { data: match } = await supa.rpc('match_business_best_persona', { business_id: (bizRow as any).id }).maybeSingle();
-          if (match) { await supa.from('businesses').update({ persona_id: (match as any).persona_id, match_score: (match as any).score }).eq('id', (bizRow as any).id); logger.debug('[DISCOVERY] match_business_best_persona ok', { business_id: (bizRow as any).id, score: (match as any).score }); }
+          if (match && (match as any).persona_id) {
+            const personaId = (match as any).persona_id as string;
+            const score01 = Number((match as any).score || 0);
+            const scorePct = Math.max(60, Math.min(100, Math.round(score01 * 100)));
+            let personaTitle: string | undefined = undefined;
+            try {
+              const { data: p } = await supa.from('business_personas').select('title').eq('id', personaId).maybeSingle();
+              personaTitle = (p as any)?.title;
+            } catch {}
+            await supa.from('businesses').update({ persona_id: personaId, persona_type: personaTitle || 'mapped', match_score: scorePct }).eq('id', (bizRow as any).id);
+            logger.debug('[DISCOVERY] match_business_best_persona ok', { business_id: (bizRow as any).id, scorePct });
+          }
         } catch {}
+
+        // Fire-and-forget quick enrichment (no LLM) to populate departments/products/activity
+        try { void quickEnrichBusiness((bizRow as any).id); } catch {}
       }
     } catch (e:any) { logger.warn('[DISCOVERY] failed to process place', { error: e?.message || e }); }
   }

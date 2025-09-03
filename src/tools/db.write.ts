@@ -162,10 +162,10 @@ export const insertDMPersonas = async (rows: any[]) => {
     try { await updateSearchTotals(search_id); } catch (e: any) { logger.warn('updateSearchTotals failed', { error: e?.message || e }); }
     try {
       const { enqueueJob } = await import('./jobs');
-      await enqueueJob('dm_persona_mapping', { search_id });
+      // Only compute embeddings here; defer mapping until DMs exist (insertDecisionMakersBasic enqueues mapping)
       const persona_ids = (data || []).map((d: any) => d.id);
       if (persona_ids.length) await enqueueJob('compute_dm_persona_embeddings', { persona_ids });
-    } catch (e: any) { logger.warn('enqueue jobs failed (dm_personas)', { error: e?.message || e }); }
+    } catch (e: any) { logger.warn('enqueue jobs failed (dm_personas embeddings)', { error: e?.message || e }); }
   }
   return data!;
 };

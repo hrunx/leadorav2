@@ -59,8 +59,8 @@ export interface DMPersona {
   };
   market_potential: {
     totalDecisionMakers: number;
-    avgInfluence: number;
-    conversionRate: number;
+    avgInfluence: string;
+    conversionRate: string;
   };
 }
 
@@ -236,18 +236,29 @@ export function sanitizePersona(
     })()
   };
   const mp = p?.market_potential || p?.marketPotential || {};
+  const toPercentString = (val: any, fallbackNum: number): string => {
+    if (typeof val === 'string' && val.trim()) {
+      const s = val.trim();
+      return /%$/.test(s) ? s : `${s}%`;
+    }
+    const num = coerceNumber(val);
+    const n = Number.isFinite(num) && num > 0 ? num : fallbackNum;
+    return `${Math.round(n)}%`;
+  };
   const market_potential = {
     totalDecisionMakers: (() => {
       const v = coerceNumber(mp.totalDecisionMakers || mp.total_decision_makers || mp.count || mp.num_profiles);
       return v > 0 ? v : Math.max(500, 1500 - index * 300);
     })(),
     avgInfluence: (() => {
-      const v = coerceNumber(mp.avgInfluence || mp.avg_influence || mp.average_influence || mp.influence);
-      return v > 0 ? v : Math.max(60, 90 - index * 5);
+      const provided = (mp.avgInfluence || mp.avg_influence || mp.average_influence || mp.influence);
+      const fallback = Math.max(60, 90 - index * 5);
+      return toPercentString(provided, fallback);
     })(),
     conversionRate: (() => {
-      const v = coerceNumber(mp.conversionRate || mp.conversion_rate || mp.conversion || mp.cr);
-      return v > 0 ? v : Math.max(2, 6 - index);
+      const provided = (mp.conversionRate || mp.conversion_rate || mp.conversion || mp.cr);
+      const fallback = Math.max(2, 6 - index);
+      return toPercentString(provided, fallback);
     })()
   };
   // Heuristic match score if missing/too low: base on product_service keywords coverage
@@ -301,6 +312,6 @@ export function isRealisticPersona(type: 'business' | 'dm', persona: AnyPersona)
   const b = p.behaviors;
   if (!b || !isNonEmptyString(b.decisionMaking) || !isNonEmptyString(b.communicationStyle) || !isNonEmptyString(b.buyingProcess) || !isNonEmptyArray(b.preferredChannels)) return false;
   const m = p.market_potential;
-  if (!m || !isPositiveNumber(m.totalDecisionMakers) || !isPositiveNumber(m.avgInfluence) || !isPositiveNumber(m.conversionRate)) return false;
+  if (!m || !isPositiveNumber(m.totalDecisionMakers) || !isNonEmptyString(m.avgInfluence) || !isNonEmptyString(m.conversionRate)) return false;
   return true;
 }

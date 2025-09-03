@@ -42,6 +42,17 @@ export async function triggerInstantDMDiscovery(
   logger.info(`Starting instant DM discovery`, { total, search_id });
   const shouldInit = options?.initializeProgress !== false;
   try {
+    // Abort early if search is cancelled/completed
+    try {
+      const supa = await import('./db.read');
+      const s = await supa.loadSearch(search_id);
+      const status = (s as any)?.status as string | undefined;
+      if (status && status !== 'in_progress') {
+        logger.info('Skipping instant DM discovery due to non-active status', { search_id, status });
+        return;
+      }
+    } catch {}
+
     if (shouldInit) {
       initDMDiscoveryProgress(search_id, total);
     }
@@ -60,6 +71,16 @@ export async function triggerInstantDMDiscovery(
 
       // Process batch in parallel for speed
       const batchPromises = batch.map(async (business) => {
+        // Check status between items to respect cancellation
+        try {
+          const supa = await import('./db.read');
+          const s = await supa.loadSearch(search_id);
+          const status = (s as any)?.status as string | undefined;
+          if (status && status !== 'in_progress') {
+            logger.info('Stopping batch due to non-active status', { search_id, status });
+            return;
+          }
+        } catch {}
         await processBusinessForDM(search_id, user_id, business, productServiceFromSearch);
       });
 

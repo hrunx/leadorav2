@@ -15,8 +15,8 @@ CREATE TABLE public.api_usage_logs (
   response jsonb DEFAULT '{}'::jsonb,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT api_usage_logs_pkey PRIMARY KEY (id),
-  CONSTRAINT api_usage_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
-  CONSTRAINT api_usage_logs_search_id_fkey FOREIGN KEY (search_id) REFERENCES public.user_searches(id)
+  CONSTRAINT api_usage_logs_search_id_fkey FOREIGN KEY (search_id) REFERENCES public.user_searches(id),
+  CONSTRAINT api_usage_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
 CREATE TABLE public.app_users (
   id uuid NOT NULL,
@@ -98,8 +98,8 @@ CREATE TABLE public.campaign_recipients (
   replied_at timestamp with time zone,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT campaign_recipients_pkey PRIMARY KEY (id),
-  CONSTRAINT campaign_recipients_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
-  CONSTRAINT campaign_recipients_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.email_campaigns(id)
+  CONSTRAINT campaign_recipients_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.email_campaigns(id),
+  CONSTRAINT campaign_recipients_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
 CREATE TABLE public.contact_enrichment_cache (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -170,9 +170,9 @@ CREATE TABLE public.decision_makers (
   embedding USER-DEFINED,
   title_embed USER-DEFINED,
   CONSTRAINT decision_makers_pkey PRIMARY KEY (id),
-  CONSTRAINT decision_makers_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT decision_makers_persona_id_fkey FOREIGN KEY (persona_id) REFERENCES public.decision_maker_personas(id),
   CONSTRAINT fk_decision_makers_business_id FOREIGN KEY (business_id) REFERENCES public.businesses(id),
+  CONSTRAINT decision_makers_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT decision_makers_search_id_fkey FOREIGN KEY (search_id) REFERENCES public.user_searches(id)
 );
 CREATE TABLE public.email_campaigns (

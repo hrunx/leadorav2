@@ -119,8 +119,12 @@ const glFromCountry = (country: string): string => countryToGL(country);
 export async function serperPlaces(q: string, country: string, limit = 10) {
   return retryWithBackoff(async () => withLimiter(async () => {
     const gl = glFromCountry(country);
-    logger.info('[SERPER] Places query', { q, country, gl, limit });
-    const cacheKey = `serper:places:${gl}:${limit}:${q}`;
+    // Strengthen country scoping by injecting the country name directly into the query string
+    const countryName = glToCountryName(gl);
+    const queryIncludesCountry = (q || '').toLowerCase().includes((country || '').toLowerCase()) || (q || '').toLowerCase().includes(countryName.toLowerCase());
+    const qStrict = queryIncludesCountry ? q : `${q} ${countryName}`;
+    logger.info('[SERPER] Places query', { q: qStrict, country, gl, limit });
+    const cacheKey = `serper:places:${gl}:${limit}:${qStrict}`;
     const cached = await getCache(cacheKey);
     if (cached) return cached.slice(0, limit);
     
@@ -132,7 +136,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
       method: 'POST',
       headers: { 'X-API-KEY': serperKey, 'Content-Type': 'application/json' },
       // request a bit more and trim after filtering
-      body: JSON.stringify({ q, gl, num: Math.min(Math.max(limit, 10), 15) })
+      body: JSON.stringify({ q: qStrict, gl, num: Math.min(Math.max(limit, 10), 15) })
     }, 10000, 1, 800);
     
     if (!r.ok) {
@@ -170,7 +174,7 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
     if (!Array.isArray(data?.places) || data.places.length === 0) {
       try {
         const { googlePlacesTextSearch } = await import('./google-places');
-        const gp = await googlePlacesTextSearch(q, gl, Math.min(limit, 10), country);
+        const gp = await googlePlacesTextSearch(qStrict, gl, Math.min(limit, 10), country);
         if (gp.length > 0) {
           logger.debug('Serper /places empty; Google Places fallback produced results', { count: gp.length });
           await setCache(cacheKey, 'google_places', gp);
@@ -200,42 +204,11 @@ export async function serperPlaces(q: string, country: string, limit = 10) {
         city: city || country // Fallback to country if city not found
       };
     });
-
-    // Conservative country filter: allow when address/city clearly match or when site ccTLD matches.
-    // For KSA and some markets, addresses often omit country; allow items with empty address but strong ccTLD.
-    const countryName = glToCountryName(gl).toLowerCase();
-    const ccTld = `.${gl}`;
-    const preFilterCount = places.length;
-    places = places.filter((pl: any) => {
-      const addr = (pl.address || '').toLowerCase();
-      const city = (pl.city || '').toLowerCase();
-      const site = (pl.website || '').toLowerCase();
-      const hasCountrySignal = addr.includes(countryName) || city.includes(countryName);
-      const hasCcTld = site.endsWith(ccTld) || site.includes(`${ccTld}/`);
-      // Relax filtering for KSA where addresses/sites often omit country or ccTLD
-      if (gl === 'sa') return true;
-      // Allow if either clear country signal or ccTLD. Keep US as relaxed.
-      return hasCountrySignal || hasCcTld || gl === 'us';
-    });
-    // If over-filtered (dropped most results), fallback to top N original unfiltered
-    if (places.length < Math.min(3, limit) && preFilterCount > places.length) {
-      const relaxed = (data.places || []).slice(0, Math.max(limit, 5)).map((p: any) => ({
-        name: p.title || 'Unknown Business',
-        address: p.address || '',
-        phone: p.phoneNumber || '',
-        website: p.website || '',
-        rating: p.rating || null,
-        city: (p.address?.split(',')?.[0] || country)
-      }));
-      places = relaxed.slice(0, Math.max(limit, 5));
-    }
-    // For places search, we rely only on Serper Places and Google Places API
-    // No CSE fallback here - CSE is only for web searches
-    // After filtering, cap to requested limit, but if only 1 remains and we requested 5+, allow up to 8 to improve UX
-    const cap = places.length <= 1 && limit >= 5 ? 8 : limit;
-    places = places.slice(0, cap);
+    // Do not apply any post-filtering by country; country is enforced in the upstream query text and GL
+    // Cap results to requested limit
+    places = places.slice(0, limit);
     
-    logger.info('[SERPER] Places final results', { count: places.length, q, country });
+    logger.info('[SERPER] Places final results', { count: places.length, q: qStrict, country });
     await setCache(cacheKey, 'serper', places);
     return places;
   }));

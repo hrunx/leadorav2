@@ -42,10 +42,25 @@ export const handler: Handler = async (event) => {
   }
   if (!search_id) return { statusCode: 400, headers, body: JSON.stringify({ error: 'search_id required' }) };
 
+  // Fallback response if upstream is slow/unavailable
+  const fallback = () => ({
+    overall: 0,
+    phases: [],
+    status: 'queued',
+    job_id: null,
+    progress: { phase: 'starting', progress_pct: 0, status: 'queued', updated_at: new Date().toISOString() },
+    data_counts: { businesses: 0, business_personas: 0, dm_personas: 0, decision_makers: 0, market_insights: 0 }
+  });
+
+  // Short-circuit if env is missing to avoid long hangs
+  if (!process.env.SUPABASE_URL && !process.env.VITE_SUPABASE_URL) {
+    return { statusCode: 200, headers, body: JSON.stringify(fallback()) };
+  }
+
   const client = supa();
   try {
     // Most recent orchestrator job for this search (exclude sub-jobs like embeddings/mapping)
-    const { data: job } = await client
+    const getJob = async () => client
       .from('jobs')
       .select('id, status, created_at')
       .eq('type', 'sequential_pipeline')
@@ -54,18 +69,27 @@ export const handler: Handler = async (event) => {
       .limit(1)
       .maybeSingle();
 
+    const withTimeout = async <T,>(p: Promise<T>, ms: number): Promise<T> => {
+      return await Promise.race([
+        p,
+        new Promise<T>((resolve) => setTimeout(() => resolve(fallback() as any), ms))
+      ]) as T;
+    };
+
+    const { data: job } = await withTimeout(getJob(), 6000);
+
     // Counts for convenience/back-compat with UI
     const count = async (table: string) => {
       const { count } = await client.from(table).select('id', { count: 'exact', head: true }).eq('search_id', search_id);
       return count || 0;
     };
-    const [bp, dmp, biz, dm, mi] = await Promise.all([
+    const [bp, dmp, biz, dm, mi] = await withTimeout(Promise.all([
       count('business_personas'),
       count('decision_maker_personas'),
       count('businesses'),
       count('decision_makers'),
       count('market_insights')
-    ]);
+    ]), 6000).catch(() => [0,0,0,0,0] as const);
 
     if (!job) {
       return {
@@ -83,10 +107,10 @@ export const handler: Handler = async (event) => {
       };
     }
     const job_id = (job as any).id as string;
-    const { data: tasks } = await client
+    const { data: tasks } = await withTimeout(client
       .from('job_tasks')
       .select('name,status,progress,attempt,started_at,finished_at,error')
-      .eq('job_id', job_id);
+      .eq('job_id', job_id), 6000);
     const phases = (tasks || []).map(t => ({
       name: (t as any).name,
       status: (t as any).status,
@@ -107,6 +131,7 @@ export const handler: Handler = async (event) => {
 
     return { statusCode: 200, headers, body: JSON.stringify({ overall, phases, status, job_id, progress, data_counts }) };
   } catch (e: any) {
-    return { statusCode: 500, headers, body: JSON.stringify({ error: e?.message || 'failed' }) };
+    // Always return quickly with fallback instead of timing out
+    return { statusCode: 200, headers, body: JSON.stringify(fallback()) };
   }
 };

@@ -91,9 +91,7 @@ export default function DecisionMakerProfiles() {
 
   // Use real-time data for real users, demo data for demo users
   const decisionMakerPersonas = (realTimeData.dmPersonas || []).map((p: any) => {
-    // 🎯 TARGETED DISPLAY: Get only DMs mapped to this persona with enriched contact info
     const personaDecisionMakers = realTimeData.getDecisionMakersForPersona(p.id);
-    
     return {
       id: p.id,
       title: p.title,
@@ -102,25 +100,25 @@ export default function DecisionMakerProfiles() {
       demographics: {
         experience: p.demographics?.experience,
         typical_titles: p.demographics?.typical_titles,
-        departments: p.demographics?.departments,
+        departments: p.demographics?.department || p.demographics?.departments,
         company_types: p.demographics?.company_types,
       },
       characteristics: {
-        key_responsibilities: p.characteristics?.key_responsibilities,
-        pain_points: p.characteristics?.pain_points,
+        key_responsibilities: p.characteristics?.responsibilities || p.characteristics?.key_responsibilities,
+        pain_points: p.characteristics?.painPoints || p.characteristics?.pain_points,
         motivations: p.characteristics?.motivations,
-        decision_factors: p.characteristics?.decision_factors,
+        decision_factors: p.characteristics?.decisionFactors || p.characteristics?.decision_factors,
       },
       behaviors: {
-        communication_style: p.behaviors?.communication_style,
-        decision_timeline: p.behaviors?.decision_timeline,
-        preferred_approach: p.behaviors?.preferred_approach,
-        buying_influence: p.behaviors?.buying_influence,
+        communication_style: p.behaviors?.communicationStyle || p.behaviors?.communication_style,
+        decision_timeline: p.behaviors?.buyingProcess || p.behaviors?.decision_timeline,
+        preferred_approach: Array.isArray(p.behaviors?.preferredChannels) ? p.behaviors.preferredChannels.join(', ') : (p.behaviors?.preferred_approach),
+        buying_influence: p.market_potential?.avgInfluence || p.behaviors?.buying_influence,
       },
       market_potential: {
-        total_decision_makers: p.market_potential?.total_decision_makers,
-        avg_influence: p.market_potential?.avg_influence,
-        conversion_rate: p.market_potential?.conversion_rate,
+        total_decision_makers: p.market_potential?.totalDecisionMakers ?? p.market_potential?.total_decision_makers,
+        avg_influence: p.market_potential?.avgInfluence ?? p.market_potential?.avg_influence,
+        conversion_rate: p.market_potential?.conversionRate ?? p.market_potential?.conversion_rate,
       },
       employees: (personaDecisionMakers || []).map((dm: any, index: number) => ({
         id: dm.id,
@@ -128,12 +126,16 @@ export default function DecisionMakerProfiles() {
         title: dm.title,
         company: dm.company,
         linkedin: dm.linkedin,
-        email: dm.email || 'Enriching…',
-        phone: dm.phone || 'Enriching…',
+        email: dm.email || '',
+        phone: dm.phone || '',
         location: dm.location || '',
-        match_score: Math.min(95, Math.max(75, 90 - index * 3)), // Dynamic scoring
-        verified: dm.enrichment_status === 'completed',
-        confidence: dm.enrichment_confidence || 0
+        match_score: typeof dm.match_score === 'number' ? dm.match_score : Math.min(95, Math.max(75, 90 - index * 3)),
+        verified: dm.enrichment_status === 'enriched',
+        confidence: dm.enrichment_confidence || 0,
+        enrichment: dm.enrichment || null,
+        department: dm.department,
+        level: dm.level,
+        influence: dm.influence,
       }))
     };
   });
@@ -293,8 +295,8 @@ export default function DecisionMakerProfiles() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className={`px-3 py-1 rounded-full text-xs font-medium border ${getMatchScoreColor(95)}`}>
-                      95% Quality Match
+                    <div className={`px-3 py-1 rounded-full text-xs font-medium border ${getMatchScoreColor(employee.match_score)}`}>
+                      {employee.match_score}% Quality Match
                     </div>
                     <div className="w-20 bg-gray-200 rounded-full h-2 mt-2">
                       <div
@@ -318,8 +320,8 @@ export default function DecisionMakerProfiles() {
                     <p className="text-gray-600 mt-1">{selectedEmployee.title}</p>
                     <p className="text-sm text-gray-500">{selectedEmployee.company}</p>
                   </div>
-                  <div className={`px-4 py-2 rounded-full text-sm font-medium ${getMatchScoreColor(95)}`}>
-                    95% Quality Match
+                  <div className={`px-4 py-2 rounded-full text-sm font-medium ${getMatchScoreColor((selectedEmployee as any).match_score || 80)}`}>
+                    {((selectedEmployee as any).match_score || 80)}% Quality Match
                   </div>
                 </div>
 
@@ -376,7 +378,7 @@ export default function DecisionMakerProfiles() {
                   <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
                     <h4 className="font-semibold text-blue-900 mb-2">Contact Status</h4>
                     <p className="text-blue-800 text-sm">
-                      {selectedEmployee.enrichment_status === 'completed' 
+                      {selectedEmployee.enrichment_status === 'enriched' 
                         ? 'Contact information verified and enriched' 
                         : 'Contact enrichment in progress...'}
                     </p>
@@ -408,9 +410,8 @@ export default function DecisionMakerProfiles() {
     );
   }
 
-  // Show discovery progress UI for real users (always show loading for real searches)
-  if (isLoading || (discoveryStatus === 'discovering' && decisionMakerPersonas.length === 0) ||
-      (!isDemo && currentSearch && decisionMakerPersonas.length === 0)) {
+  // Show discovery progress UI only while nothing has streamed in yet
+  if ((isLoading || (discoveryStatus === 'discovering')) && decisionMakerPersonas.length === 0 && realTimeData.decisionMakers.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-96">
         <div className="text-center max-w-md">
