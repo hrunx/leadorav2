@@ -4,6 +4,7 @@ import pLimit from 'p-limit';
 import { processBusinessForDM } from '../tools/instant-dm-discovery';
 import { intelligentPersonaMapping, mapDecisionMakersToPersonas } from '../tools/persona-mapper';
 import { embedText } from '../agents/clients';
+import { getNetlifyFunctionsBaseUrl } from '../utils/baseUrl';
 
 function supa() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
@@ -29,6 +30,8 @@ export async function processJob(job: JobRow) {
       return computeDMPersonaEmbeddings(job.payload.persona_ids as string[]);
     case 'compute_dm_embeddings':
       return computeDMEmbeddings(job.payload.dm_ids as string[]);
+    case 'enrich_decision_makers':
+      return handleEnrichDecisionMakers(job.payload.search_id as string);
     default:
       logger.warn('Unknown job type', { type: job.type });
   }
@@ -93,12 +96,35 @@ async function computeDMEmbeddings(dmIds: string[]) {
   const client = supa();
   const { data } = await client
     .from('decision_makers')
-    .select('id,name,title,department,level,company,location')
+    .select('id,search_id,name,title,department,level,company,location')
     .in('id', dmIds);
   const texts = (data || []).map((d: any) => [d.name, d.title, d.department, d.level, d.company, d.location].filter(Boolean).join('\n'));
   if (!texts.length) return;
   const vectors = await embedText(texts);
   for (let i = 0; i < vectors.length; i++) {
     await client.rpc('set_decision_maker_embedding', { dm_id: (data as any)[i].id, emb: vectors[i] });
+  }
+  // Immediately kick off persona mapping for affected searches so UI sees grouping fast
+  try {
+    const searchIds = Array.from(new Set(((data || []) as any[]).map((d: any) => String(d.search_id)).filter(Boolean)));
+    const limit = Math.min(searchIds.length, 5);
+    for (let i = 0; i < limit; i++) {
+      try { await mapDecisionMakersToPersonas(searchIds[i]); } catch {}
+    }
+  } catch {}
+}
+
+async function handleEnrichDecisionMakers(search_id: string) {
+  try {
+    if (!search_id) return;
+    const base = getNetlifyFunctionsBaseUrl();
+    const url = `${base}/.netlify/functions/enrich-decision-makers`;
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ search_id })
+    });
+  } catch (e) {
+    // Swallow errors; enrichment is best-effort
   }
 }

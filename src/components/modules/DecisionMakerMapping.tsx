@@ -40,7 +40,7 @@ interface UIDecisionMaker {
     bestContactTime: string;
     preferredChannel: string;
   };
-  enrichmentStatus?: 'pending' | 'done';
+  enrichmentStatus?: 'pending' | 'attempted' | 'enriched';
   business?: {
     id: string;
     name: string;
@@ -86,6 +86,8 @@ export default function DecisionMakerMapping() {
   // Transform realTimeData.decisionMakers to UIDecisionMaker format
   const transformDecisionMaker = (dm: any): UIDecisionMaker => {
     const enrichment = dm.enrichment || {};
+    const personaApproach = (dm.personalized_approach && typeof dm.personalized_approach === 'object') ? dm.personalized_approach : {};
+    const companyCtx = (dm.company_context && typeof dm.company_context === 'object') ? dm.company_context : {};
     return {
       id: dm.id,
       name: dm.name,
@@ -100,23 +102,23 @@ export default function DecisionMakerMapping() {
       linkedin: dm.linkedin || '',
       experience: dm.experience || enrichment.experience_level || '',
       communicationPreference: dm.communication_preference || enrichment.communication_preference || '',
-      painPoints: dm.pain_points || enrichment.pain_points || [],
-      motivations: dm.motivations || enrichment.motivations || [],
-      decisionFactors: dm.decision_factors || enrichment.decision_factors || [],
+      painPoints: (Array.isArray(dm.pain_points) ? dm.pain_points : (Array.isArray(enrichment.pain_points) ? enrichment.pain_points : [])),
+      motivations: (Array.isArray(dm.motivations) ? dm.motivations : (Array.isArray(enrichment.motivations) ? enrichment.motivations : [])),
+      decisionFactors: (Array.isArray(dm.decision_factors) ? dm.decision_factors : (Array.isArray(enrichment.decision_factors) ? enrichment.decision_factors : [])),
       personaType: dm.persona_type,
-      companyContext: dm.company_context || {
-        industry: dm.business?.industry || '',
-        size: dm.business?.size || '',
-        revenue: dm.business?.revenue || '',
-        challenges: enrichment.current_challenges || [],
-        priorities: []
+      companyContext: {
+        industry: companyCtx.industry || dm.business?.industry || '',
+        size: companyCtx.size || dm.business?.size || '',
+        revenue: companyCtx.revenue || dm.business?.revenue || '',
+        challenges: (Array.isArray(companyCtx.challenges) ? companyCtx.challenges : (Array.isArray(enrichment.current_challenges) ? enrichment.current_challenges : [])),
+        priorities: (Array.isArray(companyCtx.priorities) ? companyCtx.priorities : [])
       },
-      personalizedApproach: dm.personalized_approach || {
-        keyMessage: '',
-        valueProposition: '',
-        approachStrategy: '',
-        bestContactTime: enrichment.best_contact_time || '',
-        preferredChannel: enrichment.preferred_contact_method || ''
+      personalizedApproach: {
+        keyMessage: personaApproach.keyMessage || personaApproach.key_message || '',
+        valueProposition: personaApproach.valueProposition || personaApproach.value_proposition || '',
+        approachStrategy: personaApproach.approachStrategy || personaApproach.approach_strategy || '',
+        bestContactTime: personaApproach.bestContactTime || enrichment.best_contact_time || '',
+        preferredChannel: personaApproach.preferredChannel || enrichment.preferred_contact_method || ''
       },
       enrichmentStatus: dm.enrichment_status || 'pending',
       business: dm.business
@@ -475,6 +477,10 @@ export default function DecisionMakerMapping() {
     ? getStaticDecisionMakers()
     : realTimeData.decisionMakers.map(transformDecisionMaker);
 
+  // Gate visibility: only show mapped (not dm_candidate) and enriched profiles with a LinkedIn URL for real users
+  // Relax gating: show all discovered DMs. We'll indicate mapping/enrichment status on the card.
+  // Note: keeping all decision makers visible with status indicators
+
   // Empty state flag computed after decisionMakers is defined
   const showEmpty = !isLoading && !isDemoUser(authState.user?.id, authState.user?.email) && (decisionMakers.length === 0);
 
@@ -700,6 +706,14 @@ export default function DecisionMakerMapping() {
                       <h3 className="font-semibold text-gray-900 text-lg">{dm.name}</h3>
                       <p className="text-gray-600 mb-1">{dm.title}</p>
                       <p className="text-sm text-gray-500 mb-2">{dm.company} • {dm.location}</p>
+                      <div className="flex items-center space-x-2 text-xs text-gray-500">
+                        {(!dm.personaType || dm.personaType === 'dm_candidate') && (
+                          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded-full">Mapping…</span>
+                        )}
+                        {dm.enrichmentStatus !== 'enriched' && (
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">Enriching…</span>
+                        )}
+                      </div>
                       <div className="flex items-center space-x-2 mb-2">
                         <Target className="w-4 h-4 text-blue-600" />
                         <span className="text-sm text-blue-600 font-medium">{dm.personaType}</span>
@@ -714,12 +728,17 @@ export default function DecisionMakerMapping() {
                     }`}>
                       {matchScore}% Match
                     </div>
-                    {dm.enrichmentStatus === 'pending' && (
+                    {dm.personaType === 'dm_candidate' && (
+                      <div className="px-2 py-1 rounded-full text-xs font-medium mb-2 bg-yellow-100 text-yellow-800">
+                        Mapping…
+                      </div>
+                    )}
+                    {dm.enrichmentStatus !== 'enriched' && (
                       <div className="w-24 h-2 bg-gray-200 rounded-full mb-2 overflow-hidden">
                         <div className="h-2 bg-blue-400 animate-[pulse_1.2s_ease-in-out_infinite]" style={{ width: '65%' }} />
                       </div>
                     )}
-                    {dm.enrichmentStatus === 'done' && (
+                    {dm.enrichmentStatus === 'enriched' && (
                       <div className="px-2 py-1 rounded-full text-xs font-medium mb-2 bg-green-100 text-green-800">
                         ✓ Enriched
                       </div>
@@ -994,10 +1013,15 @@ export default function DecisionMakerMapping() {
                     <Mail className="w-4 h-4" />
                     <span>Send Email</span>
                   </button>
-                  <button className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                  <a
+                    href={`${selectedEmployee.linkedin?.startsWith('http') ? '' : 'https://'}${selectedEmployee.linkedin || ''}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
                     <Linkedin className="w-4 h-4" />
                     <span>Connect on LinkedIn</span>
-                  </button>
+                  </a>
                 </div>
               </div>
             </div>

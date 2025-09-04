@@ -197,6 +197,8 @@ export const insertDecisionMakersBasic = async (rows: any[]) => {
       const dm_ids = (data || []).map((d: any) => d.id);
       if (dm_ids.length) await enqueueJob('compute_dm_embeddings', { dm_ids });
       await enqueueJob('dm_persona_mapping', { search_id });
+      // Also enqueue enrichment to run automatically without a UI button
+      await enqueueJob('enrich_decision_makers', { search_id }, { run_at: new Date(Date.now() + 2000).toISOString() });
     } catch (e: any) { logger.warn('enqueue jobs failed (decision_makers)', { error: e?.message || e }); }
   }
   return data!;

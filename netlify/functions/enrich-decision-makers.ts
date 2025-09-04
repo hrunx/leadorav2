@@ -16,15 +16,16 @@ interface DecisionMaker {
   phone?: string;
   search_id: string;
   user_id: string;
+  business_id?: string;
 }
 
 async function getPendingDecisionMakers(search_id: string): Promise<DecisionMaker[]> {
   const { data, error } = await supa
     .from('decision_makers')
-    .select('id, name, title, company, linkedin, location, department, email, phone, search_id, user_id')
+    .select('id, name, title, company, linkedin, location, department, email, phone, search_id, user_id, business_id')
     .eq('search_id', search_id)
-    .eq('enrichment_status', 'pending')
-    .limit(20); // Process in batches
+    .in('enrichment_status', ['pending','attempted'])
+    .limit(30); // Process in slightly larger batches
 
   if (error) {
     logger.error('Error fetching pending decision makers', { error });
@@ -57,7 +58,20 @@ Generate enrichment JSON with the following structure:
   "industry_knowledge": "specific industry insights",
   "current_challenges": ["challenge 1", "challenge 2"],
   "success_metrics": ["metric 1", "metric 2"],
-  "reporting_structure": "who they report to and who reports to them"
+  "reporting_structure": "who they report to and who reports to them",
+  "personalized_approach": {
+    "key_message": "one-line pitch tailored to role/company",
+    "value_proposition": "concise value tailored to their goals",
+    "approach_strategy": "how to approach this role effectively",
+    "best_contact_time": "morning|afternoon|evening",
+    "preferred_channel": "email|phone|linkedin"
+  },
+  "company_context": {
+    "industry": "best guess if not provided",
+    "size": "e.g., 2500 employees",
+    "revenue": "e.g., $250M",
+    "priorities": ["priority 1", "priority 2"]
+  }
 }
 
 Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON object.`;
@@ -78,7 +92,7 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
       responseText = (res as any).choices?.[0]?.message?.content || '';
       logger.info('Profile enriched with GPT-5-mini', { dm_id: dm.id });
     } catch (error: any) {
-      logger.warn('GPT-4o-mini failed, trying Gemini', { dm_id: dm.id, error: error?.message });
+      logger.warn('GPT-5-mini failed, trying Gemini', { dm_id: dm.id, error: error?.message });
       try {
         const g = gemini.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
         const result = await g.generateContent(prompt);
@@ -108,6 +122,34 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
       .replace(/\/\/.*$/gm, '');
     
     const enrichmentData = JSON.parse(cleanJson);
+    // Normalize enrichment fields to expected UI keys
+    const normalized: any = {
+      pain_points: enrichmentData.pain_points || enrichmentData.painPoints || [],
+      motivations: enrichmentData.motivations || [],
+      decision_factors: enrichmentData.decision_factors || enrichmentData.decisionFactors || [],
+      communication_preference: enrichmentData.communication_preference || enrichmentData.communicationStyle || '',
+      experience_level: enrichmentData.experience_level || enrichmentData.experience || '',
+      budget_authority: enrichmentData.budget_authority || '',
+      preferred_contact_method: enrichmentData.preferred_contact_method || '',
+      best_contact_time: enrichmentData.best_contact_time || '',
+      industry_knowledge: enrichmentData.industry_knowledge || '',
+      current_challenges: enrichmentData.current_challenges || [],
+      success_metrics: enrichmentData.success_metrics || [],
+      reporting_structure: enrichmentData.reporting_structure || '',
+      personalized_approach: enrichmentData.personalized_approach || {
+        key_message: '',
+        value_proposition: '',
+        approach_strategy: '',
+        best_contact_time: enrichmentData.best_contact_time || '',
+        preferred_channel: enrichmentData.preferred_contact_method || ''
+      },
+      company_context: enrichmentData.company_context || {
+        industry: '',
+        size: '',
+        revenue: '',
+        priorities: []
+      }
+    };
     
     // Log successful API usage
     await logApiUsage({
@@ -120,7 +162,7 @@ Important: Return ONLY valid JSON. No markdown, no explanations, just the JSON o
       response: { enriched: true }
     });
     
-    return enrichmentData;
+    return normalized;
     
   } catch (error: any) {
     logger.error('Error enriching profile', { name: dm.name, error });
@@ -202,12 +244,26 @@ export const handler: Handler = async (event) => {
 
           // Store AI profile under enrichment JSON to avoid schema mismatch
           const updateData: any = {};
-          if (profile) {
-            updateData.enrichment = profile;
-          }
+          if (profile) updateData.enrichment = profile;
           if (contact.email) updateData.email = contact.email;
           if (contact.phone) updateData.phone = contact.phone;
           if (contact.linkedin && !dm.linkedin) updateData.linkedin = contact.linkedin;
+          // Persist normalized enrichment fields on root columns used by UI
+          if (profile) {
+            updateData.pain_points = profile.pain_points || [];
+            updateData.motivations = profile.motivations || [];
+            updateData.decision_factors = profile.decision_factors || [];
+            updateData.communication_preference = profile.communication_preference || '';
+            updateData.experience = profile.experience_level || '';
+            updateData.personalized_approach = profile.personalized_approach || null;
+            updateData.company_context = {
+              industry: profile.company_context?.industry || null,
+              size: profile.company_context?.size || null,
+              revenue: profile.company_context?.revenue || null,
+              challenges: Array.isArray(profile.current_challenges) ? profile.current_challenges : [],
+              priorities: Array.isArray(profile.company_context?.priorities) ? profile.company_context.priorities : []
+            };
+          }
           
           // Update enrichment metadata
           updateData.enrichment_status = contact.confidence > 0 ? 'enriched' : 'attempted';
@@ -219,6 +275,10 @@ export const handler: Handler = async (event) => {
           }
 
           await updateDecisionMakerEnrichment(dm.id, updateData);
+          // Emit a small realtime-friendly nudge by touching updated_at via a no-op field to ensure clients refresh
+          try {
+            await supa.from('decision_makers').update({ updated_at: new Date().toISOString() }).eq('id', dm.id);
+          } catch {}
           enrichedCount++;
           logger.info('Enriched profile', { name: dm.name, title: dm.title });
         } catch (error) {

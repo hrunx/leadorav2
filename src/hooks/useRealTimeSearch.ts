@@ -69,11 +69,7 @@ export function useRealTimeSearch(searchId: string | null) {
         });
         
         hasLoadedOnceRef.current = true;
-        
-        // If cached data is complete and recent, return early
-        if (cachedData.isComplete) {
-          return;
-        }
+        // Do not return early; always continue to fetch fresh data to capture late persona mapping/enrichment
       }
 
       // Load all data in parallel using SearchService (with proxy fallback)
@@ -103,6 +99,7 @@ export function useRealTimeSearch(searchId: string | null) {
         SearchService.getBusinesses(searchId).catch(() => []),
         SearchService.getBusinessPersonas(searchId).catch(() => []),
         SearchService.getDecisionMakerPersonas(searchId).catch(() => []),
+        // Force fresh read by bypassing cache on unstable proxy
         SearchService.getDecisionMakers(searchId).catch(() => []),
         SearchService.getMarketInsights(searchId).catch(() => null),
         progressPromise
@@ -326,9 +323,32 @@ export function useRealTimeSearch(searchId: string | null) {
           });
         } else if (payload.eventType === 'UPDATE') {
           setData(prev => {
-            const updated = prev.decisionMakers.map(dm => 
-              dm.id === (payload.new as DecisionMaker).id ? ({ ...dm, ...(payload.new as DecisionMaker) } as DecisionMaker) : dm
-            ) as DecisionMaker[];
+            const updatedNew = payload.new as DecisionMaker;
+            const updated = prev.decisionMakers.map(dm => {
+              if (dm.id !== updatedNew.id) return dm as any;
+              // Prefer arrays for enrichment fields; merge rather than overwrite with empty
+              const merged: any = { ...dm, ...updatedNew };
+              if (Array.isArray(updatedNew.pain_points) || Array.isArray((updatedNew as any).enrichment?.pain_points)) {
+                merged.pain_points = (updatedNew.pain_points && updatedNew.pain_points.length > 0)
+                  ? updatedNew.pain_points
+                  : ((updatedNew as any).enrichment?.pain_points || dm.pain_points);
+              }
+              if (Array.isArray(updatedNew.motivations) || Array.isArray((updatedNew as any).enrichment?.motivations)) {
+                merged.motivations = (updatedNew.motivations && updatedNew.motivations.length > 0)
+                  ? updatedNew.motivations
+                  : ((updatedNew as any).enrichment?.motivations || dm.motivations);
+              }
+              if (Array.isArray(updatedNew.decision_factors) || Array.isArray((updatedNew as any).enrichment?.decision_factors)) {
+                merged.decision_factors = (updatedNew.decision_factors && updatedNew.decision_factors.length > 0)
+                  ? updatedNew.decision_factors
+                  : ((updatedNew as any).enrichment?.decision_factors || dm.decision_factors);
+              }
+              merged.communication_preference = updatedNew.communication_preference || (updatedNew as any).enrichment?.communication_preference || (dm as any).communication_preference;
+              merged.experience = updatedNew.experience || (updatedNew as any).enrichment?.experience_level || (dm as any).experience;
+              merged.personalized_approach = updatedNew.personalized_approach || (updatedNew as any).enrichment?.personalized_approach || (dm as any).personalized_approach;
+              merged.company_context = updatedNew.company_context || (dm as any).company_context;
+              return merged as DecisionMaker;
+            }) as DecisionMaker[];
             return { ...prev, decisionMakers: updated };
           });
         }
@@ -413,14 +433,22 @@ export function useRealTimeSearch(searchId: string | null) {
   // Polling fallback: refresh data periodically while not completed (handles network drop/CORS issues)
   useEffect(() => {
     if (!searchId) return;
-    const interval = setInterval(() => {
-      if (data.progress.phase !== 'completed' && data.progress.phase !== 'cancelled') {
-        // Silent refresh (no loading spinner on subsequent polls)
-        loadSearchData(searchId);
+    const hasPendingDm = (() => {
+      try {
+        return (data.decisionMakers || []).some((dm: any) => !dm?.persona_id || String(dm?.persona_type || '') === 'dm_candidate' || String(dm?.enrichment_status || '') !== 'enriched' || !(dm?.linkedin && String(dm.linkedin).trim()));
+      } catch {
+        return false;
       }
+    })();
+    // Stop polling when fully completed and no pending DMs
+    const shouldPoll = data.progress.phase !== 'completed' || hasPendingDm === true;
+    if (!shouldPoll) return; // stop timer when complete
+    const interval = setInterval(() => {
+      // Silent refresh (no loading spinner on subsequent polls)
+      loadSearchData(searchId);
     }, 5000);
     return () => clearInterval(interval);
-  }, [searchId, data.progress.phase, loadSearchData]);
+  }, [searchId, data.progress.phase, data.decisionMakers, loadSearchData]);
 
   // Force one final refresh when backend marks the run completed to capture any late inserts
   useEffect(() => {

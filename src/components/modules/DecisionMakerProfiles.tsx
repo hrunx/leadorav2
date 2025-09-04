@@ -91,7 +91,13 @@ export default function DecisionMakerProfiles() {
 
   // Use real-time data for real users, demo data for demo users
   const decisionMakerPersonas = (realTimeData.dmPersonas || []).map((p: any) => {
-    const personaDecisionMakers = realTimeData.getDecisionMakersForPersona(p.id);
+    const allForPersona = realTimeData.getDecisionMakersForPersona(p.id);
+    // Relax: show mapped DMs even if not enriched yet; still require LinkedIn
+    const personaDecisionMakers = allForPersona.filter((dm: any) => {
+      const hasLinkedIn = typeof dm.linkedin === 'string' && dm.linkedin.trim().length > 0;
+      const isMapped = typeof dm.persona_type === 'string' && dm.persona_type.trim().length > 0 && dm.persona_type !== 'dm_candidate';
+      return hasLinkedIn && isMapped;
+    });
     return {
       id: p.id,
       title: p.title,

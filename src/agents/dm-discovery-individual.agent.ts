@@ -491,6 +491,12 @@ async function runDeterministicDMDiscovery(params: {
     personaTitles: titles
   });
   logger.info('[DM-ONE-SEARCH] stored DMs', { company: business_name, count });
+  // Immediately map newly inserted DMs to personas so UI reflects grouping without waiting for jobs
+  try {
+    await mapDecisionMakersToPersonas(search_id);
+  } catch (e: any) {
+    logger.warn('Immediate DM persona mapping failed', { search_id, error: e?.message || String(e) });
+  }
 }
 
 // Removed usage; keep helper commented for potential future diagnostics

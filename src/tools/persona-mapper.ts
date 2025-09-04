@@ -145,21 +145,21 @@ Rules:
   const model = resolveModel('light');
   return withLimiter(async () => {
     try {
-      let text = await callOpenAIChatJSON({ model, system: 'Return ONLY JSON.', user: prompt, temperature: 0.2, maxTokens: 400, requireJsonObject: true, verbosity: 'low' });
+      let text = await callOpenAIChatJSON({ model, system: 'Return ONLY JSON.', user: prompt, temperature: 0.2, maxTokens: 400, requireJsonObject: true, verbosity: 'low', timeoutMs: 6000, retries: 0 });
       const match = parseAiBestMatch(text);
       if (match) return match;
     } catch (e: any) {
       logger.warn('scoreDMToPersonasLLM (openai) failed', { error: e?.message || e });
     }
     try {
-      const text = await callGeminiText('gemini-2.0-flash', prompt);
+      const text = await callGeminiText('gemini-2.0-flash', prompt, 6000, 0);
       const match = parseAiBestMatch(text);
       if (match) return match;
     } catch (e: any) {
       logger.warn('scoreDMToPersonasLLM (gemini) failed', { error: e?.message || e });
     }
     try {
-      const text = await callDeepseekChatJSON({ user: prompt, temperature: 0.3, maxTokens: 400, timeoutMs: 15000, retries: 0 });
+      const text = await callDeepseekChatJSON({ user: prompt, temperature: 0.3, maxTokens: 400, timeoutMs: 6000, retries: 0 });
       const match = parseAiBestMatch(text);
       if (match) return match;
     } catch (e: any) {
@@ -293,10 +293,8 @@ export async function mapBusinessesToPersonas(searchId: string, businessId?: str
 
     // Ensure business personas exist before mapping
     // Abort quickly if the search is not active (completed/failed/cancelled)
-    let searchStatus: string | undefined;
     try {
       const { data: s } = await supa.from('user_searches').select('status,phase').eq('id', searchId).single();
-      searchStatus = s?.status;
       if (s && s.status && s.status !== 'in_progress') {
         logger.info('Skipping persona mapping due to non-active status', { searchId, status: s.status });
         return;
@@ -568,15 +566,7 @@ export async function intelligentPersonaMapping(searchId: string) {
  */
 export async function mapDecisionMakersToPersonas(searchId: string) {
   try {
-    // Abort if the search is not active
-    try {
-      const { data: s } = await supa.from('user_searches').select('status').eq('id', searchId).single();
-      const status = s?.status as string | undefined;
-      if (status && status !== 'in_progress') {
-        logger.info('Skipping DM persona mapping due to non-active status', { searchId, status });
-        return;
-      }
-    } catch {}
+    // Allow mapping even after search completion so UI grouping is always updated
 
     logger.info('Starting DM persona mapping', { searchId });
 
@@ -595,7 +585,7 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
       .from('decision_makers')
       .select('id,title,department,level,name')
       .eq('search_id', searchId)
-      .is('persona_id', null);
+      .or('persona_id.is.null,persona_type.eq.dm_candidate');
 
     if (dmError) throw dmError;
     if (!dms || dms.length === 0) {
@@ -617,30 +607,39 @@ export async function mapDecisionMakersToPersonas(searchId: string) {
 
     const updates = dms.map(async (dm: { id: string; title: string; department?: string; level?: string; name: string }) => {
       let bestId: string | null = null;
+      let bestScorePct: number | null = null;
       // Vector-first mapping
       try {
         const { data: top2 } = await supa.rpc('match_dm_top2_personas', { dm_id: dm.id });
         if (Array.isArray(top2) && top2.length) {
           const a = top2[0];
           bestId = String((a as any).persona_id);
-          // epsilon tie-break: if top2 within 0.03 score difference, try LLM refinement
+          const s0 = Number((a as any).score || 0);
+          bestScorePct = Math.max(60, Math.min(100, Math.round(s0 * 100)));
+          // epsilon tie-break: if top2 within 0.03 score difference, try fast LLM refinement (hard timeout)
           if (top2.length > 1) {
-            const s0 = Number((top2[0] as any).score || 0);
             const s1 = Number((top2[1] as any).score || 0);
-            if (Math.abs(s0 - s1) <= 0.03) {
+            if (Math.abs(Number((a as any).score || 0) - s1) <= 0.03) {
               const ai = await scoreDMToPersonasLLM(dm as unknown as DecisionMakerRow, personas as unknown as DMPersonaRow[]).catch(() => null);
-              if (ai && ai.personaId) bestId = ai.personaId;
+              if (ai && ai.personaId) {
+                bestId = ai.personaId;
+                if (typeof ai.score === 'number') bestScorePct = Math.max(60, Math.min(100, Math.round(ai.score)));
+              }
             }
           }
         }
       } catch {}
-      // Heuristic fallback
+      // Heuristic fallback (fast, local) when vector match isn't available
       if (!bestId) {
         const persona = mapDMToPersona(dm as unknown as { title?: string }, personas as unknown as Array<{ id?: string; title?: string }>);
         const fallbackId = (persona && (persona as any).id) ? String((persona as any).id) : String(personas[0]?.id);
         bestId = fallbackId;
+        bestScorePct = bestScorePct ?? 80;
       }
-      return supa.from('decision_makers').update({ persona_id: bestId }).eq('id', dm.id);
+      const personaTitle = (personas.find(p => String((p as any).id) === String(bestId)) as any)?.title || 'decision_maker';
+      const update: any = { persona_id: bestId, persona_type: personaTitle };
+      if (typeof bestScorePct === 'number') update.match_score = Math.max(1, Math.min(100, Math.round(bestScorePct)));
+      return supa.from('decision_makers').update(update).eq('id', dm.id);
     });
 
     const results = await Promise.allSettled(updates);

@@ -41,6 +41,13 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
     // Leads = decision makers with linkedin or email or phone (db-driven)
     const totalLeads = await SearchService.countQualifiedLeads(authState.user?.id || '');
 
+    // Also fetch total searches from server-side stats to avoid client caps
+    let totalSearches = 0;
+    try {
+      const stats = await SearchService.getUserStats(authState.user?.id || '');
+      totalSearches = stats.total_searches || 0;
+    } catch {}
+
     // Campaign response rate from campaigns (sum across campaigns)
     const totalSent = userData.activeCampaigns.reduce((sum, campaign) => {
       const stats = campaign.stats as any;
@@ -62,6 +69,10 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
     const respChangePct = prevSent > 0 ? Math.round((((totalResponses / Math.max(prevSent,1)) * 100) - ((prevReplied / Math.max(prevSent,1)) * 100))) : responseRate;
 
     setRealStats({ totalLeads, responseRate, responseRateChange: respChangePct });
+
+    // Update search history count to reflect server-side total
+    // If you want to display exact total searches in UI, we can wire it into stats directly below
+    (Dashboard as any)._totalSearches = totalSearches;
   }, [authState.user?.id, userData.activeCampaigns]);
 
   useEffect(() => {
@@ -104,7 +115,7 @@ export default function Dashboard({ onStartNewSearch, onViewSearch, onCreateCamp
   const getRealStats = () => [
     {
       label: 'Total Searches',
-      value: userData.searchHistory.length,
+      value: (Dashboard as any)._totalSearches ?? userData.searchHistory.length,
       icon: Search,
       color: 'bg-blue-500',
       change: userData.searchHistory.length > 0 ? `${userData.searchHistory.length >= (userData.searchHistory.length/1.6) ? '+60%' : '0%'}` : '0%'

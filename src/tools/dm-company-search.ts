@@ -1,6 +1,7 @@
 import logger from '../lib/logger';
 import { supaServer } from '../lib/supaServer';
 import { serperSearch } from './serper';
+import { mapDMToPersona } from './util';
 import { embed } from '../lib/embeddings';
 
 function inferLevel(title: string): 'executive' | 'director' | 'manager' {
@@ -147,8 +148,12 @@ export async function enrichDecisionMakersFromSingleLinkedInSearch(params: {
       .filter(p => p.name && p.title && p.linkedin);
     if (parsed.length === 0) return 0;
 
+    // Cap number of employees per company to control load
+    const cap = Math.max(1, Number(process.env.LINKEDIN_MAX_EMPLOYEES_PER_COMPANY || 5));
+    const limited = parsed.slice(0, cap);
+
     // Upsert decision makers in bulk
-    const rows = await Promise.all(parsed.map(async p => {
+    const rows = await Promise.all(limited.map(async p => {
       const level = inferLevel(p.title);
       const department = inferDepartment(p.title);
       const influence = level === 'executive' ? 95 : level === 'director' ? 80 : 65;
@@ -182,7 +187,7 @@ export async function enrichDecisionMakersFromSingleLinkedInSearch(params: {
       .upsert(rows, { onConflict: 'search_id,linkedin' });
     if (upErr) logger.warn('[DM-ONE-SEARCH] upsert error', { error: upErr.message || String(upErr) });
 
-    // Map each DM to best persona via vector RPC and enrich with persona fields
+    // Map each DM to best persona via vector RPC and enrich with persona fields (fallback to heuristic if RPC missing)
     try {
       const { data: dms } = await supa
         .from('decision_makers')
@@ -195,24 +200,46 @@ export async function enrichDecisionMakersFromSingleLinkedInSearch(params: {
       const ids = (dms || []).map((r: any) => r.id);
       await Promise.all(ids.map(async (id: string) => {
         try {
-          const { data: top2 } = await supa.rpc('match_dm_top2_personas', { dm_id: id });
-          if (Array.isArray(top2) && top2.length) {
-            const best = top2[0] as any;
-            const personaId = best.persona_id as string;
-            const score01 = Number(best.score || 0);
-            const match_score = Math.max(60, Math.min(100, Math.round(score01 * 100)));
+          let personaId: string | null = null;
+          let match_score = 80;
+          try {
+            const { data: top2 } = await supa.rpc('match_dm_top2_personas', { dm_id: id });
+            if (Array.isArray(top2) && top2.length) {
+              const best = top2[0] as any;
+              personaId = String(best.persona_id || '') || null;
+              const score01 = Number(best.score || 0);
+              match_score = Math.max(60, Math.min(100, Math.round(score01 * 100)));
+            }
+          } catch {}
+          if (!personaId) {
+            // Heuristic fallback: choose best matching persona based on title/keywords
+            try {
+              const [{ data: dmRow }, { data: personas }] = await Promise.all([
+                supa.from('decision_makers').select('title').eq('id', id).maybeSingle(),
+                supa
+                  .from('decision_maker_personas')
+                  .select('id,title')
+                  .eq('search_id', search_id)
+                  .order('rank')
+              ]);
+              const best = mapDMToPersona({ title: (dmRow as any)?.title || '' }, (personas as any[]) || []);
+              if (best && (best as any).id) {
+                personaId = String((best as any).id);
+              }
+            } catch {}
+          }
+          if (personaId) {
             let persona: any = null;
             try {
               const { data: p } = await supa
                 .from('decision_maker_personas')
-                .select('title,demographics,characteristics,behaviors')
+                .select('title,characteristics')
                 .eq('id', personaId)
                 .maybeSingle();
               persona = p;
             } catch {}
             const update: any = { persona_id: personaId, match_score };
             if (persona) {
-              // Enrich DM fields from persona characteristics when missing
               update.pain_points = Array.isArray(persona.characteristics?.painPoints) ? persona.characteristics.painPoints : null;
               update.motivations = Array.isArray(persona.characteristics?.motivations) ? persona.characteristics.motivations : null;
               update.decision_factors = Array.isArray(persona.characteristics?.decisionFactors) ? persona.characteristics.decisionFactors : null;

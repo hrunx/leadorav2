@@ -284,41 +284,37 @@ export class SearchService {
 
   // Count qualified leads for a user: decision makers with at least one contact handle
   static async countQualifiedLeads(userId: string): Promise<number> {
-    // Prefer proxy to avoid CORS/RLS issues in browsers (Safari)
-    const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
-    const queryUserId = (userId === 'demo-user' || !isUuid(userId)) ? DEMO_USER_ID : userId;
-    const proxyUrl = `${this.functionsBase}/.netlify/functions/user-data-proxy?table=decision_makers&user_id=${queryUserId}`;
+    // Use dedicated function to avoid client-side caps and streaming all rows
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      const resp = await fetch(proxyUrl, { method: 'GET', headers: { 'Accept': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, credentials: 'omit' });
-      if (resp.ok) {
-        const data = await resp.json();
-        const arr = Array.isArray(data) ? data : [];
-        return arr.filter((dm: any) => {
-          const hasLinkedin = typeof dm.linkedin === 'string' && dm.linkedin.trim() !== '';
-          const hasEmail = typeof dm.email === 'string' && dm.email.trim() !== '';
-          const hasPhone = typeof dm.phone === 'string' && dm.phone.trim() !== '';
-          return hasLinkedin || hasEmail || hasPhone;
-        }).length;
-      }
-      // Fallback to direct Supabase if proxy blocked in dev
-      const { data, error } = await supabase
-        .from('decision_makers')
-        .select('email, phone, linkedin')
-        .eq('user_id', queryUserId)
-        .limit(2000);
-      if (error) return 0;
-      const arr = Array.isArray(data) ? data : [];
-      return arr.filter((dm: any) => {
-        const hasLinkedin = typeof dm.linkedin === 'string' && dm.linkedin.trim() !== '';
-        const hasEmail = typeof dm.email === 'string' && dm.email.trim() !== '';
-        const hasPhone = typeof dm.phone === 'string' && dm.phone.trim() !== '';
-        return hasLinkedin || hasEmail || hasPhone;
-      }).length;
+      const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+      const queryUserId = (userId === 'demo-user' || !isUuid(userId)) ? DEMO_USER_ID : userId;
+      const url = `${this.functionsBase}/.netlify/functions/user-stats?user_id=${encodeURIComponent(queryUserId)}`;
+      const resp = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
+      if (!resp.ok) return 0;
+      const j = await resp.json();
+      return Number(j?.qualified_leads || 0);
     } catch (error) {
       import('../lib/logger').then(({ default: logger }) => logger.warn('Failed counting qualified leads', { error: (error as any)?.message || error })).catch(()=>{});
       return 0;
+    }
+  }
+
+  // Get user-wide stats (total searches, qualified leads) directly from server function
+  static async getUserStats(userId: string): Promise<{ total_searches: number; qualified_leads: number }> {
+    try {
+      const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+      const queryUserId = (userId === 'demo-user' || !isUuid(userId)) ? DEMO_USER_ID : userId;
+      const url = `${this.functionsBase}/.netlify/functions/user-stats?user_id=${encodeURIComponent(queryUserId)}`;
+      const resp = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
+      if (!resp.ok) return { total_searches: 0, qualified_leads: 0 };
+      const j = await resp.json();
+      return {
+        total_searches: Number(j?.total_searches || 0),
+        qualified_leads: Number(j?.qualified_leads || 0)
+      };
+    } catch (error) {
+      import('../lib/logger').then(({ default: logger }) => logger.warn('Failed to get user stats', { error: (error as any)?.message || error })).catch(()=>{});
+      return { total_searches: 0, qualified_leads: 0 };
     }
   }
 
@@ -521,7 +517,7 @@ export class SearchService {
 
   // Get decision maker personas for a search
   static async getDecisionMakerPersonas(searchId: string): Promise<DecisionMakerPersona[]> {
-    // Proxy-first
+    // Proxy-first, fallback to direct Supabase on failure
     try {
       const response = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=decision_maker_personas&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
@@ -529,7 +525,17 @@ export class SearchService {
         return (Array.isArray(arr) ? arr : []) as any;
       }
     } catch {}
-    return [] as any;
+    try {
+      const { data, error } = await supabase
+        .from('decision_maker_personas')
+        .select('*')
+        .eq('search_id', searchId)
+        .order('rank', { ascending: true });
+      if (error) return [] as any;
+      return (Array.isArray(data) ? data : []) as any;
+    } catch {
+      return [] as any;
+    }
   }
 
   // Get decision makers for a search (agents generate them automatically via LinkedIn)
@@ -580,7 +586,7 @@ export class SearchService {
 
   // Get decision makers for a search with linked business context
   static async getDecisionMakers(searchId: string): Promise<DecisionMaker[]> {
-    // Proxy-first
+    // Proxy-first, fallback to direct Supabase on failure
     try {
       const response = await fetch(`${this.functionsBase}/.netlify/functions/user-data-proxy?table=decision_makers&search_id=${searchId}`, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'omit' });
       if (response.ok) {
@@ -588,7 +594,17 @@ export class SearchService {
         return (Array.isArray(arr) ? arr : []) as any;
       }
     } catch {}
-    return [] as any;
+    try {
+      const { data, error } = await supabase
+        .from('decision_makers')
+        .select('*, business:businesses(id,name,industry,country,city,size,revenue,description,rating,address,phone,website)')
+        .eq('search_id', searchId)
+        .order('created_at', { ascending: false });
+      if (error) return [] as any;
+      return (Array.isArray(data) ? data : []) as any;
+    } catch {
+      return [] as any;
+    }
   }
 
   // Get market insights for a search (agents generate them automatically via Gemini)
