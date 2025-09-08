@@ -26,6 +26,7 @@ export interface EmailHarvestingConfig {
   enableHunter: boolean;
   enableSerperSearch: boolean;
   enableDomainGuessing: boolean;
+  serperMaxQueries?: number;
 }
 
 const defaultConfig: EmailHarvestingConfig = {
@@ -35,7 +36,8 @@ const defaultConfig: EmailHarvestingConfig = {
   enableVerification: true,
   enableHunter: true,
   enableSerperSearch: true,
-  enableDomainGuessing: true
+  enableDomainGuessing: true,
+  serperMaxQueries: 4
 };
 
 class EmailHarvester {
@@ -46,8 +48,8 @@ class EmailHarvester {
   }
 
   async harvestEmails(
-    name: string, 
-    company: string, 
+    name: string,
+    company: string,
     additionalContext?: {
       title?: string;
       department?: string;
@@ -63,11 +65,40 @@ class EmailHarvester {
     try {
       // Method 1: Hunter.io API
       if (this.config.enableHunter) {
-        const hunterEmails = await this.harvestFromHunter(name, company);
-        for (const email of hunterEmails) {
-          if (!seenEmails.has(email.email)) {
-            seenEmails.add(email.email);
-            results.push(email);
+        const isLikelyCompany = this.isLikelyCompanyName(name);
+        const looksLikePerson = (!!additionalContext?.title) || (!isLikelyCompany && this.isLikelyPersonName(name));
+        if (looksLikePerson) {
+          logger.info('Hunter finder start', { name, company });
+          const hunterEmails = await this.harvestFromHunter(name, company, additionalContext?.website);
+          for (const email of hunterEmails) {
+            if (!seenEmails.has(email.email)) {
+              seenEmails.add(email.email);
+              results.push(email);
+            }
+          }
+        } else if (additionalContext?.website) {
+          logger.info('Hunter domain search start', { company, website: additionalContext.website });
+          const hunterDomainEmails = await this.harvestFromHunterDomain(company, additionalContext.website);
+          for (const email of hunterDomainEmails) {
+            if (!seenEmails.has(email.email)) {
+              seenEmails.add(email.email);
+              results.push(email);
+            }
+          }
+        } else {
+          // Attempt to resolve a domain for the company and then run Hunter domain search
+          const derived = await this.resolveCompanyDomain(company);
+          if (derived) {
+            logger.info('Hunter derived domain search start', { company, domain: derived });
+            const hunterDomainEmails = await this.harvestFromHunterDomain(company, `https://${derived}`);
+            for (const email of hunterDomainEmails) {
+              if (!seenEmails.has(email.email)) {
+                seenEmails.add(email.email);
+                results.push(email);
+              }
+            }
+          } else {
+            logger.info('Hunter skip: no website and unable to resolve domain', { name, company });
           }
         }
       }
@@ -112,15 +143,22 @@ class EmailHarvester {
     }
   }
 
-  private async harvestFromHunter(name: string, company: string): Promise<EmailHarvestResult[]> {
+  private async harvestFromHunter(name: string, company: string, website?: string): Promise<EmailHarvestResult[]> {
     const apiKey = process.env.HUNTER_API_KEY;
     if (!apiKey) {
-      logger.warn('Hunter API key not configured');
+      logger.info('Hunter skip: API key missing');
       return [];
     }
 
     try {
-      const url = `https://api.hunter.io/v2/email-finder?full_name=${encodeURIComponent(name)}&company=${encodeURIComponent(company)}&api_key=${apiKey}`;
+      // Prefer domain when available for higher accuracy
+      let url = `https://api.hunter.io/v2/email-finder?full_name=${encodeURIComponent(name)}&api_key=${apiKey}`;
+      const domain = this.extractDomainFromWebsite(website);
+      if (domain) {
+        url += `&domain=${encodeURIComponent(domain)}`;
+      } else {
+        url += `&company=${encodeURIComponent(company)}`;
+      }
       
       const response = await fetchWithTimeoutRetry(url, { method: 'GET' }, this.config.timeout, this.config.retries);
       
@@ -131,17 +169,26 @@ class EmailHarvester {
       const data = await response.json();
       
       if (data?.data?.email) {
+        const emailStr: string = String(data.data.email).toLowerCase();
+        const emailDomain = emailStr.split('@')[1]?.toLowerCase();
+        const websiteDomain = this.extractDomainFromWebsite(website);
+        const relevant = (
+          (websiteDomain ? (emailDomain === websiteDomain) : this.isRelevantEmail(emailStr, name, company)) &&
+          (!emailDomain || !this.isBlockedDomain(emailDomain))
+        );
+        if (!relevant) return [];
+        const verified = await this.verifyWithHunter(emailStr).catch(() => null);
         return [{
-          email: data.data.email,
+          email: emailStr,
           confidence: data.data.score || 70,
           source: 'hunter',
-          verification: {
+          verification: verified || {
             status: this.mapHunterVerificationStatus(data.data.verification?.status),
             score: data.data.score || 50,
             deliverable: data.data.verification?.status === 'valid'
           },
           metadata: {
-            domain: data.data.email.split('@')[1],
+            domain: emailDomain,
             type: 'work' as const,
             foundAt: 'hunter.io'
           }
@@ -152,6 +199,50 @@ class EmailHarvester {
       
     } catch (error: any) {
       logger.warn('Hunter email harvesting failed', { error: error.message });
+      return [];
+    }
+  }
+
+  private async harvestFromHunterDomain(company: string, website?: string): Promise<EmailHarvestResult[]> {
+    const apiKey = process.env.HUNTER_API_KEY;
+    if (!apiKey) return [];
+    const domain = this.extractDomainFromWebsite(website);
+    if (!domain) return [];
+    try {
+      const url = `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(domain)}&api_key=${apiKey}&limit=${Math.max(1, Math.min(10, this.config.maxResultsPerQuery))}`;
+      const response = await fetchWithTimeoutRetry(url, { method: 'GET' }, this.config.timeout, this.config.retries);
+      if (!response.ok) throw new Error(`Hunter domain-search error: ${response.status}`);
+      const data = await response.json();
+      let arr: EmailHarvestResult[] = [];
+      const emails = Array.isArray(data?.data?.emails) ? data.data.emails : [];
+      for (const e of emails) {
+        const email = String(e?.value || '').toLowerCase();
+        if (!this.isValidEmailFormat(email)) continue;
+        const verified = await this.verifyWithHunter(email).catch(() => null);
+        arr.push({
+          email,
+          confidence: Number(e?.confidence || e?.score || 70),
+          source: 'hunter',
+          verification: verified || { status: 'unknown', score: Number(e?.confidence || 50), deliverable: false },
+          metadata: {
+            domain: email.split('@')[1],
+            type: 'work',
+            foundAt: 'hunter.io'
+          }
+        });
+      }
+      // Relevance filter: require domain to match provided website or be relevant to company, and not be blocked
+      const websiteDomain = this.extractDomainFromWebsite(website);
+      arr = arr.filter(item => {
+        const d = (item.metadata.domain || '').toLowerCase();
+        if (!d) return false;
+        if (websiteDomain) return d === websiteDomain;
+        if (this.isBlockedDomain(d)) return false;
+        return this.isRelevantEmail(item.email, company, company);
+      });
+      return arr;
+    } catch (error: any) {
+      logger.warn('Hunter domain harvesting failed', { error: error.message });
       return [];
     }
   }
@@ -172,7 +263,8 @@ class EmailHarvester {
 
       const results: EmailHarvestResult[] = [];
 
-      for (const query of queries) {
+      const maxQ = Math.max(1, Number(this.config.serperMaxQueries || 4));
+      for (const query of queries.slice(0, maxQ)) {
         const searchResult = await serperSearch(query, 'us', 8);
         
         if (searchResult.success && searchResult.items.length > 0) {
@@ -335,6 +427,11 @@ class EmailHarvester {
     }
 
     try {
+      // Prefer Hunter verification when available
+      if (process.env.HUNTER_API_KEY) {
+        const hunter = await this.verifyWithHunter(email);
+        if (hunter) return hunter;
+      }
       // Basic format validation
       if (!this.isValidEmailFormat(email)) {
         return { status: 'invalid', score: 0, deliverable: false };
@@ -363,6 +460,110 @@ class EmailHarvester {
       logger.warn('Email verification failed', { email, error: error.message });
       return { status: 'unknown', score: 50, deliverable: false };
     }
+  }
+
+  private async verifyWithHunter(email: string): Promise<EmailHarvestResult['verification'] | null> {
+    const apiKey = process.env.HUNTER_API_KEY;
+    if (!apiKey) return null;
+    try {
+      const url = `https://api.hunter.io/v2/email-verifier?email=${encodeURIComponent(email)}&api_key=${apiKey}`;
+      const response = await fetchWithTimeoutRetry(url, { method: 'GET' }, this.config.timeout, this.config.retries);
+      if (!response.ok) return null;
+      const data = await response.json();
+      const statusRaw: string = String(data?.data?.result || data?.data?.status || 'unknown');
+      const score = Number(data?.data?.score || 0);
+      let status: 'valid' | 'invalid' | 'risky' | 'unknown' = 'unknown';
+      switch (statusRaw) {
+        case 'deliverable':
+        case 'valid':
+          status = 'valid';
+          break;
+        case 'undeliverable':
+        case 'invalid':
+          status = 'invalid';
+          break;
+        case 'risky':
+        case 'accept_all':
+        case 'webmail':
+          status = 'risky';
+          break;
+        default:
+          status = 'unknown';
+      }
+      return { status, score: Number.isFinite(score) ? score : 0, deliverable: status === 'valid' };
+    } catch {
+      return null;
+    }
+  }
+
+  private extractDomainFromWebsite(website?: string): string | null {
+    try {
+      if (!website) return null;
+      const host = new URL(website).hostname.toLowerCase();
+      return host.startsWith('www.') ? host.slice(4) : host;
+    } catch {
+      return null;
+    }
+  }
+
+  private async resolveCompanyDomain(company: string): Promise<string | null> {
+    try {
+      // Only attempt derivation when company has Latin characters to reduce false positives
+      if (!/[A-Za-z]/.test(company)) return null;
+      const queries = [
+        `"${company}" website`,
+        `${company} official site`,
+        `${company} homepage`
+      ];
+      const badHosts = ['linkedin.com','facebook.com','twitter.com','instagram.com','wikipedia.org','youtube.com','medium.com','tiktok.com','google.com','apple.com','microsoft.com'];
+      for (const q of queries) {
+        const r = await serperSearch(q, 'us', 3);
+        if (r.success && Array.isArray(r.items)) {
+          for (const item of r.items) {
+            try {
+              const u = new URL(item.link);
+              const host = (u.hostname || '').toLowerCase();
+              if (!host) continue;
+              if (badHosts.some(b => host.includes(b))) continue;
+              return host.startsWith('www.') ? host.slice(4) : host;
+            } catch {}
+          }
+        }
+        await new Promise(res => setTimeout(res, 120));
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private isBlockedDomain(domain: string): boolean {
+    const d = (domain || '').toLowerCase();
+    const blocked = new Set([
+      'tiktok.com','facebook.com','instagram.com','twitter.com','x.com','google.com','gmail.com','youtube.com','apple.com','microsoft.com','amazon.com','aws.amazon.com','cloudflare.com','wikipedia.org','medium.com'
+    ]);
+    return blocked.has(d);
+  }
+
+  // duplicate removed
+
+  // Heuristics
+  private isLikelyPersonName(name: string): boolean {
+    if (!name) return false;
+    const parts = name.trim().split(/[\s]+/).filter(Boolean);
+    if (parts.length < 2 || parts.length > 4) return false;
+    // Each part looks like alphabetic and not all uppercase words like company acronyms
+    const ok = parts.every(p => /[A-Za-z]/.test(p) && !/[^A-Za-z'\-]/.test(p) && p.toLowerCase() !== p.toUpperCase());
+    if (!ok) return false;
+    // First and last should start with letters
+    return /^[A-Za-z]/.test(parts[0]) && /^[A-Za-z]/.test(parts[parts.length - 1]);
+  }
+
+  private isLikelyCompanyName(name: string): boolean {
+    if (!name) return false;
+    const s = name.toLowerCase();
+    const tokens = [' inc', ' llc', ' ltd', ' co', ' company', ' corporation', ' corp', ' group', ' holdings', ' solutions', ' technologies', ' systems', ' services', ' manufacturing', ' industrial', ' industry', ' energy', ' renewables', ' global'];
+    return tokens.some(t => s.includes(t)) || /\b(co\.|ltd\.|inc\.|corp\.)\b/i.test(name);
   }
 
   private async checkDomainMX(domain: string): Promise<boolean> {

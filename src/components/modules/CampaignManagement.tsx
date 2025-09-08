@@ -7,6 +7,7 @@ import { SearchService } from '../../services/searchService';
 import { fetchContactEnrichment } from '../../tools/contact-enrichment';
 import { harvestContactEmails } from '../../tools/email-harvesting';
 import logger from '../../lib/logger';
+import { getNetlifyFunctionsBaseUrl } from '../../utils/baseUrl';
 
 import { DEMO_USER_ID, DEMO_USER_EMAIL } from '../../constants/demo';
 
@@ -145,27 +146,14 @@ export default function CampaignManagement() {
     { id: '5', name: 'Michelle Rodriguez', title: 'Head of Digital Transformation', company: 'Financial Services Group', persona: 'Head of Digital Transformation', level: 'director', email: 'michelle.rodriguez@finservices.com' }
   ];
 
-  // Email harvesting functionality
+  // Email harvesting per-contact for live updates
   const harvestEmailsForCampaign = useCallback(async () => {
     if (isHarvestingEmails) return;
-    
+
     setIsHarvestingEmails(true);
     setHarvestedEmails({});
-    
-    const allContacts = [
-      ...selectedBusinesses.map(id => ({ 
-        id, 
-        type: 'business', 
-        data: businesses.find(b => b.id === id) 
-      })).filter(item => item.data),
-      ...selectedDecisionMakers.map(id => ({ 
-        id, 
-        type: 'dm', 
-        data: decisionMakers.find(dm => dm.id === id) 
-      })).filter(item => item.data)
-    ];
 
-    const total = allContacts.length;
+    const total = selectedBusinesses.length + selectedDecisionMakers.length;
     setHarvestProgress({ total, completed: 0, found: 0 });
 
     if (total === 0) {
@@ -173,100 +161,63 @@ export default function CampaignManagement() {
       return;
     }
 
-    const results: Record<string, any[]> = {};
-    let completed = 0;
-    let found = 0;
-
     try {
-      for (const contact of allContacts) {
-        const { id, type, data } = contact;
-        
-        try {
-          let emails: any[] = [];
-          
-          if (type === 'business') {
-            // Harvest emails for business
-            const harvestResult = await harvestContactEmails(
-              data.name, 
-              data.name, 
-              { website: data.website }
-            );
-            emails = harvestResult || [];
-            
-            // Try contact enrichment as backup
-            if (emails.length === 0) {
-              const enrichment = await fetchContactEnrichment(
-                data.name, 
-                data.name, 
-                { website: data.website }
-              );
-              if (enrichment.emails && enrichment.emails.length > 0) {
-                emails = enrichment.emails;
-              } else if (enrichment.email) {
-                emails = [{ 
-                  email: enrichment.email, 
-                  verification: { status: 'unverified', score: 50 },
-                  source: 'enrichment' 
-                }];
-              }
+      const base = getNetlifyFunctionsBaseUrl();
+      const queue: Array<{ type: 'business'|'dm'; id: string }> = [
+        ...selectedBusinesses.map(id => ({ type: 'business' as const, id })),
+        ...selectedDecisionMakers.map(id => ({ type: 'dm' as const, id }))
+      ];
+
+      let completed = 0;
+      let totalFound = 0;
+      const aggregated: Record<string, any[]> = {};
+      const concurrency = 3;
+
+      async function runLimited<T>(items: T[], worker: (item: T) => Promise<void>) {
+        let idx = 0;
+        const workers: Promise<void>[] = [];
+        for (let i = 0; i < Math.min(concurrency, items.length); i++) {
+          workers.push((async function loop() {
+            while (idx < items.length) {
+              const cur = items[idx++];
+              try { await worker(cur); } catch (e: any) { logger.warn('harvest contact failed', { error: e?.message || String(e) }); }
             }
-          } else {
-            // Harvest emails for decision maker
-            const harvestResult = await harvestContactEmails(
-              data.name, 
-              data.company, 
-              { title: data.title }
-            );
-            emails = harvestResult || [];
-            
-            // Try contact enrichment as backup
-            if (emails.length === 0) {
-              const enrichment = await fetchContactEnrichment(
-                data.name, 
-                data.company, 
-                { title: data.title }
-              );
-              if (enrichment.emails && enrichment.emails.length > 0) {
-                emails = enrichment.emails;
-              } else if (enrichment.email) {
-                emails = [{ 
-                  email: enrichment.email, 
-                  verification: { status: 'unverified', score: 50 },
-                  source: 'enrichment' 
-                }];
-              }
-            }
-          }
-
-          if (emails.length > 0) {
-            results[id] = emails;
-            found += emails.length;
-          }
-
-        } catch (error: any) {
-          logger.warn('Email harvesting failed for contact', { 
-            contactId: id, 
-            error: error.message 
-          });
+          })());
         }
-
-        completed++;
-        setHarvestProgress({ total, completed, found });
-        
-        // Rate limiting
-        if (completed < total) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
+        await Promise.all(workers);
       }
 
-      setHarvestedEmails(results);
-      
+      await runLimited(queue, async (entry) => {
+        const response = await fetch(`${base}/.netlify/functions/campaign-harvest-contact`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contact_type: entry.type, id: entry.id })
+        });
+        const payload = response.ok ? await response.json() : { emails: [] };
+        const emails = Array.isArray(payload?.emails) ? payload.emails : [];
+        if (emails.length > 0) {
+          aggregated[entry.id] = emails;
+          totalFound += emails.length;
+          // Optimistically update local list with best email
+          const best = emails[0];
+          if (entry.type === 'business') {
+            setBusinesses(prev => prev.map(b => b.id === entry.id ? { ...b, email: best.email } : b));
+          } else {
+            setDecisionMakers(prev => prev.map(dm => dm.id === entry.id ? { ...dm, email: best.email } : dm));
+          }
+        }
+        completed += 1;
+        setHarvestedEmails({ ...aggregated });
+        setHarvestProgress({ total, completed, found: totalFound });
+      });
+
     } catch (error: any) {
-      logger.error('Email harvesting failed', { error: error.message });
+      logger.error('Server-side per-contact harvesting failed', { error: error?.message || String(error) });
+      setHarvestProgress(prev => ({ ...prev, completed: total }));
     } finally {
       setIsHarvestingEmails(false);
     }
-  }, [selectedBusinesses, selectedDecisionMakers, businesses, decisionMakers, isHarvestingEmails]);
+  }, [isHarvestingEmails, selectedBusinesses, selectedDecisionMakers]);
 
   // Sample email templates
   const [emailTemplates] = useState<EmailTemplate[]>([

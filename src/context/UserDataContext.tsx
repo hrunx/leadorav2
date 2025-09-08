@@ -70,6 +70,16 @@ function userDataReducer(state: UserDataState, action: any): UserDataState {
 export function UserDataProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(userDataReducer, initialState);
   const { state: authState } = useAuth();
+  
+  // Restore current search from localStorage to survive reloads
+  useEffect(() => {
+    try {
+      const stored = (typeof window !== 'undefined') ? window.localStorage.getItem('currentSearchId') : null;
+      if (stored) {
+        dispatch({ type: 'SET_CURRENT_SEARCH', payload: stored });
+      }
+    } catch {}
+  }, []);
 
   const loadUserDataFromDB = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', payload: true });
@@ -138,6 +148,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
 
       logger.info('Search created successfully:', search.id);
       dispatch({ type: 'ADD_SEARCH', payload: search });
+      try { if (typeof window !== 'undefined') window.localStorage.setItem('currentSearchId', search.id); } catch {}
       return search.id;
     } catch (error) {
       import('../lib/logger').then(({ default: logger }) => logger.error('Error creating search', { error: (error as any)?.message || error })).catch(()=>{});
@@ -170,6 +181,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
 
   const setCurrentSearch = (searchId: string) => {
     dispatch({ type: 'SET_CURRENT_SEARCH', payload: searchId });
+    try { if (typeof window !== 'undefined') window.localStorage.setItem('currentSearchId', searchId); } catch {}
   };
 
   const getCurrentSearch = (): UserSearch | null => {
